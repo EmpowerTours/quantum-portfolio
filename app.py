@@ -309,12 +309,13 @@ with tab_hw:
 
 with tab_pq:
     st.markdown(
-        "Every rebalance order the agent issues is signed with "
-        "**ML-DSA-65 (NIST FIPS 204)** — the lattice-based digital "
-        "signature scheme finalised in 2024 for post-quantum protection. "
-        "The signature binds the QPU job ID, pool selection, weights, and "
-        "a UUID nonce together so a Q-Day-capable attacker still cannot "
-        "forge, tamper with, or replay a recorded order."
+        "Every rebalance order is **triple-signed** with three independent "
+        "schemes — an attacker must break all three to forge it. The "
+        "signatures bind the QPU job ID, pool selection, weights, and a "
+        "UUID nonce together so a Q-Day-capable attacker still cannot forge, "
+        "tamper with, or replay a recorded order. Architecture follows the "
+        "May 2026 `quantum-safe-py` hybrid-by-default pattern "
+        "([arxiv 2605.17061](https://arxiv.org/abs/2605.17061))."
     )
     st.caption("Read SECURITY.md for the full threat model: what this "
                "protects, and what it deliberately does not (on-chain "
@@ -326,11 +327,6 @@ with tab_pq:
     from src import pq_signing as _pq
 
     KEYS_DIR = _Path("keys")
-
-    st.caption(
-        "Every order is **triple-signed** with three independent schemes — "
-        "an attacker must break all three to forge it."
-    )
     col1, col2, col3 = st.columns(3)
     col1.metric("ML-DSA-65 (FIPS 204)", "lattice PQ",
                 f"pk {_pq.PUBLIC_KEY_BYTES} B · sig ≤ {_pq.SIGNATURE_BYTES_MAX} B")
