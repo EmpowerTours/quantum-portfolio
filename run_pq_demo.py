@@ -86,6 +86,18 @@ def main() -> None:
     print(f"Wrote {orders.SIGNED_ORDERS_PATH} and appended to "
           f"{orders.AUDIT_LOG_PATH}")
 
+    # ---- Unsigned Monad TX carrying the signed order ----
+    from src import monad_tx
+    AGENT_SELF_ADDR = "0x1111111111111111111111111111111111111111"  # placeholder
+    tx = monad_tx.build_unsigned_tx(signed, to_address=AGENT_SELF_ADDR, nonce=0)
+    tx_path = Path("outputs/unsigned_monad_tx.json")
+    tx_path.write_text(json.dumps(tx.to_dict(), indent=2))
+    print()
+    print(f"Built unsigned Monad TX → {tx_path}")
+    print(f"  chainId={tx.chainId}  to={tx.to}  calldata={len(tx.data)//2 - 1} bytes")
+    print("  (sign with a wallet to broadcast — execution intentionally")
+    print("   separated from PQ-signed authorisation; see SECURITY.md)")
+
 
 if __name__ == "__main__":
     main()

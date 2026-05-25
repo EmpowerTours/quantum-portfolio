@@ -8,9 +8,15 @@ Methodology:
 Approximation ratio = (E[random] - E[sampled]) / (E[random] - E[optimal])
   1.0 = always finds the optimum; 0.0 = no better than random. The smoother the
   metric, the cleaner the visible effect of error mitigation on hardware.
+
+Universe:
+  --universe stocks  → cached MVP stock universe (default; cheaper QPU time)
+  --universe defi    → live Monad-primary DeFi pool universe from DeFiLlama
+                       (matches the Streamlit app and the README pitch)
 """
 from __future__ import annotations
 
+import argparse
 import json
 import time
 from pathlib import Path
@@ -24,7 +30,7 @@ from src.qaoa_hw import (build_cost_hamiltonian, optimize_angles, sample_hardwar
 from src.hardware import get_service
 from src.solvers import portfolio_metrics, solve_exact
 
-TICKERS = ["PPLT", "GLD", "SLV", "AAPL", "MSFT", "NVDA", "JPM", "XOM"]
+STOCK_TICKERS = ["PPLT", "GLD", "SLV", "AAPL", "MSFT", "NVDA", "JPM", "XOM"]
 BUDGET = 3
 RISK_FACTOR = 0.5
 REPS = 2
@@ -47,9 +53,23 @@ def approximation_ratio(score, problem, optimal_obj, random_obj) -> float:
 
 
 def main() -> None:
-    print("Fetching market data...")
-    market = get_market_data(TICKERS, period="2y")
-    problem = build_problem(market, budget=BUDGET, risk_factor=RISK_FACTOR)
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--universe", choices=("stocks", "defi"), default="stocks",
+                    help="asset universe to optimise over")
+    ap.add_argument("--days", type=int, default=365,
+                    help="(defi only) history window in days")
+    ap.add_argument("--budget", type=int, default=BUDGET)
+    args = ap.parse_args()
+
+    if args.universe == "defi":
+        from src.defi_data import get_defi_market_data
+        print(f"Fetching live DeFi yields ({args.days} days) from DeFiLlama...")
+        market = get_defi_market_data(days=args.days)
+    else:
+        print("Fetching stock market data...")
+        market = get_market_data(STOCK_TICKERS, period="2y")
+
+    problem = build_problem(market, budget=args.budget, risk_factor=RISK_FACTOR)
     exact = solve_exact(problem)
     print(f"  optimal: {[market.tickers[i] for i in exact.selection]} "
           f"obj={exact.objective:.4f}\n")
@@ -97,12 +117,14 @@ def main() -> None:
         print(f"{m:<26}{sel_str:<22}{obj:>9.4f}{popt_str:>9}{ar_str:>8}")
 
     Path("outputs").mkdir(exist_ok=True)
-    Path("outputs/hardware_run.json").write_text(json.dumps({
+    out_name = "hardware_run.json" if args.universe == "stocks" else "hardware_run_defi.json"
+    Path(f"outputs/{out_name}").write_text(json.dumps({
         "backend": backend.name,
+        "universe": args.universe,
         "shots": SHOTS,
         "reps": REPS,
-        "tickers": TICKERS,
-        "budget": BUDGET,
+        "tickers": list(market.tickers),
+        "budget": args.budget,
         "optimal": {"selection": exact.selection, "objective": exact.objective},
         "random_baseline_objective": random_obj,
         "results": [
@@ -111,7 +133,7 @@ def main() -> None:
              "job_id": s.job_id} for s in (sim, hw_raw, hw_mit)
         ],
     }, indent=2))
-    print("\nSaved outputs/hardware_run.json")
+    print(f"\nSaved outputs/{out_name}")
 
 
 if __name__ == "__main__":

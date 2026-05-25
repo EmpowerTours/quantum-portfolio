@@ -94,9 +94,45 @@ def sample_simulator(problem, ansatz, params, optimal, shots=4096, seed=42):
     return _score_counts(counts, problem, optimal, "QAOA (sim, tuned)", "statevector")
 
 
+def _submit_with_retry(sampler, isa, shots, max_attempts=3, base_delay=2.0):
+    """Submit the sampler job, retrying on transient network/queue failures.
+
+    We retry on generic Exception but only for `max_attempts` total tries
+    with exponential backoff. We do NOT retry on credential errors —
+    those raise IBMRuntimeError or similar and shouldn't be papered over.
+    """
+    import time
+    from qiskit_ibm_runtime.exceptions import IBMRuntimeError
+
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return sampler.run([isa], shots=shots)
+        except IBMRuntimeError:
+            # Auth/permission/quota issues — re-raise immediately.
+            raise
+        except Exception as exc:
+            last_err = exc
+            if attempt < max_attempts:
+                delay = base_delay * (2 ** (attempt - 1))
+                print(f"  hardware submit attempt {attempt}/{max_attempts} "
+                      f"failed: {type(exc).__name__}: {exc}. retrying in {delay:.0f}s")
+                time.sleep(delay)
+            else:
+                raise
+    # unreachable
+    raise RuntimeError(f"sampler.run failed after {max_attempts} attempts: {last_err}")
+
+
 def sample_hardware(problem, ansatz, params, optimal, backend, *, mitigate: bool,
                     shots=4096):
-    """Run the tuned circuit once on a real QPU. mitigate toggles DD + meas twirling."""
+    """Run the tuned circuit once on a real QPU. mitigate toggles DD + meas twirling.
+
+    Transient submit failures are retried (exponential backoff, 3 attempts).
+    Authentication/quota errors are raised immediately so they're visible.
+    Once the job is queued, `job.result()` blocks normally — no retry there,
+    since the work is already paid for.
+    """
     from qiskit_ibm_runtime import SamplerV2
 
     qc = ansatz.assign_parameters(params)
@@ -117,7 +153,7 @@ def sample_hardware(problem, ansatz, params, optimal, backend, *, mitigate: bool
         sampler.options.twirling.enable_measure = False
         label = "QAOA (hw, raw)"
 
-    job = sampler.run([isa], shots=shots)
+    job = _submit_with_retry(sampler, isa, shots)
     res = job.result()
     counts = res[0].data.meas.get_counts()
     return _score_counts(counts, problem, optimal, label, backend.name, job.job_id())

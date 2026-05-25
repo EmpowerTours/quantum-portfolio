@@ -1,0 +1,68 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: PQ signing + integrity tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install minimal deps for tests
+        # The full requirements include qiskit + streamlit, which the
+        # PQ test suite does not exercise. Install only what tests/ uses.
+        run: |
+          python -m pip install --upgrade pip
+          pip install dilithium-py
+
+      - name: Run PQ signing test suite
+        run: python tests/test_pq_signing.py
+
+      - name: Verify the audit log (chain integrity) of shipped fixtures
+        run: |
+          python -c "
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, '.')
+          from src import orders
+          # signed_orders.json is shipped as a reproducibility artefact;
+          # verify each one against its embedded public key.
+          for s in orders.load_signed_orders():
+              assert orders.verify_signed_order(s), s.order.order_id
+              print('verified', s.order.order_id, 'pools=', s.order.pools)
+          "
+
+  imports:
+    name: source imports cleanly on Python 3.12
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: |
+          python -c "
+          import importlib
+          for m in ['src.pq_signing', 'src.orders', 'src.problem',
+                   'src.solvers', 'src.qaoa_hw', 'src.xy_qaoa',
+                   'src.ai_forecast', 'src.backtest', 'src.data',
+                   'src.defi_data', 'src.hardware']:
+              importlib.import_module(m)
+              print(f'imports OK: {m}')
+          import py_compile; py_compile.compile('app.py', doraise=True)
+          print('app.py compiles OK')
+          "

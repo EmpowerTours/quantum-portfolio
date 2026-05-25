@@ -7,8 +7,10 @@ __pycache__/
 # Outputs: by default ignored, but track reproducibility artefacts explicitly.
 outputs/*
 !outputs/hardware_run.json
+!outputs/hardware_run_defi.json
 !outputs/backtest.json
 !outputs/signed_orders.json
+!outputs/unsigned_monad_tx.json
 !outputs/p_optimal.png
 !outputs/backtest_equity.png
 

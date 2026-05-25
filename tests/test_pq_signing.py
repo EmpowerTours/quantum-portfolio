@@ -96,6 +96,92 @@ def test_nonce_replay_rejected(tmp_path: Path | None = None):
         shutil.rmtree(tmp_path, ignore_errors=True)
 
 
+def test_schema_version_is_signed():
+    """If schema_version is mutated post-signing, verify must fail."""
+    kp = pq.generate_keypair()
+    order = orders.RebalanceOrder(
+        pools=["GLD"], weights=[1.0], expected_return=0.05, expected_vol=0.1,
+    )
+    signed = orders.sign_order(order, kp, seen_nonces=set())
+    assert signed.order.schema_version == orders.SCHEMA_VERSION
+    assert orders.verify_signed_order(signed)
+    signed.order.schema_version = orders.SCHEMA_VERSION + 99
+    assert not orders.verify_signed_order(signed)
+
+
+def test_canonical_bytes_rejects_unknown_types():
+    """No silent stringification — unknown types must raise loudly."""
+    import datetime as _dt
+    try:
+        pq.canonical_bytes({"when": _dt.datetime(2026, 1, 1)})
+    except TypeError as e:
+        assert "datetime" in str(e), f"unexpected message: {e}"
+        return
+    raise AssertionError("canonical_bytes silently accepted a datetime")
+
+
+def test_verify_strict_type_errors():
+    """Caller bugs raise; only legitimate verification failures return False."""
+    kp = pq.generate_keypair()
+    try:
+        pq.verify({"a": 1}, None, kp.pk)
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("verify accepted None signature")
+
+    try:
+        pq.verify({"a": 1}, "not bytes", kp.pk)
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("verify accepted non-bytes signature")
+
+    # Wrong-length pk is legitimate "no", not a programmer error.
+    assert not pq.verify({"a": 1}, b"\x00" * 10, b"\x00" * 100)
+
+
+def test_audit_chain_intact(tmp_path: Path | None = None):
+    """Append three orders and verify the hash chain links cleanly."""
+    if tmp_path is None:
+        tmp_path = Path(tempfile.mkdtemp())
+    log = tmp_path / "audit.jsonl"
+    try:
+        kp = pq.ensure_keypair(tmp_path)
+        for i in range(3):
+            o = orders.RebalanceOrder(
+                pools=[f"P{i}"], weights=[1.0], expected_return=0.0, expected_vol=0.0,
+            )
+            orders.append_audit(orders.sign_order(o, kp, seen_nonces=set()), log)
+        ok, n, reason = orders.verify_audit_chain(log)
+        assert ok, f"chain broken on clean append: {reason}"
+        assert n == 3, f"expected 3 entries, got {n}"
+    finally:
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_audit_chain_detects_deletion(tmp_path: Path | None = None):
+    """Deleting a middle line must break the chain."""
+    if tmp_path is None:
+        tmp_path = Path(tempfile.mkdtemp())
+    log = tmp_path / "audit.jsonl"
+    try:
+        kp = pq.ensure_keypair(tmp_path)
+        for i in range(3):
+            o = orders.RebalanceOrder(
+                pools=[f"P{i}"], weights=[1.0], expected_return=0.0, expected_vol=0.0,
+            )
+            orders.append_audit(orders.sign_order(o, kp, seen_nonces=set()), log)
+        # Delete the middle line.
+        lines = log.read_text().strip().splitlines()
+        log.write_text(lines[0] + "\n" + lines[2] + "\n")
+        ok, n, reason = orders.verify_audit_chain(log)
+        assert not ok, "chain verification incorrectly accepted a deleted middle line"
+        assert "mismatch" in reason, f"unexpected failure reason: {reason}"
+    finally:
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
 if __name__ == "__main__":
     # Run without pytest
     tests = [v for k, v in globals().items() if k.startswith("test_") and callable(v)]

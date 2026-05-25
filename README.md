@@ -25,8 +25,8 @@ with post-quantum cryptography.
 
 This is the submission artefact for the **Santander X Global Challenge:
 Quantum AI Leap** (Pillar 2 + Pillar 3, application deadline
-2026-06-30). See [`SECURITY.md`](SECURITY.md) for the threat model and
-the explicit list of what the code does and does not protect against.
+2026-06-30). See [`SUBMISSION.md`](SUBMISSION.md) for the application
+narrative and [`SECURITY.md`](SECURITY.md) for the threat model.
 
 ## Demo
 

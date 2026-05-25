@@ -314,8 +314,11 @@ with tab_pq:
 
     st.divider()
 
-    # show keypair status
-    kp = _pq.ensure_keypair(KEYS_DIR)
+    @st.cache_resource(show_spinner=False)
+    def _cached_keypair(_path: str):
+        return _pq.ensure_keypair(_Path(_path))
+
+    kp = _cached_keypair(str(KEYS_DIR))
     st.success(
         f"Keypair loaded from `{KEYS_DIR}/` "
         f"(public key SHA-256 = `{__import__('hashlib').sha256(kp.pk).hexdigest()[:16]}...`)"
@@ -368,11 +371,16 @@ with tab_pq:
 
     st.divider()
 
-    # show recent audit log
+    # show recent audit log + chain status
     log_path = _orders.AUDIT_LOG_PATH
     if log_path.exists():
+        chain_ok, chain_n, chain_reason = _orders.verify_audit_chain(log_path)
+        if chain_ok:
+            st.success(f"Audit chain intact — {chain_n} entries verified")
+        else:
+            st.error(f"Audit chain broken: {chain_reason}")
         lines = log_path.read_text().strip().splitlines()
-        st.subheader(f"Audit log — {len(lines)} entries")
+        st.subheader(f"Audit log — last {min(len(lines), 5)} of {len(lines)} entries")
         for line in lines[-5:]:
             import json as _json
             entry = _json.loads(line)
@@ -384,6 +392,26 @@ with tab_pq:
                 st.code(_json.dumps(entry, indent=2)[:2000], language="json")
     else:
         st.info("No audit-log entries yet — sign an order above to generate one.")
+
+    st.divider()
+    st.subheader("Unsigned Monad transaction")
+    st.markdown(
+        "The PQ-signed order can be embedded directly into an EIP-1559 "
+        "transaction for the Monad chain (chainId 143). The transaction "
+        "is **not** signed with ECDSA here — that is intentional. A "
+        "custodian or wallet provides the chain-level signature, while "
+        "the agent's ML-DSA-65 signature in the calldata establishes "
+        "the Q-Day-resistant intent."
+    )
+    tx_path = _Path("outputs/unsigned_monad_tx.json")
+    if tx_path.exists():
+        import json as _json
+        st.caption(f"Last built: `{tx_path}`")
+        st.code(_json.dumps(_json.loads(tx_path.read_text()), indent=2)[:2500],
+                language="json")
+    else:
+        st.info("Run `python run_pq_demo.py` to produce an unsigned TX, or "
+                "use the sign button above and the next demo run will write it.")
 
 
 # ---------- Tab: Methodology ----------

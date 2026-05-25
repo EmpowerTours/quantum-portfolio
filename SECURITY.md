@@ -37,10 +37,41 @@ This means:
 ### Quantum-resistant signing of the off-chain audit trail
 `outputs/audit_log.jsonl` is an append-only JSON-lines file recording
 every signed order. Each line carries the signature, the public key, the
-SHA-256 digest of the canonical payload, and the verification status at
-the time of signing. The log itself is not signed in this version — a
-follow-up step would chain entries (each line includes the previous
-line's SHA-256) for tamper-evident sequencing.
+SHA-256 digest of the canonical payload, the verification status at the
+time of signing, **and a `prev_hash` field linking it to the SHA-256 of
+the previous line**. The first entry's `prev_hash` is the genesis
+sentinel (64 zeros). `verify_audit_chain()` walks the file and rejects
+the log if any line's `prev_hash` does not match the SHA-256 of the
+previous serialised line — i.e. **deletions, reorderings, and middle
+edits are detected**. Append-only forward-extension is the only mutation
+that preserves the chain.
+
+### Schema versioning
+Every signed `RebalanceOrder` carries a `schema_version` integer that is
+itself part of the signed payload. Adding or renaming fields bumps the
+constant. An order signed under schema 1 cannot be re-purposed as if it
+were schema 2 — the signature covers the version.
+
+### Strict canonicalisation
+`canonical_bytes` rejects non-JSON-native types (`datetime`, `Decimal`,
+custom classes) rather than silently coercing them via `default=str`.
+This prevents the subtle bug where a sender's stringification differs
+from a receiver's, breaking verification.
+
+### Two-key custody (intentional design)
+A rebalance is authorised by two independent signatures:
+
+  1. **ML-DSA-65** (the agent's PQ key) signs the off-chain INTENT.
+     This signature is what the audit log preserves and what survives
+     Q-Day.
+  2. **ECDSA secp256k1** (the wallet's key) signs the on-chain
+     EXECUTION — the Monad transaction itself. The agent never holds
+     the wallet's key.
+
+Either signature alone is insufficient: PQ-without-ECDSA cannot reach
+the chain; ECDSA-without-PQ has no Q-Day-resistant audit trail. An
+attacker who steals only the agent's PQ key cannot move funds; one who
+steals only the wallet key cannot forge a PQ-signed audit history.
 
 ### Secret-key file mode
 The ML-DSA-65 secret key is persisted to `keys/pq.sec` with mode `0600`

@@ -43,15 +43,33 @@ SIGNATURE_BYTES_MAX = 3309   # FIPS 204 max; actual sigs may be shorter
 
 # --- canonical JSON serialisation ----------------------------------------
 
+_ALLOWED_TYPES = (type(None), bool, int, float, str, list, dict)
+
+
+def _strict_default(obj: Any) -> Any:
+    """Refuse to silently stringify unknown types — fail loudly instead.
+
+    JSON's `default=str` is a footgun: a `datetime` or `Decimal` slipped
+    into a payload gets stringified one way and reconstructed another,
+    breaking signature verification across versions or platforms. Better
+    to crash and force the caller to convert explicitly.
+    """
+    raise TypeError(
+        f"canonical_bytes() refuses to serialise {type(obj).__name__}. "
+        "Convert to str/int/float/list/dict explicitly before signing."
+    )
+
+
 def canonical_bytes(obj: Any) -> bytes:
     """Deterministic JSON encoding so signatures verify across machines.
 
-    Uses sorted keys + compact separators. This is a stable subset of
-    RFC 8785 JCS — sufficient for an internal protocol where every party
-    uses this exact function.
+    Uses sorted keys + compact separators. Rejects non-JSON-native types
+    rather than silently coercing them (which would break round-trip).
+    This is a stable subset of RFC 8785 JCS — sufficient for an internal
+    protocol where every party uses this exact function.
     """
     return json.dumps(obj, sort_keys=True, separators=(",", ":"),
-                      ensure_ascii=False, default=str).encode("utf-8")
+                      ensure_ascii=False, default=_strict_default).encode("utf-8")
 
 
 def message_digest(obj: Any) -> str:
@@ -120,10 +138,21 @@ def sign(payload: Any, sk: bytes) -> bytes:
 
 
 def verify(payload: Any, signature: bytes, pk: bytes) -> bool:
-    """Verify a payload signature. Returns False on any failure."""
+    """Verify a payload signature.
+
+    Returns False on legitimate verification failure (tampered payload,
+    wrong key, malformed signature length). RAISES on programmer errors
+    (NoneType, type mismatches) instead of silently returning False — so
+    a bug in the caller can't be confused with a malicious signature.
+    """
+    if pk is None or signature is None or payload is None:
+        raise TypeError("payload, signature, and pk are all required")
+    if not isinstance(pk, (bytes, bytearray)) or not isinstance(signature, (bytes, bytearray)):
+        raise TypeError("pk and signature must be bytes-like")
     if len(pk) != PUBLIC_KEY_BYTES:
         return False
     try:
         return bool(ML_DSA_65.verify(pk, canonical_bytes(payload), signature))
-    except Exception:
+    except (ValueError, AssertionError):
+        # Malformed signature bytes / invalid encoding -> legitimate "no".
         return False
