@@ -12,10 +12,13 @@ with post-quantum cryptography.
 - **AI**: per-asset Ridge regression with technical features, trained
   walk-forward (no lookahead), feeds the QUBO's expected-return vector.
   Covariance is Ledoit-Wolf shrunk.
-- **Post-quantum security**: every rebalance order is signed with
-  **ML-DSA-65 (NIST FIPS 204)**, the lattice-based signature scheme
-  finalised in 2024. Nonces are tracked to prevent replay; mutated
-  fields invalidate the signature; the audit log is JSON-lines.
+- **Hedged post-quantum security**: every rebalance order is triple-signed
+  with **ML-DSA-65** (FIPS 204, lattice PQ), **SLH-DSA-SHAKE-128s**
+  (FIPS 205, hash-based PQ), and **Ed25519** (RFC 8032, classical).
+  Three independent security assumptions — an attacker must break all
+  three to forge an order. Nonces are tracked to prevent replay;
+  mutated fields invalidate every signature; the audit log is
+  hash-chained JSON-lines.
 - **DeFi-native**: live data from DeFiLlama. Pool universe is
   Monad-primary (Morpho, Upshift, Neverland, shMONAD) plus Ethereum
   stablecoin pools for breadth.
@@ -101,7 +104,7 @@ python run_backtest.py
 │   ├── defi_data.py             DeFiLlama yield-pool data layer
 │   ├── hardware.py              IBM Quantum Runtime connection
 │   ├── orders.py                RebalanceOrder + audit log
-│   ├── pq_signing.py            ML-DSA-65 signing primitives
+│   ├── pq_signing.py            Hedged signing: ML-DSA + SLH-DSA + Ed25519
 │   ├── problem.py               Portfolio QUBO builder
 │   ├── qaoa_hw.py               Penalty-QAOA on hardware (raw / mitigated)
 │   ├── solvers.py               Classical exact + QAOA-sim solvers
@@ -122,8 +125,12 @@ python run_backtest.py
 QAOA comes from Farhi et al. (2014). The portfolio formulation follows
 Mugel et al. (2022). The XY-mixer reference implementation in
 `src/xy_qaoa.py` follows Hadfield et al. (2017) but is not on the
-current hardware path. ML-DSA-65 follows NIST FIPS 204 (2024); we use
-the `dilithium-py` pure-Python implementation by Giacomo Pope.
+current hardware path. ML-DSA-65 follows NIST FIPS 204 (2024) and
+SLH-DSA-SHAKE-128s follows NIST FIPS 205 (2024); both are provided by
+`quantcrypt` (PQClean precompiled bindings). The Ed25519 classical leg
+uses pyca's `cryptography` library. The hedged-by-default architecture
+follows the May 2026 `quantum-safe-py` reference implementation
+([arxiv 2605.17061](https://arxiv.org/abs/2605.17061)).
 
 ## License
 

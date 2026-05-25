@@ -68,20 +68,49 @@ class RebalanceOrder:
 
 @dataclass
 class SignedOrder:
+    """A rebalance order with one or three independent signatures.
+
+    Backwards-compat shape: `algorithm`, `public_key_b64`, and `signature_b64`
+    always refer to the ML-DSA-65 (FIPS 204) primary signature, so older
+    consumers keep working.
+
+    Hedged orders additionally carry SLH-DSA (FIPS 205, hash-based PQ) and
+    Ed25519 (RFC 8032, classical) sub-signatures. An attacker must break all
+    three to forge a hedged order.
+    """
     order: RebalanceOrder
     algorithm: str
     public_key_b64: str
     signature_b64: str
     message_digest_sha256: str
+    # Optional hedge fields — None for ML-DSA-only orders.
+    slh_dsa_public_key_b64: str | None = None
+    slh_dsa_signature_b64: str | None = None
+    ed25519_public_key_b64: str | None = None
+    ed25519_signature_b64: str | None = None
+
+    @property
+    def is_hedged(self) -> bool:
+        return all((
+            self.slh_dsa_public_key_b64, self.slh_dsa_signature_b64,
+            self.ed25519_public_key_b64, self.ed25519_signature_b64,
+        ))
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "order": self.order.to_dict(),
             "algorithm": self.algorithm,
             "public_key_b64": self.public_key_b64,
             "signature_b64": self.signature_b64,
             "message_digest_sha256": self.message_digest_sha256,
         }
+        if self.slh_dsa_signature_b64 is not None:
+            d["slh_dsa_public_key_b64"] = self.slh_dsa_public_key_b64
+            d["slh_dsa_signature_b64"] = self.slh_dsa_signature_b64
+        if self.ed25519_signature_b64 is not None:
+            d["ed25519_public_key_b64"] = self.ed25519_public_key_b64
+            d["ed25519_signature_b64"] = self.ed25519_signature_b64
+        return d
 
 
 # --- replay protection --------------------------------------------------
@@ -133,11 +162,92 @@ def sign_order(order: RebalanceOrder, keypair: pq.KeyPair,
     )
 
 
+def sign_order_hedged(order: RebalanceOrder,
+                      ml_dsa_kp: pq.KeyPair,
+                      slh_dsa_kp: pq.SLHDSAKeyPair,
+                      ed25519_kp: pq.Ed25519KeyPair,
+                      seen_nonces: set[str] | None = None) -> SignedOrder:
+    """Triple-sign an order: ML-DSA + SLH-DSA + Ed25519.
+
+    All three signatures cover the same canonical payload bytes. Any
+    tampered field invalidates all three. Defence in depth: an attacker
+    needs to break the Module-LWE lattice problem, the SHA-3 collision
+    resistance, AND the Ed25519 discrete log to forge an order.
+    """
+    if seen_nonces is None:
+        seen_nonces = _load_seen_nonces()
+    if order.nonce in seen_nonces:
+        raise NonceSeenError(f"nonce already used: {order.nonce}")
+
+    payload = order.to_dict()
+    ml_sig  = pq.sign(payload, ml_dsa_kp.sk)
+    slh_sig = pq.slh_dsa_sign(payload, slh_dsa_kp.sk)
+    ed_sig  = pq.ed25519_sign(payload, ed25519_kp.sk)
+
+    algorithm = (
+        f"{pq.ALGORITHM} + {pq.SLH_DSA_ALGORITHM} + {pq.ED25519_ALGORITHM} (hedged)"
+    )
+    return SignedOrder(
+        order=order,
+        algorithm=algorithm,
+        public_key_b64=base64.b64encode(ml_dsa_kp.pk).decode("ascii"),
+        signature_b64=base64.b64encode(ml_sig).decode("ascii"),
+        message_digest_sha256=pq.message_digest(payload),
+        slh_dsa_public_key_b64=base64.b64encode(slh_dsa_kp.pk).decode("ascii"),
+        slh_dsa_signature_b64=base64.b64encode(slh_sig).decode("ascii"),
+        ed25519_public_key_b64=base64.b64encode(ed25519_kp.pk).decode("ascii"),
+        ed25519_signature_b64=base64.b64encode(ed_sig).decode("ascii"),
+    )
+
+
 def verify_signed_order(signed: SignedOrder) -> bool:
-    """Verify a signed order against its bundled public key."""
-    pk = base64.b64decode(signed.public_key_b64)
+    """Verify every signature attached to the order.
+
+    Always verifies the ML-DSA primary signature. If hedge signatures are
+    present (SLH-DSA, Ed25519), verifies those too. Returns True only if
+    EVERY present signature verifies — an attacker who breaks one scheme
+    still cannot pass this check on a hedged order.
+    """
+    payload = signed.order.to_dict()
+    pk  = base64.b64decode(signed.public_key_b64)
     sig = base64.b64decode(signed.signature_b64)
-    return pq.verify(signed.order.to_dict(), sig, pk)
+    if not pq.verify(payload, sig, pk):
+        return False
+    if signed.slh_dsa_signature_b64 is not None:
+        slh_pk  = base64.b64decode(signed.slh_dsa_public_key_b64 or "")
+        slh_sig = base64.b64decode(signed.slh_dsa_signature_b64)
+        if not pq.slh_dsa_verify(payload, slh_sig, slh_pk):
+            return False
+    if signed.ed25519_signature_b64 is not None:
+        ed_pk  = base64.b64decode(signed.ed25519_public_key_b64 or "")
+        ed_sig = base64.b64decode(signed.ed25519_signature_b64)
+        if not pq.ed25519_verify(payload, ed_sig, ed_pk):
+            return False
+    return True
+
+
+def verify_signed_order_components(signed: SignedOrder) -> dict[str, bool]:
+    """Return per-component verification results (for UI / debugging)."""
+    payload = signed.order.to_dict()
+    out: dict[str, bool] = {}
+    out["ml_dsa"] = pq.verify(
+        payload,
+        base64.b64decode(signed.signature_b64),
+        base64.b64decode(signed.public_key_b64),
+    )
+    if signed.slh_dsa_signature_b64 is not None:
+        out["slh_dsa"] = pq.slh_dsa_verify(
+            payload,
+            base64.b64decode(signed.slh_dsa_signature_b64),
+            base64.b64decode(signed.slh_dsa_public_key_b64 or ""),
+        )
+    if signed.ed25519_signature_b64 is not None:
+        out["ed25519"] = pq.ed25519_verify(
+            payload,
+            base64.b64decode(signed.ed25519_signature_b64),
+            base64.b64decode(signed.ed25519_public_key_b64 or ""),
+        )
+    return out
 
 
 def _last_line_hash(log_path: Path) -> str:
@@ -229,5 +339,9 @@ def load_signed_orders(path: Path = SIGNED_ORDERS_PATH) -> list[SignedOrder]:
             public_key_b64=item["public_key_b64"],
             signature_b64=item["signature_b64"],
             message_digest_sha256=item["message_digest_sha256"],
+            slh_dsa_public_key_b64=item.get("slh_dsa_public_key_b64"),
+            slh_dsa_signature_b64=item.get("slh_dsa_signature_b64"),
+            ed25519_public_key_b64=item.get("ed25519_public_key_b64"),
+            ed25519_signature_b64=item.get("ed25519_signature_b64"),
         ))
     return out

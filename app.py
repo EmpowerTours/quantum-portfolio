@@ -327,21 +327,34 @@ with tab_pq:
 
     KEYS_DIR = _Path("keys")
 
+    st.caption(
+        "Every order is **triple-signed** with three independent schemes — "
+        "an attacker must break all three to forge it."
+    )
     col1, col2, col3 = st.columns(3)
-    col1.metric("Algorithm", _pq.ALGORITHM.split(" ")[0])
-    col2.metric("Public key", f"{_pq.PUBLIC_KEY_BYTES} B")
-    col3.metric("Signature (max)", f"{_pq.SIGNATURE_BYTES_MAX} B")
+    col1.metric("ML-DSA-65 (FIPS 204)", "lattice PQ",
+                f"pk {_pq.PUBLIC_KEY_BYTES} B · sig ≤ {_pq.SIGNATURE_BYTES_MAX} B")
+    col2.metric("SLH-DSA-128s (FIPS 205)", "hash-based PQ",
+                f"pk {_pq.SLH_DSA_PUBLIC_KEY_BYTES} B · sig ~29 KB")
+    col3.metric("Ed25519 (RFC 8032)", "classical",
+                f"pk {_pq.ED25519_PUBLIC_KEY_BYTES} B · sig {_pq.ED25519_SIGNATURE_BYTES} B")
 
     st.divider()
 
     @st.cache_resource(show_spinner=False)
-    def _cached_keypair(_path: str):
-        return _pq.ensure_keypair(_Path(_path))
+    def _cached_keypairs(_path: str):
+        p = _Path(_path)
+        return (_pq.ensure_keypair(p),
+                _pq.slh_dsa_ensure_keypair(p),
+                _pq.ed25519_ensure_keypair(p))
 
-    kp = _cached_keypair(str(KEYS_DIR))
+    kp, slh_kp, ed_kp = _cached_keypairs(str(KEYS_DIR))
+    import hashlib as _h
     st.success(
-        f"Keypair loaded from `{KEYS_DIR}/` "
-        f"(public key SHA-256 = `{__import__('hashlib').sha256(kp.pk).hexdigest()[:16]}...`)"
+        f"Hedged keypairs loaded from `{KEYS_DIR}/` — "
+        f"ML-DSA pk SHA-256 `{_h.sha256(kp.pk).hexdigest()[:12]}…`  ·  "
+        f"SLH-DSA pk `{_h.sha256(slh_kp.pk).hexdigest()[:12]}…`  ·  "
+        f"Ed25519 pk `{_h.sha256(ed_kp.pk).hexdigest()[:12]}…`"
     )
 
     # sign-an-order interactive demo
@@ -350,7 +363,8 @@ with tab_pq:
     text_sel = st.text_input("Pools (comma-separated)", value=sel_default)
     note = st.text_input("Note (optional, gets hashed into the digest)",
                          value="manual demo from Streamlit")
-    if st.button("Sign with ML-DSA-65", type="primary", key="sign_btn"):
+    if st.button("Sign with ML-DSA + SLH-DSA + Ed25519",
+                 type="primary", key="sign_btn"):
         pools = [p.strip() for p in text_sel.split(",") if p.strip()]
         w = [1.0 / len(pools)] * len(pools) if pools else []
         order = _orders.RebalanceOrder(
@@ -358,31 +372,45 @@ with tab_pq:
             expected_return=0.0, expected_vol=0.0,
         )
         try:
-            signed = _orders.sign_order(order, kp)
+            signed = _orders.sign_order_hedged(order, kp, slh_kp, ed_kp)
+            components = _orders.verify_signed_order_components(signed)
             ok = _orders.verify_signed_order(signed)
             st.json({
-                "order_id": order.order_id,
-                "nonce":    order.nonce,
-                "issued":   order.issued_at,
-                "pools":    order.pools,
-                "digest":   signed.message_digest_sha256,
+                "order_id":  order.order_id,
+                "nonce":     order.nonce,
+                "issued":    order.issued_at,
+                "pools":     order.pools,
+                "digest":    signed.message_digest_sha256,
                 "algorithm": signed.algorithm,
-                "signature_b64_truncated": signed.signature_b64[:64] + "...",
-                "verified": ok,
+                "ml_dsa_sig_b64_truncated":  signed.signature_b64[:48] + "...",
+                "slh_dsa_sig_b64_truncated": (signed.slh_dsa_signature_b64 or "")[:48] + "...",
+                "ed25519_sig_b64_truncated": (signed.ed25519_signature_b64 or "")[:48] + "...",
+                "components": components,
+                "verified_all":  ok,
             })
 
+            # Tamper test — flip one bit on weights[0], all three sigs must fail.
+            tampered_order = _orders.RebalanceOrder(
+                **{**order.to_dict(),
+                   "weights": ([w[0] + 0.01] + w[1:]) if w else []}
+            )
             tampered = _orders.SignedOrder(
-                order=_orders.RebalanceOrder(
-                    **{**order.to_dict(), "pools": pools + ["EVIL_POOL"]}
-                ),
+                order=tampered_order,
                 algorithm=signed.algorithm,
                 public_key_b64=signed.public_key_b64,
                 signature_b64=signed.signature_b64,
                 message_digest_sha256=signed.message_digest_sha256,
+                slh_dsa_public_key_b64=signed.slh_dsa_public_key_b64,
+                slh_dsa_signature_b64=signed.slh_dsa_signature_b64,
+                ed25519_public_key_b64=signed.ed25519_public_key_b64,
+                ed25519_signature_b64=signed.ed25519_signature_b64,
             )
+            tcomp = _orders.verify_signed_order_components(tampered)
             st.caption(
-                f"Tamper test (added 'EVIL_POOL'): verify = "
-                f"**{_orders.verify_signed_order(tampered)}** (must be False)"
+                f"Tamper test (weights[0] += 0.01): "
+                f"components={tcomp}  ·  "
+                f"verify_all = **{_orders.verify_signed_order(tampered)}** "
+                "(every scheme must fail)"
             )
             _orders.append_audit(signed)
             st.caption(f"Appended to `{_orders.AUDIT_LOG_PATH}`")

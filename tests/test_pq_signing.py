@@ -182,6 +182,98 @@ def test_audit_chain_detects_deletion(tmp_path: Path | None = None):
         shutil.rmtree(tmp_path, ignore_errors=True)
 
 
+# --- SLH-DSA hedge (hash-based PQ, independent assumption) ----------------
+
+def test_slh_dsa_sign_verify_roundtrip():
+    kp = pq.slh_dsa_generate_keypair()
+    assert len(kp.pk) == pq.SLH_DSA_PUBLIC_KEY_BYTES == 64
+    assert len(kp.sk) == pq.SLH_DSA_SECRET_KEY_BYTES == 128
+    msg = {"pools": ["GLD", "SLV"], "weights": [0.5, 0.5]}
+    sig = pq.slh_dsa_sign(msg, kp.sk)
+    assert pq.slh_dsa_verify(msg, sig, kp.pk)
+
+
+def test_slh_dsa_tampered_payload_fails():
+    kp = pq.slh_dsa_generate_keypair()
+    msg = {"x": 1}
+    sig = pq.slh_dsa_sign(msg, kp.sk)
+    assert not pq.slh_dsa_verify({"x": 2}, sig, kp.pk)
+
+
+# --- Ed25519 classical leg ------------------------------------------------
+
+def test_ed25519_sign_verify_roundtrip():
+    kp = pq.ed25519_generate_keypair()
+    assert len(kp.pk) == pq.ED25519_PUBLIC_KEY_BYTES == 32
+    assert len(kp.sk) == pq.ED25519_SECRET_KEY_BYTES == 32
+    msg = {"pools": ["GLD", "SLV"], "weights": [0.5, 0.5]}
+    sig = pq.ed25519_sign(msg, kp.sk)
+    assert len(sig) == pq.ED25519_SIGNATURE_BYTES == 64
+    assert pq.ed25519_verify(msg, sig, kp.pk)
+
+
+def test_ed25519_tampered_payload_fails():
+    kp = pq.ed25519_generate_keypair()
+    msg = {"x": 1}
+    sig = pq.ed25519_sign(msg, kp.sk)
+    assert not pq.ed25519_verify({"x": 2}, sig, kp.pk)
+
+
+# --- Hedged order: ML-DSA + SLH-DSA + Ed25519 -----------------------------
+
+def test_hedged_order_roundtrip(tmp_path: Path | None = None):
+    if tmp_path is None:
+        tmp_path = Path(tempfile.mkdtemp())
+    try:
+        ml = pq.ensure_keypair(tmp_path)
+        slh = pq.slh_dsa_ensure_keypair(tmp_path)
+        ed = pq.ed25519_ensure_keypair(tmp_path)
+        order = orders.RebalanceOrder(
+            pools=["GLD", "SLV", "NVDA"], weights=[1/3, 1/3, 1/3],
+            expected_return=0.05, expected_vol=0.15,
+            qpu_job_id="d89rmk1789is7393mlr0", qaoa_p_optimal=0.0051,
+        )
+        signed = orders.sign_order_hedged(order, ml, slh, ed, seen_nonces=set())
+        assert signed.is_hedged
+        assert orders.verify_signed_order(signed)
+        comp = orders.verify_signed_order_components(signed)
+        assert comp == {"ml_dsa": True, "slh_dsa": True, "ed25519": True}
+    finally:
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_hedged_tamper_breaks_all_signatures(tmp_path: Path | None = None):
+    """Tampering a single field invalidates every signature scheme."""
+    if tmp_path is None:
+        tmp_path = Path(tempfile.mkdtemp())
+    try:
+        ml = pq.ensure_keypair(tmp_path)
+        slh = pq.slh_dsa_ensure_keypair(tmp_path)
+        ed = pq.ed25519_ensure_keypair(tmp_path)
+        order = orders.RebalanceOrder(
+            pools=["GLD"], weights=[1.0], expected_return=0.05, expected_vol=0.1,
+        )
+        signed = orders.sign_order_hedged(order, ml, slh, ed, seen_nonces=set())
+        signed.order.weights[0] = 0.99   # tamper
+        assert not orders.verify_signed_order(signed)
+        comp = orders.verify_signed_order_components(signed)
+        assert comp == {"ml_dsa": False, "slh_dsa": False, "ed25519": False}
+    finally:
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_legacy_ml_dsa_only_order_still_verifies():
+    """Backward-compat: an order signed only with ML-DSA (no hedge fields)
+    must still verify under the new code path."""
+    kp = pq.generate_keypair()
+    order = orders.RebalanceOrder(
+        pools=["AAPL"], weights=[1.0], expected_return=0.1, expected_vol=0.2,
+    )
+    signed = orders.sign_order(order, kp, seen_nonces=set())
+    assert not signed.is_hedged
+    assert orders.verify_signed_order(signed)
+
+
 if __name__ == "__main__":
     # Run without pytest
     tests = [v for k, v in globals().items() if k.startswith("test_") and callable(v)]

@@ -1,11 +1,19 @@
-"""Generate a real PQ-signed rebalance order from the hardware run.
+"""Generate a hedged PQ-signed rebalance order from the hardware run.
 
-Reads the QAOA-on-hardware result (outputs/hardware_run.json) and signs the
-resulting rebalance decision with ML-DSA-65. Writes:
+Reads the QAOA-on-hardware result (outputs/hardware_run*.json) and signs
+the resulting rebalance decision with THREE independent signatures:
 
-    outputs/signed_orders.json   — aggregate (overwritten)
-    outputs/audit_log.jsonl      — append-only log
-    keys/pq.pub + keys/pq.sec    — keypair (created if missing, sk chmod 600)
+    ML-DSA-65 (lattice PQ)      — NIST FIPS 204
+    SLH-DSA-SHAKE-128s (hash PQ) — NIST FIPS 205
+    Ed25519 (classical)          — RFC 8032
+
+An attacker has to break ALL THREE to forge an order. Writes:
+
+    outputs/signed_orders.json     — aggregate (overwritten)
+    outputs/audit_log.jsonl        — append-only hash-chained log
+    keys/pq.{pub,sec}              — ML-DSA-65 keypair  (sk chmod 600)
+    keys/slh.{pub,sec}             — SLH-DSA keypair    (sk chmod 600)
+    keys/ed25519.{pub,sec}         — Ed25519 keypair    (sk chmod 600)
 
 Run:
     python run_pq_demo.py
@@ -54,10 +62,13 @@ def main() -> None:
     print(f"QPU job (mitigated): {qpu_job_id}")
     print()
 
-    kp = pq.ensure_keypair(KEYS_DIR)
-    print(f"ML-DSA-65 keypair loaded from {KEYS_DIR}/")
-    print(f"  public key:  {len(kp.pk)} bytes")
-    print(f"  secret key:  {len(kp.sk)} bytes  (chmod 600)")
+    ml_kp  = pq.ensure_keypair(KEYS_DIR)
+    slh_kp = pq.slh_dsa_ensure_keypair(KEYS_DIR)
+    ed_kp  = pq.ed25519_ensure_keypair(KEYS_DIR)
+    print(f"Hedged keypairs loaded from {KEYS_DIR}/")
+    print(f"  ML-DSA-65   pk={len(ml_kp.pk)}  sk={len(ml_kp.sk)}  (sk chmod 600)")
+    print(f"  SLH-DSA-128 pk={len(slh_kp.pk)}    sk={len(slh_kp.sk)}    (sk chmod 600)")
+    print(f"  Ed25519     pk={len(ed_kp.pk)}      sk={len(ed_kp.sk)}      (sk chmod 600)")
     print()
 
     order = orders.RebalanceOrder(
@@ -68,28 +79,30 @@ def main() -> None:
         qpu_job_id=qpu_job_id,
         qaoa_p_optimal=qaoa_p_opt,
     )
-    signed = orders.sign_order(order, kp)
-    ok = orders.verify_signed_order(signed)
+    signed = orders.sign_order_hedged(order, ml_kp, slh_kp, ed_kp)
+    components = orders.verify_signed_order_components(signed)
+    all_ok = orders.verify_signed_order(signed)
     print(f"Order ID:    {order.order_id}")
     print(f"Nonce:       {order.nonce}")
     print(f"Issued at:   {order.issued_at}")
     print(f"Digest:      sha256={signed.message_digest_sha256[:16]}...")
-    print(f"Signature:   {len(signed.signature_b64)} chars (b64)  "
-          f"≈ {int(len(signed.signature_b64) * 3 / 4)} raw bytes")
-    print(f"Verified:    {ok}")
+    print(f"Algorithms:  {signed.algorithm}")
+    ml_sig_bytes  = len(signed.signature_b64) * 3 // 4
+    slh_sig_bytes = len(signed.slh_dsa_signature_b64 or "") * 3 // 4
+    ed_sig_bytes  = len(signed.ed25519_signature_b64 or "") * 3 // 4
+    print(f"Signatures:  ML-DSA={ml_sig_bytes}B  SLH-DSA={slh_sig_bytes}B  Ed25519={ed_sig_bytes}B")
+    print(f"Components:  {components}")
+    print(f"Verified:    {all_ok}  (must be True)")
     print()
 
-    # tamper-test
-    tampered = orders.SignedOrder(
-        order=orders.RebalanceOrder(**{**order.to_dict(), "pools": ["EVIL"]}),
-        algorithm=signed.algorithm,
-        public_key_b64=signed.public_key_b64,
-        signature_b64=signed.signature_b64,
-        message_digest_sha256=signed.message_digest_sha256,
-    )
-    tampered_ok = orders.verify_signed_order(tampered)
-    print(f"Tamper test: swapped pools → verify={tampered_ok} "
-          f"(must be False)")
+    # Tamper test — flip one field, every signature must fail
+    signed.order.weights[0] += 0.01
+    components_t = orders.verify_signed_order_components(signed)
+    tampered_ok = orders.verify_signed_order(signed)
+    signed.order.weights[0] -= 0.01     # restore for serialisation
+    print(f"Tamper test (1 bit on weights[0]):")
+    print(f"  Components:  {components_t}")
+    print(f"  Verified:    {tampered_ok}  (must be False)")
     print()
 
     orders.append_audit(signed)

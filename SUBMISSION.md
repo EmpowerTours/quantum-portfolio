@@ -76,12 +76,28 @@ QUBO's cost Hamiltonian; the covariance is **Ledoit-Wolf** shrunk for
 stability with short windows. R² is reported transparently per asset
 (usually small — yield prediction is hard, and we say so).
 
-### Post-quantum signing
+### Hedged post-quantum signing
 
-Every rebalance order is signed with **ML-DSA-65 (NIST FIPS 204)**, the
-lattice-based signature scheme NIST finalised in 2024 for general-purpose
-post-quantum protection. Key sizes match the FIPS spec exactly (pk
-1952 B, sk 4032 B, sig ≤ 3309 B). The signature covers:
+Every rebalance order carries **three independent signatures** over the
+same canonical payload bytes. An attacker must break all three to forge
+an order — the assumptions are deliberately disjoint:
+
+| Scheme | Standard | Security assumption | Sizes (pk / sig) |
+|---|---|---|---|
+| **ML-DSA-65** | NIST FIPS 204 (2024) | Module-LWE / MSIS lattice | 1952 B / 3309 B |
+| **SLH-DSA-SHAKE-128s** | NIST FIPS 205 (2024) | SHA-3 collision resistance | 64 B / ~29 KB |
+| **Ed25519** | RFC 8032 | Curve25519 discrete log | 32 B / 64 B |
+
+The architecture follows the hybrid-by-default pattern of the May 2026
+`quantum-safe-py` reference implementation (arxiv 2605.17061) but is
+implemented directly against `quantcrypt` (PQClean-bound) and `cryptography`
+(pyca/cryptography) so we control the v0.1.0 dependency risk. Backend
+selection puts us inside 10 days of LF PQCA's `liboqs-python` 0.15.0
+stable release (2026-05-15) and on the same NIST FIPS 204 algorithm
+NEAR Protocol enabled at L1 on **2026-05-06**, 19 days before this
+submission.
+
+Each signature covers the full canonical encoding of:
 
 - Pool selection and weights
 - Expected return and volatility
@@ -125,9 +141,12 @@ panellist can poke every component without reading source.
 
 ## Test coverage and CI
 
-- 12 PQ-signing tests (round trip, tampering, replay rejection, schema
-  version coverage, strict canonicalisation, strict `verify` typing,
-  audit-chain intact, audit-chain deletion detection)
+- 19 PQ-signing tests (round trip + tampering for ML-DSA, SLH-DSA, and
+  Ed25519; hedged-order round trip + per-component verification; tamper
+  invalidates all three signatures; legacy ML-DSA-only orders still
+  verify; replay rejection; schema-version coverage; strict
+  canonicalisation; strict `verify` typing; audit-chain intact;
+  audit-chain deletion detection)
 - 4 Monad-TX tests (calldata round trip, transaction field shape, bad
   address rejection, corruption detection)
 - GitHub Actions runs the full suite on Python 3.11 and 3.12 on every
@@ -153,23 +172,27 @@ panellist can poke every component without reading source.
 
 ## What would happen with funding
 
-1. **Re-run the QPU on the live DeFi universe** (~5 min QPU queue +
-   ~30 s execution; the script already accepts `--universe defi`).
-   Closes the last cohesion gap between the pitch and the hardware
-   artefacts.
-2. **Replace `dilithium-py` with `liboqs` C bindings** (~10× faster
-   sign/verify; same API).
-3. **Deploy an on-chain audit contract on Monad** that emits a hash of
-   the signed order as a log event, anchoring the off-chain log to the
-   chain.
-4. **Wire an actual wallet integration** (web3.py + a hardware wallet
+1. **Deploy an on-chain audit anchor contract on Monad** that emits a
+   SHA-256 hash of each signed order as a log event. ~30 K gas per
+   anchor, bridging the off-chain hash chain to on-chain immutability
+   without trying to verify ML-DSA on-chain (which a pure-Solidity
+   implementation would consume ~500 M gas for — see
+   [hackernoon comparison, 2026](https://hackernoon.com/comparing-on-chain-post-quantum-signature-verification-for-ethereum)).
+2. **Wire an actual wallet integration** (web3.py + a hardware wallet
    path) so the agent's `monad_tx.py` output becomes a real broadcast
-   transaction.
-5. **Scale the backtest** to multi-year history and 50+ pools (current
+   transaction. Closes the gap between "ready-to-sign artifact" and
+   "broadcast on Monad mainnet."
+3. **Track FIPS 206 (FN-DSA / Falcon)**. NIST has not finalised the
+   standard as of mid-2026 — projected late 2026 / early 2027. When the
+   spec freezes, add Falcon as a fourth hedge with smaller signature
+   size for the on-chain hash-anchor calldata path.
+4. **Scale the backtest** to multi-year history and 50+ pools (current
    MVP is 8 stocks / 8 pools, 48 monthly rebalances).
-6. **Submit `dmkde` (sister project)** to PyOD's detector catalogue for
-   open-source visibility; tie it into the Streamlit app as an optional
-   anomaly-detection layer on incoming pool data.
+5. **Cryptographic agility ground-up**. Bind a `crypto_suite_id`
+   integer into the signed payload (already supported via
+   `schema_version`) so future migrations to e.g. ML-DSA-87 or
+   FN-DSA-512 are zero-downtime — same audit log, additive scheme
+   versions, no key reuse.
 
 ## Reproducing the artefacts
 

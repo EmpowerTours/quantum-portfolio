@@ -16,23 +16,37 @@ Every rebalance decision is wrapped in a JSON `RebalanceOrder` containing:
 - `order_id`, `nonce` (both UUID4), `issued_at` (ISO-8601 UTC)
 - `agent_id`
 
-The canonical JSON encoding of this dictionary is signed with **ML-DSA-65
-(NIST FIPS 204)** — the lattice-based digital signature scheme NIST
-finalised in 2024 for post-quantum protection. ML-DSA-65 keys are 1952 B
-(public) and 4032 B (secret); signatures are at most 3309 B. The library
-used is `dilithium-py`, a pure-Python reference implementation; for
-production deployment we would swap to a C-backed equivalent (`liboqs`)
-for ~10× speed.
+The canonical JSON encoding of this dictionary is signed with **three
+independent signature schemes** — a hedged-by-default architecture
+following the May 2026 `quantum-safe-py` reference implementation
+([arxiv 2605.17061](https://arxiv.org/abs/2605.17061)):
+
+| Scheme | Standard | Sizes (pk / sig) | Security assumption |
+|---|---|---|---|
+| **ML-DSA-65** | NIST FIPS 204 (2024) | 1952 B / 3309 B | Module-LWE / MSIS (lattice) |
+| **SLH-DSA-SHAKE-128s** | NIST FIPS 205 (2024) | 64 B / ~29 KB | SHA-3 collision resistance |
+| **Ed25519** | RFC 8032 | 32 B / 64 B | Curve25519 discrete log |
+
+Implementation is `quantcrypt` 1.0+ (PQClean-bound) for the two PQ
+schemes and pyca's `cryptography` for Ed25519. Backend choice is
+deliberate: PQClean is the reference C implementation underneath LF
+PQCA's `liboqs` (whose Python bindings 0.15.0 stable shipped 2026-05-15);
+shipping precompiled binaries removes the C-toolchain dependency without
+abandoning the audited reference code. Same NIST FIPS 204 algorithm
+NEAR Protocol enabled at L1 on 2026-05-06, 19 days before this
+submission.
 
 This means:
 - **Tampering**: changing any field of the order — pool list, weights,
-  QPU job ID — invalidates the signature. The test suite verifies this.
+  QPU job ID — invalidates ALL THREE signatures. The test suite verifies
+  this (`test_hedged_tamper_breaks_all_signatures`).
 - **Replay**: the agent maintains a set of seen nonces from
   `outputs/audit_log.jsonl` and refuses to sign an order whose nonce has
   already been used.
-- **Forgery**: forging a signature without the secret key requires
-  breaking ML-DSA-65, which is conjectured infeasible even against a
-  cryptographically relevant quantum computer.
+- **Forgery**: forging a hedged order requires breaking the Module-LWE
+  lattice problem AND the SHA-3 collision resistance AND the Ed25519
+  discrete log. Each assumption is independent; a breakthrough against
+  any one of them still leaves the other two as defence in depth.
 
 ### Quantum-resistant signing of the off-chain audit trail
 `outputs/audit_log.jsonl` is an append-only JSON-lines file recording
@@ -59,25 +73,26 @@ This prevents the subtle bug where a sender's stringification differs
 from a receiver's, breaking verification.
 
 ### Two-key custody (intentional design)
-A rebalance is authorised by two independent signatures:
+A rebalance is authorised by two independent signing layers:
 
-  1. **ML-DSA-65** (the agent's PQ key) signs the off-chain INTENT.
-     This signature is what the audit log preserves and what survives
-     Q-Day.
-  2. **ECDSA secp256k1** (the wallet's key) signs the on-chain
-     EXECUTION — the Monad transaction itself. The agent never holds
-     the wallet's key.
+  1. **Agent's hedged intent signature** — ML-DSA-65 + SLH-DSA + Ed25519
+     over the off-chain order. This is what the audit log preserves and
+     what survives Q-Day. Three independent assumptions; an attacker
+     breaking one of them still cannot forge intent.
+  2. **Wallet's ECDSA secp256k1** signs the on-chain EXECUTION — the
+     Monad transaction itself. The agent never holds the wallet's key.
 
-Either signature alone is insufficient: PQ-without-ECDSA cannot reach
-the chain; ECDSA-without-PQ has no Q-Day-resistant audit trail. An
-attacker who steals only the agent's PQ key cannot move funds; one who
-steals only the wallet key cannot forge a PQ-signed audit history.
+Either layer alone is insufficient: intent-without-wallet cannot reach
+the chain; wallet-without-intent has no Q-Day-resistant audit trail. An
+attacker who steals only the agent's keys cannot move funds; one who
+steals only the wallet key cannot forge an authentic audit history.
 
-### Secret-key file mode
-The ML-DSA-65 secret key is persisted to `keys/pq.sec` with mode `0600`
-(owner read/write only). The path is gitignored. The public key
-(`keys/pq.pub`) is world-readable so reviewers can verify orders without
-the secret.
+### Secret-key file modes
+All three secret keys are persisted under `keys/` with mode `0600`
+(owner read/write only) — `pq.sec` (ML-DSA-65), `slh.sec` (SLH-DSA),
+`ed25519.sec` (Ed25519). All `keys/*` paths are gitignored. The
+public-key counterparts are world-readable so reviewers can verify
+orders without the secrets.
 
 ### IBM Quantum token
 The `IBM_QUANTUM_TOKEN` is loaded from `.env` (mode `0600`, gitignored).
