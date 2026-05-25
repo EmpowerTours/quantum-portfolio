@@ -45,19 +45,29 @@ English).
 
 ## Verifiable hardware results
 
+Two real-hardware runs on `ibm_marrakesh` (IBM Heron r2, 156 qubits) —
+both depth-2 XY-mixer QAOA on 8 qubits at 4096 shots. Mitigation uses
+XY4 dynamical decoupling + gate and measurement twirling. Both runs
+find the same best 3-of-8 portfolio as the classical exact solver,
+which is consistency at this scale (not advantage).
+
+### DeFi pool universe (current, matches the pitch)
+
 | | |
 |---|---|
-| Backend | `ibm_marrakesh` (IBM Heron r2, 156 qubits) |
-| Circuit | depth-2 XY-mixer QAOA, 8 qubits |
-| Shots | 4096 per run |
+| Optimal selection | Morpho STEAKETH · Neverland USDC · shMONAD (all Monad) |
+| Raw job ID | [`d89rmk1789is7393mlr0`](https://quantum.ibm.com/jobs/d89rmk1789is7393mlr0) |
+| Mitigated job ID | [`d89rmlqs46sc73fb0qc0`](https://quantum.ibm.com/jobs/d89rmlqs46sc73fb0qc0) |
+| Mitigation lift in P(optimal) | **+67 %** (0.3 % → 0.5 %) |
+
+### MVP stock universe (earlier baseline, kept for comparison)
+
+| | |
+|---|---|
+| Optimal selection | GLD · SLV · NVDA |
 | Raw job ID | [`d88f7qis46sc73f9cjd0`](https://quantum.ibm.com/jobs/d88f7qis46sc73f9cjd0) |
 | Mitigated job ID | [`d88f7sdg7okc73enff00`](https://quantum.ibm.com/jobs/d88f7sdg7okc73enff00) |
 | Mitigation lift in P(optimal) | **+22.7 %** (0.537 % → 0.659 %) |
-
-The mitigated circuit uses XY4 dynamical decoupling on idle qubits +
-gate and measurement twirling. Both runs find the same best
-3-of-8 portfolio (`GLD, SLV, NVDA`) as the classical exact solver — at
-this scale that is consistency, not advantage.
 
 ## Reproducing
 

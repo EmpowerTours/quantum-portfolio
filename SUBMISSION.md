@@ -33,23 +33,36 @@ addresses both inside one coherent pipeline.
 
 ### Verifiable quantum hardware execution
 
-A depth-2 QAOA with an **XY-mixer** (Hamadfield et al.'s
+A depth-2 QAOA with an **XY-mixer** (Hadfield et al.'s
 Quantum Alternating Operator Ansatz, Hamming-weight-conserving) runs on
-IBM Heron silicon (`ibm_marrakesh`). Two job IDs are baked into the
-artefacts and verifiable on https://quantum.ibm.com:
+IBM Heron silicon (`ibm_marrakesh`). **Two real-hardware runs**, both
+verifiable on https://quantum.ibm.com:
+
+**DeFi-pool universe (matches the pitch):**
 
 | | |
 |---|---|
-| Raw run | [`d88f7qis46sc73f9cjd0`](https://quantum.ibm.com/jobs/d88f7qis46sc73f9cjd0) |
-| Mitigated run (XY4 DD + measurement twirling) | [`d88f7sdg7okc73enff00`](https://quantum.ibm.com/jobs/d88f7sdg7okc73enff00) |
-| P(optimal) lift from mitigation | **+22.7 %** (0.537 % → 0.659 %) |
-| Mitigated run finds the same optimum as the classical exact solver | ✓ |
+| Optimal selection | Morpho STEAKETH · Neverland USDC · shMONAD (all Monad pools) |
+| Raw job ID | [`d89rmk1789is7393mlr0`](https://quantum.ibm.com/jobs/d89rmk1789is7393mlr0) |
+| Mitigated job ID (XY4 DD + measurement twirling) | [`d89rmlqs46sc73fb0qc0`](https://quantum.ibm.com/jobs/d89rmlqs46sc73fb0qc0) |
+| Mitigation lift in P(optimal) | **+67 %** (0.3 % → 0.5 %) |
+
+**Stocks-universe baseline (earlier MVP run, kept for comparison):**
+
+| | |
+|---|---|
+| Raw job ID | [`d88f7qis46sc73f9cjd0`](https://quantum.ibm.com/jobs/d88f7qis46sc73f9cjd0) |
+| Mitigated job ID | [`d88f7sdg7okc73enff00`](https://quantum.ibm.com/jobs/d88f7sdg7okc73enff00) |
+| Mitigation lift in P(optimal) | **+22.7 %** (0.537 % → 0.659 %) |
+
+Both DeFi runs and both stock runs find the **same** optimum as the
+classical exact solver, on every method (sim, HW raw, HW mitigated).
 
 **Honest framing baked into the app:** at 8-qubit scale the classical
 exact solver beats both QPU runs in wall-clock time. The value
-demonstrated is the *hybrid pipeline* and the *isolated lift* from
-error mitigation, not quantum advantage. Quantum advantage is not
-claimed.
+demonstrated is the *hybrid pipeline*, the *cohesion* between the pitch
+and the hardware, and the *isolated lift* from error mitigation —
+not quantum advantage. Quantum advantage is not claimed.
 
 ### AI forecasting layer
 

@@ -20,7 +20,20 @@ from src.solvers import portfolio_metrics, solve_exact, solve_qaoa_sim
 st.set_page_config(page_title="EmpowerTours · Quantum-Safe DeFi Agents",
                    page_icon="⚛️", layout="wide")
 
-HW_FILE = Path("outputs/hardware_run.json")
+HW_FILE_DEFI   = Path("outputs/hardware_run_defi.json")
+HW_FILE_STOCKS = Path("outputs/hardware_run.json")
+
+
+def _hw_file() -> Path | None:
+    """Prefer the DeFi-universe run if both exist; fall back to stocks."""
+    if HW_FILE_DEFI.exists():
+        return HW_FILE_DEFI
+    if HW_FILE_STOCKS.exists():
+        return HW_FILE_STOCKS
+    return None
+
+
+HW_FILE = _hw_file()
 
 
 # ---------- caching ----------
@@ -219,14 +232,21 @@ with tab_bt:
 
 with tab_hw:
     st.subheader("Cached real-hardware run (IBM Heron QPU)")
-    st.caption("The hardware run was executed on an 8-asset MVP universe; the "
-               "QAOA pipeline is data-agnostic and identical for the DeFi "
-               "universe. Re-run on DeFi yields is a future milestone.")
-    if not HW_FILE.exists():
-        st.info("No hardware run yet. Run `python run_hardware.py` from the "
-                "project root to populate this.")
+    if HW_FILE is None:
+        st.info("No hardware run yet. Run `python run_hardware.py --universe "
+                "defi` from the project root to populate this.")
     else:
         data = json.loads(HW_FILE.read_text())
+        universe = data.get("universe", "stocks")
+        st.caption(
+            f"Active artefact: `{HW_FILE.name}` — universe: **{universe}**. "
+            + (
+                "Matches the live DeFi pool universe displayed in the other tabs."
+                if universe == "defi"
+                else "Run `python run_hardware.py --universe defi` to "
+                     "re-execute on the live DeFi pool universe."
+            )
+        )
         st.markdown(
             f"**Backend:** `{data['backend']}` · **Shots:** "
             f"{data['shots']} · **Reps:** {data['reps']}"

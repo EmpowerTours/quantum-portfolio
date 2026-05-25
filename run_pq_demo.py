@@ -17,17 +17,28 @@ from pathlib import Path
 
 from src import orders, pq_signing as pq
 
-HARDWARE_RUN = Path("outputs/hardware_run.json")
-KEYS_DIR     = Path("keys")
+HARDWARE_RUN_DEFI   = Path("outputs/hardware_run_defi.json")
+HARDWARE_RUN_STOCKS = Path("outputs/hardware_run.json")
+KEYS_DIR            = Path("keys")
+
+
+def _pick_hardware_run() -> Path:
+    """Prefer the DeFi-universe run when both are present (it matches the
+    project's pitch); fall back to the cached stocks run."""
+    if HARDWARE_RUN_DEFI.exists():
+        return HARDWARE_RUN_DEFI
+    if HARDWARE_RUN_STOCKS.exists():
+        return HARDWARE_RUN_STOCKS
+    raise SystemExit(
+        "no hardware-run artefact found — run `python run_hardware.py "
+        "--universe defi` first."
+    )
 
 
 def main() -> None:
-    if not HARDWARE_RUN.exists():
-        raise SystemExit(
-            f"{HARDWARE_RUN} not found — run `python run_hardware.py` first "
-            "(or use a cached result)."
-        )
-    hw = json.loads(HARDWARE_RUN.read_text())
+    run_path = _pick_hardware_run()
+    print(f"Using hardware artefact: {run_path}")
+    hw = json.loads(run_path.read_text())
     tickers       = hw["tickers"]
     optimal_idx   = hw["optimal"]["selection"]
     optimal_obj   = hw["optimal"]["objective"]
