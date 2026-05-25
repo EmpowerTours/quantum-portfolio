@@ -1,4 +1,4 @@
-"""Streamlit UI for Quantum-Safe DeFi Trading Agents (Monad-primary).
+"""Streamlit UI for Quantum-Safe DeFi Allocation Agents (Monad-primary).
 
   streamlit run app.py
 """
@@ -45,7 +45,7 @@ def fetch_defi(days: int):
 
 # ---------- header ----------
 
-st.title("⚛️  Quantum-Safe DeFi Trading Agents")
+st.title("⚛️  Quantum-Safe DeFi Allocation Agents")
 st.caption("Monad-primary · IBM-quantum-optimized · post-quantum-secured  "
            "·  EmpowerTours SAS de CV  ·  Santander X Quantum AI Challenge")
 

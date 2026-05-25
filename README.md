@@ -1,14 +1,14 @@
-# Quantum-Safe DeFi Trading Agents
+# Quantum-Safe DeFi Allocation Agents
 
 End-to-end pipeline for autonomous DeFi yield-pool selection that uses
 hybrid quantum-classical optimisation and signs every rebalance order
 with post-quantum cryptography.
 
-- **Quantum**: portfolio QUBO solved with XY-mixer QAOA (Hadfield et al.'s
-  Quantum Alternating Operator Ansatz, Hamming-weight-conserving) on a
-  real IBM Heron QPU (`ibm_marrakesh`), raw and with dynamical-decoupling
-  + measurement-twirling error mitigation. Verifiable job IDs are baked
-  into the artefacts.
+- **Quantum**: portfolio QUBO solved with **depth-2 QAOA** (budget
+  enforced as a quadratic penalty in the cost Hamiltonian) on a real
+  IBM Heron QPU (`ibm_marrakesh`), raw and with XY4 dynamical
+  decoupling + gate and measurement twirling for error suppression.
+  Verifiable job IDs are baked into the artefacts.
 - **AI**: per-asset Ridge regression with technical features, trained
   walk-forward (no lookahead), feeds the QUBO's expected-return vector.
   Covariance is Ledoit-Wolf shrunk.
@@ -46,10 +46,10 @@ English).
 ## Verifiable hardware results
 
 Two real-hardware runs on `ibm_marrakesh` (IBM Heron r2, 156 qubits) —
-both depth-2 XY-mixer QAOA on 8 qubits at 4096 shots. Mitigation uses
-XY4 dynamical decoupling + gate and measurement twirling. Both runs
-find the same best 3-of-8 portfolio as the classical exact solver,
-which is consistency at this scale (not advantage).
+both depth-2 penalty-QAOA on 8 qubits at 4096 shots. Hardware error
+suppression: XY4 dynamical decoupling + gate and measurement twirling.
+Both runs find the same best 3-of-8 portfolio as the classical exact
+solver, which is consistency at this scale (not advantage).
 
 ### DeFi pool universe (current, matches the pitch)
 
@@ -103,9 +103,9 @@ python run_backtest.py
 │   ├── orders.py                RebalanceOrder + audit log
 │   ├── pq_signing.py            ML-DSA-65 signing primitives
 │   ├── problem.py               Portfolio QUBO builder
-│   ├── qaoa_hw.py               QAOA on hardware (raw / mitigated)
+│   ├── qaoa_hw.py               Penalty-QAOA on hardware (raw / mitigated)
 │   ├── solvers.py               Classical exact + QAOA-sim solvers
-│   └── xy_qaoa.py               XY-mixer QAOA (Hamming-conserving)
+│   └── xy_qaoa.py               XY-mixer QAOA reference implementation (not in current HW path)
 ├── tests/
 │   └── test_pq_signing.py       7 round-trip + tampering tests
 ├── outputs/
@@ -119,10 +119,11 @@ python run_backtest.py
 
 ## Acknowledgements
 
-QAOA and the XY mixer come from Farhi et al. (2014) and Hadfield et al.
-(2017) respectively. The portfolio formulation follows Mugel et al.
-(2022). ML-DSA-65 follows NIST FIPS 204 (2024); we use the
-`dilithium-py` pure-Python implementation by Giacomo Pope.
+QAOA comes from Farhi et al. (2014). The portfolio formulation follows
+Mugel et al. (2022). The XY-mixer reference implementation in
+`src/xy_qaoa.py` follows Hadfield et al. (2017) but is not on the
+current hardware path. ML-DSA-65 follows NIST FIPS 204 (2024); we use
+the `dilithium-py` pure-Python implementation by Giacomo Pope.
 
 ## License
 

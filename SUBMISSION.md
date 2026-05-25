@@ -1,6 +1,6 @@
 # Santander X Global Challenge — Quantum AI Leap Submission
 
-## Project: Quantum-Safe DeFi Trading Agents
+## Project: Quantum-Safe DeFi Allocation Agents
 
 Autonomous agents that allocate capital across DeFi yield pools using
 hybrid quantum-classical optimisation running on a real IBM Heron QPU,
@@ -33,10 +33,13 @@ addresses both inside one coherent pipeline.
 
 ### Verifiable quantum hardware execution
 
-A depth-2 QAOA with an **XY-mixer** (Hadfield et al.'s
-Quantum Alternating Operator Ansatz, Hamming-weight-conserving) runs on
-IBM Heron silicon (`ibm_marrakesh`). **Two real-hardware runs**, both
-verifiable on https://quantum.ibm.com:
+A **depth-2 QAOA** with the budget constraint enforced as a quadratic
+penalty in the cost Hamiltonian runs on IBM Heron silicon
+(`ibm_marrakesh`). Hardware error is suppressed at the sampler level
+with **XY4 dynamical decoupling, gate twirling, and measurement
+twirling** (Qiskit Runtime sampler options; see
+`src/qaoa_hw.py:140-148`). **Two real-hardware runs**, both verifiable
+on https://quantum.ibm.com:
 
 **DeFi-pool universe (matches the pitch):**
 

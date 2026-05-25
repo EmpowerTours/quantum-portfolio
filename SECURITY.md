@@ -1,4 +1,4 @@
-# Security model — Quantum-Safe DeFi Trading Agents
+# Security model — Quantum-Safe DeFi Allocation Agents
 
 This document is intentionally specific about *what is protected* and
 *what is not* by the current implementation. It is meant for a Santander X
