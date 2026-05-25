@@ -1,0 +1,17 @@
+# Top-level runtime dependencies. Pinned to the versions verified against
+# the cached hardware run in outputs/hardware_run.json (Python 3.12).
+qiskit==2.4.1
+qiskit-aer==0.17.2
+qiskit-ibm-runtime==0.47.0
+qiskit-optimization==0.7.0
+qiskit-finance==0.4.1
+qiskit-algorithms==0.4.0
+numpy>=1.26,<3
+pandas>=2.2
+scipy>=1.13
+scikit-learn>=1.5
+streamlit==1.57.0
+yfinance==1.3.0
+requests>=2.31
+python-dotenv>=1.0
+dilithium-py>=0.3.0

@@ -1,0 +1,427 @@
+"""Streamlit UI for Quantum-Safe DeFi Trading Agents (Monad-primary).
+
+  streamlit run app.py
+"""
+from __future__ import annotations
+
+import json
+from dataclasses import replace
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
+
+from src.ai_forecast import forecast
+from src.backtest import run_backtest
+from src.defi_data import get_defi_market_data
+from src.problem import build_problem
+from src.solvers import portfolio_metrics, solve_exact, solve_qaoa_sim
+
+st.set_page_config(page_title="EmpowerTours · Quantum-Safe DeFi Agents",
+                   page_icon="⚛️", layout="wide")
+
+HW_FILE = Path("outputs/hardware_run.json")
+
+
+# ---------- caching ----------
+
+@st.cache_data(show_spinner=False, ttl=900)  # 15 min cache for live DeFi data
+def fetch_defi(days: int):
+    return get_defi_market_data(days=days)
+
+
+# ---------- header ----------
+
+st.title("⚛️  Quantum-Safe DeFi Trading Agents")
+st.caption("Monad-primary · IBM-quantum-optimized · post-quantum-secured  "
+           "·  EmpowerTours SAS de CV  ·  Santander X Quantum AI Challenge")
+
+with st.expander("What this is, in one paragraph", expanded=False):
+    st.markdown(
+        "Autonomous AI agents that allocate user capital across **DeFi yield "
+        "pools** using **quantum-AI optimization** running on a real **IBM "
+        "Heron QPU**, and protect every transaction with **post-quantum "
+        "cryptography** so customers are ready when quantum computers break "
+        "today's wallets (Q-Day). Monad-native — the high-throughput parallel "
+        "EVM where on-chain agent rebalancing is economically viable. "
+        "EVM-compatible, so the agents can reach yield across the broader "
+        "DeFi ecosystem. **Honest framing:** at this scale a classical "
+        "optimizer is faster than the QPU; the value is the hybrid pipeline, "
+        "verifiable IBM hardware adoption, and the Q-Day-ready cryptography "
+        "stack."
+    )
+
+
+# ---------- sidebar ----------
+
+with st.sidebar:
+    st.header("Configure")
+    days = st.selectbox("Yield history window", [90, 180, 365], index=2,
+                        help="Days of pool APY history to pull from DeFiLlama.")
+    st.caption("Refresh data: cache TTL 15 min")
+
+with st.spinner("Fetching live DeFi yields from DeFiLlama..."):
+    market = fetch_defi(days)
+tickers = market.tickers
+
+with st.sidebar:
+    budget = st.slider("Pools to select (budget)", 1,
+                       max(2, len(tickers)),
+                       min(3, len(tickers)))
+    risk_factor = st.slider("Risk factor q", 0.0, 2.0, 0.5, 0.1,
+                            help="Higher q penalizes yield-volatility more.")
+    reps = st.slider("QAOA reps", 1, 4, 2)
+    st.divider()
+    st.markdown("**Pool universe** (live)")
+    for t in tickers:
+        st.caption(f"• {t}")
+
+
+# ---------- main ----------
+
+problem = build_problem(market, budget=budget, risk_factor=risk_factor)
+
+c1, c2, c3 = st.columns(3)
+c1.metric("Pools in universe", len(market.tickers))
+c2.metric("Budget (pools to hold)", budget)
+c3.metric("Data source", market.source)
+
+tab_run, tab_ai, tab_bt, tab_hw, tab_pq, tab_about = st.tabs(
+    ["Run optimizer", "AI forecasts", "Backtest",
+     "Hardware verification", "PQ signing", "Methodology"]
+)
+
+
+# ---------- Tab: Run optimizer ----------
+
+with tab_run:
+    if st.button("Solve (classical exact + QAOA on simulator)", type="primary"):
+        with st.spinner("Solving classically (exact baseline)..."):
+            exact = solve_exact(problem)
+        with st.spinner(f"Solving with QAOA on simulator (reps={reps})..."):
+            qaoa = solve_qaoa_sim(problem, reps=reps)
+
+        rows = []
+        for r in (exact, qaoa):
+            m = portfolio_metrics(problem, market.mu, market.sigma, r.selection)
+            rows.append({
+                "Method": r.method,
+                "Pools selected": ", ".join(market.tickers[i] for i in r.selection),
+                "Objective": round(r.objective, 5),
+                "Expected APY": f"{m['return']:+.2%}",
+                "Yield vol": f"{m['volatility']:.2%}",
+                "Time (s)": round(r.runtime_s, 3),
+            })
+        df = pd.DataFrame(rows)
+        st.subheader("Comparison")
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+        match = set(exact.selection) == set(qaoa.selection)
+        if match:
+            st.success("QAOA matched the provably-optimal classical solution.")
+        else:
+            st.warning("QAOA found a different selection — increase reps "
+                       "to improve.")
+
+        st.subheader("Selected pool allocation (equal-weight)")
+        sel = exact.selection
+        weights = pd.DataFrame({
+            "Pool": [market.tickers[i] for i in sel],
+            "Weight": [f"{1.0 / len(sel):.1%}"] * len(sel),
+            "Current APY": [f"{market.mu[i]:.2%}" for i in sel],
+        })
+        st.dataframe(weights, use_container_width=True, hide_index=True)
+        st.caption("Yield-volatility (not price-volatility) is what's modeled "
+                   "here. For pools with underlying token-price risk (e.g. "
+                   "shMONAD), price-risk modeling is the next layer.")
+
+
+# ---------- Tab: AI forecasts ----------
+
+with tab_ai:
+    st.markdown(
+        "Per-pool **Ridge regression** on yield features (lagged yield growth, "
+        "yield-volatility, momentum). Trained walk-forward on the pool's APY "
+        "history up to the as-of date; no lookahead. Replaces the naive "
+        "trailing-mean yield with a model-based forecast that feeds the QUBO."
+    )
+    if st.button("Generate AI yield forecast", type="primary"):
+        with st.spinner("Training per-pool Ridge models..."):
+            f = forecast(market.prices)
+        rows = []
+        for i, t in enumerate(f.tickers):
+            rows.append({
+                "Pool": t,
+                "APY (current)": f"{market.mu[i]:.2%}",
+                "APY (AI forecast)": f"{f.mu_hat[i]:.2%}",
+                "in-sample R²": (round(f.model_r2[t], 3)
+                                  if not pd.isna(f.model_r2[t]) else "n/a"),
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True,
+                     hide_index=True)
+        st.caption(f"Forecast as of {f.as_of.date()}. "
+                   "Low R² is normal for yield prediction; this is a "
+                   "*baseline forecaster*, not an alpha claim.")
+
+        ai_market = replace(market, mu=f.mu_hat, sigma=f.sigma_hat)
+        prob_ai = build_problem(ai_market, budget=budget,
+                                 risk_factor=risk_factor)
+        prob_hist = build_problem(market, budget=budget,
+                                   risk_factor=risk_factor)
+        sel_hist = solve_exact(prob_hist).selection
+        sel_ai = solve_exact(prob_ai).selection
+        c1, c2 = st.columns(2)
+        c1.markdown("**Selection with historical μ:**\n\n" +
+                    ", ".join(market.tickers[i] for i in sel_hist))
+        c2.markdown("**Selection with AI-forecast μ:**\n\n" +
+                    ", ".join(market.tickers[i] for i in sel_ai))
+
+
+# ---------- Tab: Backtest ----------
+
+with tab_bt:
+    st.markdown(
+        "**Walk-forward, monthly rebalance.** At each rebalance the AI "
+        "forecaster is refit on prior pool-yield data only (no lookahead), "
+        "the QUBO is solved, and the strategy holds equal-weight in the "
+        "selected pools until the next rebalance. Benchmark: equal-weight "
+        "across the entire pool universe."
+    )
+    st.caption("Honest framing: this demonstrates the pipeline running on "
+               "real DeFi yields, not a proven trading strategy. Backtests "
+               "are easy to overfit.")
+    bt_warmup = st.selectbox("Warmup", ["1y"], index=0,
+                             help="Need enough history for AI features.")
+    if st.button("Run walk-forward backtest", type="primary"):
+        with st.spinner("Refitting and rebalancing month by month..."):
+            res = run_backtest(market, budget=budget,
+                                risk_factor=risk_factor,
+                                warmup=bt_warmup, use_ai=True)
+        rows = []
+        for strat, m in res.metrics.items():
+            rows.append({
+                "Strategy": strat,
+                "Total return": f"{m['total_return']:+.2%}",
+                "Ann. return": f"{m['ann_return']:+.2%}",
+                "Ann. vol": f"{m['ann_vol']:.2%}",
+                "Sharpe": f"{m['sharpe']:+.2f}",
+                "Max drawdown": f"{m['max_drawdown']:.2%}",
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True,
+                     hide_index=True)
+        st.line_chart(res.equity, use_container_width=True)
+        st.caption(f"Rebalances: {len(res.selections)}  · "
+                    f"backtest start: {res.equity.index[0].date()}  · "
+                    f"end: {res.equity.index[-1].date()}")
+
+
+# ---------- Tab: Hardware verification ----------
+
+with tab_hw:
+    st.subheader("Cached real-hardware run (IBM Heron QPU)")
+    st.caption("The hardware run was executed on an 8-asset MVP universe; the "
+               "QAOA pipeline is data-agnostic and identical for the DeFi "
+               "universe. Re-run on DeFi yields is a future milestone.")
+    if not HW_FILE.exists():
+        st.info("No hardware run yet. Run `python run_hardware.py` from the "
+                "project root to populate this.")
+    else:
+        data = json.loads(HW_FILE.read_text())
+        st.markdown(
+            f"**Backend:** `{data['backend']}` · **Shots:** "
+            f"{data['shots']} · **Reps:** {data['reps']}"
+        )
+
+        rows = [{
+            "Method": "Classical (exact)",
+            "Best objective": round(data["optimal"]["objective"], 4),
+            "P(optimal)": 1.0,
+            "Job ID": "—",
+        }]
+        for r in data["results"]:
+            jid = r.get("job_id")
+            rows.append({
+                "Method": r["method"],
+                "Best objective": round(r["best_objective"], 4),
+                "P(optimal)": round(r["p_optimal"], 4),
+                "Job ID": (
+                    f"[{jid}](https://quantum.ibm.com/jobs/{jid})"
+                    if jid else "—"
+                ),
+            })
+        st.dataframe(
+            pd.DataFrame(rows), use_container_width=True, hide_index=True,
+            column_config={
+                "Job ID": st.column_config.LinkColumn(
+                    "Job ID",
+                    display_text=r"d[a-z0-9]+",
+                    help="Click to verify the job on IBM Quantum",
+                ),
+            },
+        )
+
+        hw_results = [r for r in data["results"] if r.get("job_id")]
+        if len(hw_results) >= 2:
+            raw = next(r for r in hw_results if "raw" in r["method"].lower())
+            mit = next(r for r in hw_results if "mitig" in r["method"].lower())
+            lift = (mit["p_optimal"] - raw["p_optimal"]) / max(
+                raw["p_optimal"], 1e-9) * 100
+            st.metric("Mitigation lift in P(optimal)", f"{lift:+.1f}%")
+
+        chart = Path("outputs/p_optimal.png")
+        if chart.exists():
+            st.image(str(chart), caption="P(optimal) by method "
+                     "(IBM Heron + error mitigation)")
+
+    st.divider()
+    st.markdown(
+        "**Reproducing the hardware run:**  `python run_hardware.py` "
+        "(needs `IBM_QUANTUM_TOKEN` in `.env`).  This re-submits the same "
+        "tuned QAOA circuit to the least-busy Heron-class QPU; raw vs "
+        "mitigated jobs are run back-to-back so the lift attributable to "
+        "DD + measurement twirling is isolated from drift."
+    )
+    st.caption("Open IBM Quantum dashboard to verify the job IDs above: "
+               "https://quantum.ibm.com")
+
+
+# ---------- Tab: PQ signing ----------
+
+with tab_pq:
+    st.markdown(
+        "Every rebalance order the agent issues is signed with "
+        "**ML-DSA-65 (NIST FIPS 204)** — the lattice-based digital "
+        "signature scheme finalised in 2024 for post-quantum protection. "
+        "The signature binds the QPU job ID, pool selection, weights, and "
+        "a UUID nonce together so a Q-Day-capable attacker still cannot "
+        "forge, tamper with, or replay a recorded order."
+    )
+    st.caption("Read SECURITY.md for the full threat model: what this "
+               "protects, and what it deliberately does not (on-chain "
+               "ECDSA, off-chain data poisoning, HSM key storage).")
+
+    from pathlib import Path as _Path
+
+    from src import orders as _orders
+    from src import pq_signing as _pq
+
+    KEYS_DIR = _Path("keys")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Algorithm", _pq.ALGORITHM.split(" ")[0])
+    col2.metric("Public key", f"{_pq.PUBLIC_KEY_BYTES} B")
+    col3.metric("Signature (max)", f"{_pq.SIGNATURE_BYTES_MAX} B")
+
+    st.divider()
+
+    # show keypair status
+    kp = _pq.ensure_keypair(KEYS_DIR)
+    st.success(
+        f"Keypair loaded from `{KEYS_DIR}/` "
+        f"(public key SHA-256 = `{__import__('hashlib').sha256(kp.pk).hexdigest()[:16]}...`)"
+    )
+
+    # sign-an-order interactive demo
+    st.subheader("Sign a sample order")
+    sel_default = ", ".join(market.tickers[:budget])
+    text_sel = st.text_input("Pools (comma-separated)", value=sel_default)
+    note = st.text_input("Note (optional, gets hashed into the digest)",
+                         value="manual demo from Streamlit")
+    if st.button("Sign with ML-DSA-65", type="primary", key="sign_btn"):
+        pools = [p.strip() for p in text_sel.split(",") if p.strip()]
+        w = [1.0 / len(pools)] * len(pools) if pools else []
+        order = _orders.RebalanceOrder(
+            pools=pools, weights=w,
+            expected_return=0.0, expected_vol=0.0,
+        )
+        try:
+            signed = _orders.sign_order(order, kp)
+            ok = _orders.verify_signed_order(signed)
+            st.json({
+                "order_id": order.order_id,
+                "nonce":    order.nonce,
+                "issued":   order.issued_at,
+                "pools":    order.pools,
+                "digest":   signed.message_digest_sha256,
+                "algorithm": signed.algorithm,
+                "signature_b64_truncated": signed.signature_b64[:64] + "...",
+                "verified": ok,
+            })
+
+            tampered = _orders.SignedOrder(
+                order=_orders.RebalanceOrder(
+                    **{**order.to_dict(), "pools": pools + ["EVIL_POOL"]}
+                ),
+                algorithm=signed.algorithm,
+                public_key_b64=signed.public_key_b64,
+                signature_b64=signed.signature_b64,
+                message_digest_sha256=signed.message_digest_sha256,
+            )
+            st.caption(
+                f"Tamper test (added 'EVIL_POOL'): verify = "
+                f"**{_orders.verify_signed_order(tampered)}** (must be False)"
+            )
+            _orders.append_audit(signed)
+            st.caption(f"Appended to `{_orders.AUDIT_LOG_PATH}`")
+        except _orders.NonceSeenError as e:
+            st.error(f"Replay blocked: {e}")
+
+    st.divider()
+
+    # show recent audit log
+    log_path = _orders.AUDIT_LOG_PATH
+    if log_path.exists():
+        lines = log_path.read_text().strip().splitlines()
+        st.subheader(f"Audit log — {len(lines)} entries")
+        for line in lines[-5:]:
+            import json as _json
+            entry = _json.loads(line)
+            with st.expander(
+                f"{entry['order']['issued_at']}  ·  "
+                f"{', '.join(entry['order']['pools'])}  ·  "
+                f"verified={entry.get('verified_at_sign_time', '?')}"
+            ):
+                st.code(_json.dumps(entry, indent=2)[:2000], language="json")
+    else:
+        st.info("No audit-log entries yet — sign an order above to generate one.")
+
+
+# ---------- Tab: Methodology ----------
+
+with tab_about:
+    st.markdown(
+        """
+**Pipeline.**
+1. Pull live pool yields from **DeFiLlama** for a curated universe (Monad
+   pools primary; major Ethereum stablecoin pools for breadth).
+2. Compute annualized expected APY and a yield-return covariance matrix.
+3. Formulate budget-constrained pool selection as a **QUBO** via
+   `qiskit-finance`.
+4. Solve three ways: classical exact (`NumPyMinimumEigensolver`), **QAOA on
+   simulator** (`StatevectorSampler`), **QAOA on a real IBM Heron QPU** via
+   Qiskit Runtime `SamplerV2`.
+5. Apply **error mitigation** on hardware: dynamical decoupling (XY4) and
+   measurement twirling.
+6. **AI yield-forecasting layer** (Ridge regression per pool) refines the
+   expected-APY input for the QUBO.
+7. The agent signs the resulting rebalance transaction with **post-quantum
+   cryptography** (ML-DSA) so it survives Q-Day — and executes on Monad.
+
+**Honest framing for judges.**
+At an 8-pool scale, classical solvers are provably optimal and faster. We do
+**not** claim quantum advantage. The value is:
+- The **hybrid pipeline** is built and runs on IBM's real Heron hardware,
+  benefiting from their error mitigation (the "quantum utility" thesis).
+- Verifiable IBM job IDs on the IBM Quantum platform.
+- **Monad-primary** by both math (the optimizer picks Monad pools) and
+  architecture (Monad's parallel EVM is where high-frequency agent
+  rebalancing is economically viable).
+- **Q-Day-ready cryptography** stack: post-quantum signatures on every
+  transaction the agent emits.
+
+**What this MVP does not yet model**: underlying token-price risk (covered
+under yield-vol-only assumption), live on-chain execution (the agent emits
+the *intended* tx, settling layer is the next milestone), the hardware-wallet
+form factor (cryptography is implemented; HW form factor is productization).
+        """
+    )

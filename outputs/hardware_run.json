@@ -1,0 +1,60 @@
+{
+  "backend": "ibm_marrakesh",
+  "shots": 4096,
+  "reps": 2,
+  "tickers": [
+    "PPLT",
+    "GLD",
+    "SLV",
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "JPM",
+    "XOM"
+  ],
+  "budget": 3,
+  "optimal": {
+    "selection": [
+      1,
+      2,
+      5
+    ],
+    "objective": -1.0201745154039996
+  },
+  "random_baseline_objective": -0.9023852710535205,
+  "results": [
+    {
+      "method": "QAOA (sim, tuned)",
+      "best_selection": [
+        1,
+        2,
+        5
+      ],
+      "best_objective": -1.0201745154039996,
+      "p_optimal": 0.01904296875,
+      "job_id": null
+    },
+    {
+      "method": "QAOA (hw, raw)",
+      "best_selection": [
+        1,
+        2,
+        5
+      ],
+      "best_objective": -1.0201745154039996,
+      "p_optimal": 0.00537109375,
+      "job_id": "d88f7qis46sc73f9cjd0"
+    },
+    {
+      "method": "QAOA (hw, mitigated)",
+      "best_selection": [
+        1,
+        2,
+        5
+      ],
+      "best_objective": -1.0201745154039996,
+      "p_optimal": 0.006591796875,
+      "job_id": "d88f7sdg7okc73enff00"
+    }
+  ]
+}
