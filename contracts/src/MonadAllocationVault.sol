@@ -110,15 +110,19 @@ contract MonadAllocationVault {
     }
 
     /// @notice Convenience: vault's total MON balance. NOTE: this returns
-    ///         `address(this).balance`, which a hostile contract could
-    ///         inflate by SELFDESTRUCTing with the vault as recipient
+    ///         `address(this).balance`, which any force-credit vector
+    ///         can inflate without going through `execute`. Vectors
+    ///         include: (a) `SELFDESTRUCT` with vault as recipient
     ///         (still possible from contracts deployed before Cancun's
-    ///         selfdestruct restriction). The accurate per-user accounting
-    ///         lives in `deposits[user][orderHash]` and is unaffected by
-    ///         force-sent ETH. Use this view only for monitoring, not for
-    ///         protocol invariants. A future mainnet redeploy can switch
-    ///         to an explicit `internalBalance` counter if external
-    ///         invariants need to depend on it.
+    ///         restriction); (b) `block.coinbase` set to the vault
+    ///         (a validator-side attack on PoS chains, real on Monad);
+    ///         (c) genesis prefunding (irrelevant post-deploy). The
+    ///         accurate per-user accounting lives in
+    ///         `deposits[user][orderHash]` and is unaffected. Use this
+    ///         view only for monitoring, not for protocol invariants.
+    ///         A future mainnet redeploy can switch to an explicit
+    ///         `internalBalance` counter if external invariants need
+    ///         to depend on it.
     function totalLocked() external view returns (uint256) {
         return address(this).balance;
     }

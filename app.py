@@ -517,8 +517,10 @@ with tab_about:
    measurement twirling.
 6. **AI yield-forecasting layer** (Ridge regression per pool) refines the
    expected-APY input for the QUBO.
-7. The agent signs the resulting rebalance transaction with **post-quantum
-   cryptography** (ML-DSA) so it survives Q-Day — and executes on Monad.
+7. The agent signs the resulting rebalance order with **hedged post-quantum
+   cryptography** (ML-DSA + SLH-DSA + Ed25519) so the off-chain audit trail
+   survives Q-Day — and anchors the SHA-256 on Monad via AuditAnchor.sol,
+   with an optional MonadAllocationVault deposit for custody-with-attribution.
 
 **Honest framing for judges.**
 At an 8-pool scale, classical solvers are provably optimal and faster. We do
@@ -533,7 +535,7 @@ At an 8-pool scale, classical solvers are provably optimal and faster. We do
   transaction the agent emits.
 
 **What this MVP does not yet model**: underlying token-price risk (covered
-under yield-vol-only assumption), live on-chain execution (the agent emits
+under yield-vol-only assumption), live on-chain custody anchoring (the agent emits
 the *intended* tx, settling layer is the next milestone), the hardware-wallet
 form factor (cryptography is implemented; HW form factor is productization).
         """

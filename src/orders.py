@@ -209,7 +209,16 @@ def verify_signed_order(signed: SignedOrder) -> bool:
     present (SLH-DSA, Ed25519), verifies those too. Returns True only if
     EVERY present signature verifies — an attacker who breaks one scheme
     still cannot pass this check on a hedged order.
+
+    Schema-version policy: orders with a schema_version GREATER than the
+    current code's SCHEMA_VERSION are rejected (we cannot reason about
+    fields we do not know how to canonicalise). Older schema versions
+    still verify — adding fields is the only way schemas evolve, and an
+    older order's canonical bytes are a strict prefix of what a current
+    signer would produce when re-signed.
     """
+    if signed.order.schema_version > SCHEMA_VERSION:
+        return False
     payload = signed.order.to_dict()
     pk  = base64.b64decode(signed.public_key_b64)
     sig = base64.b64decode(signed.signature_b64)

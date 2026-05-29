@@ -124,7 +124,7 @@ python run_backtest.py
 │   ├── script/Deploy.s.sol            deploys AuditAnchor
 │   └── script/DeployVault.s.sol       deploys MonadAllocationVault
 ├── tests/
-│   ├── test_pq_signing.py       24 round-trip + tampering + concurrency tests
+│   ├── test_pq_signing.py       26 round-trip + tampering + concurrency + schema-version tests
 │   └── test_monad_tx.py         22 calldata + AuditAnchor + vault tests
 ├── outputs/
 │   ├── hardware_run.json        Cached IBM-QPU result

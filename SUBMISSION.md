@@ -11,11 +11,18 @@ audit trail survives the cryptographically relevant quantum era
 **Repository:** https://github.com/EmpowerTours/quantum-portfolio
 **License:** MIT
 **Applicant:** EmpowerTours SAS de CV (Mexico)
-**Application areas:** Area 2 — *Quantum Software and AI-Driven
-Intelligence* (hybrid algorithms, applications in finance) — and
-Area 3 — *Digital Infrastructure Secured Against Quantum Computing*
-(post-quantum cryptography, digital identity). This submission targets
-both areas in one coherent pipeline.
+**Application areas:** **Area 3 (primary)** — *Digital Infrastructure
+Secured Against Quantum Computing*: a hedged PQ-signed off-chain
+order layer with on-chain custody anchoring, live on Monad testnet,
+Monadscan-verified, end-to-end reviewer-reproducible. **Area 2
+(secondary)** — *Quantum Software and AI-Driven Intelligence*: a
+hybrid QAOA + Ridge-regression pipeline running on a real IBM Heron
+QPU with honest framing (no quantum advantage at 8 qubits; AI
+underperforms equal-weight 1.59 vs 2.11 Sharpe on a lookahead-free
+backtest). Area 2 is positioned as *infrastructure ready to scale*
+when problem size and shot budget reach the regime where mitigation
+lifts become statistically significant; Area 3 is positioned as the
+*shippable value* today.
 
 ---
 
@@ -51,7 +58,8 @@ on https://quantum.ibm.com:
 | Optimal selection | Morpho STEAKETH · Neverland USDC · shMONAD (all Monad pools) |
 | Raw job ID | [`d89rmk1789is7393mlr0`](https://quantum.ibm.com/jobs/d89rmk1789is7393mlr0) |
 | Mitigated job ID (XY4 DD + measurement twirling) | [`d89rmlqs46sc73fb0qc0`](https://quantum.ibm.com/jobs/d89rmlqs46sc73fb0qc0) |
-| Mitigation lift in P(optimal) | **+67 %** (0.3 % → 0.5 %) |
+| Single-run P(optimal) — raw vs mitigated | 0.293 % → 0.488 % (12 vs 20 successes / 4 096 shots) |
+| Wilson 95% CIs (single-run; OVERLAP) | raw [0.16 %, 0.53 %] · mitigated [0.30 %, 0.77 %] |
 
 **Stocks-universe baseline (earlier MVP run, kept for comparison):**
 
@@ -59,27 +67,44 @@ on https://quantum.ibm.com:
 |---|---|
 | Raw job ID | [`d88f7qis46sc73f9cjd0`](https://quantum.ibm.com/jobs/d88f7qis46sc73f9cjd0) |
 | Mitigated job ID | [`d88f7sdg7okc73enff00`](https://quantum.ibm.com/jobs/d88f7sdg7okc73enff00) |
-| Mitigation lift in P(optimal) | **+22.7 %** (0.537 % → 0.659 %) |
+| Single-run P(optimal) — raw vs mitigated | 0.537 % → 0.659 % (22 vs 27 successes / 4 096 shots) |
+| Wilson 95% CIs (single-run; OVERLAP) | raw [0.35 %, 0.82 %] · mitigated [0.45 %, 0.96 %] |
 
 Both DeFi runs and both stock runs find the **same** optimum as the
 classical exact solver, on every method (sim, HW raw, HW mitigated).
 
-The +67% / +22.7% relative lift from error mitigation is consistent
-with concurrent 2026 results on the same Heron family: a February-2026
-zero-noise-extrapolation study on IBM Torino/Fez (also Heron) reported
-a statistically significant **+31.6 %** portfolio-score improvement
-(p=0.0009, Cohen's d=2.01) at 88 qubits, p=1 QAOA depth ([arXiv 2602.09047](https://arxiv.org/abs/2602.09047),
-"QAOA + ZNE on NISQ Hardware for Carbon Credit Portfolio Optimization").
-Our mitigation stack — XY4 DD + gate-and-measurement twirling — is a
-distinct technique class, but the underlying observation that hardware
-error mitigation produces a measurable lift on portfolio-style QUBOs
-on Heron is now reproduced by an independent peer-reviewable artefact.
+**Statistical honesty about the mitigation lift.** Each P(optimal)
+above is a single-run frequency (count of optimal-bitstring samples
+divided by 4 096 shots). The Wilson 95% CIs overlap for both runs, so
+the observed mitigated > raw ordering is a **directional consistency
+check**, not a hypothesis-tested significance claim. A Fisher's exact
+test on 12 vs 20 successes (DeFi) returns p ≈ 0.16; on 22 vs 27
+successes (stocks) p ≈ 0.49. Reaching α = 0.05 significance on lifts
+of this magnitude requires either many more shots per run or
+replicated independent runs — both shipped as "more compute time" in
+the funding line below.
+
+**Methodological precedent (NOT a transitive significance claim).** A
+February-2026 study on IBM Torino/Fez (Heron family) reported a
+statistically significant +31.6 % improvement on a portfolio QUBO,
+with p = 0.0009 and Cohen's d = 2.01, **at 88 qubits with zero-noise
+extrapolation across seven independent hardware runs** ([arXiv 2602.09047](https://arxiv.org/abs/2602.09047)).
+Their stack (ZNE), scale (88 qubits), and replication (n=7) differ
+from ours (XY4 DD + twirling, 8 qubits, n=1), so their p-value does
+not transfer. We cite it as **methodological precedent that hardware
+error mitigation on portfolio-style QUBOs on Heron can produce
+significant lifts when properly powered** — the same direction we
+ship as a single-run consistency check, scaled-down.
 
 **Honest framing baked into the app:** at 8-qubit scale the classical
 exact solver beats both QPU runs in wall-clock time. The value
 demonstrated is the *hybrid pipeline*, the *cohesion* between the pitch
-and the hardware, and the *isolated lift* from error mitigation —
-not quantum advantage. Quantum advantage is not claimed.
+and the hardware, and the *directional consistency* of an error-
+mitigation effect under-powered to claim significance at this scale —
+**not quantum advantage** (not claimed) and **not a tested lift**
+(would need ≳10× shots or replicated runs). Both honest limitations
+are documented so a panel reviewer running the math gets the same
+answer we put in the table.
 
 ### AI forecasting layer
 
@@ -252,8 +277,15 @@ as AuditAnchor):
 
 | Step | Contract | TX | Gas |
 |---|---|---|---|
-| 1. Anchor `orderHash` on-chain | AuditAnchor | [`0x60d32b16…2da8e`](https://testnet.monadscan.com/tx/0x60d32b1610dfb28a630dd8f4a64d9c6a9bc4fa4ef2a99700f69c4ef84e62da8e) | 47 061 |
+| 1. Anchor `orderHash` on-chain (sequence 3) | AuditAnchor | [`0x60d32b16…2da8e`](https://testnet.monadscan.com/tx/0x60d32b1610dfb28a630dd8f4a64d9c6a9bc4fa4ef2a99700f69c4ef84e62da8e) | 47 061 |
 | 2. Escrow `0.01 MON` under `orderHash` | MonadAllocationVault | [`0x7be13153…18ef66`](https://testnet.monadscan.com/tx/0x7be13153bd7103d4cdbba3edd7ea4593a6e9579a69ca25a9790f0cbe6f18ef66) | 71 476 |
+
+(Sequence 3 is the *currently shipped* anchor — the seq 0/1/2
+anchors listed in the deploy table above are earlier demos; each
+regen of the signed order produces a new orderHash and the agent
+re-anchors. The chain link in the new anchor's `prevHash` field
+equals the seq-2 anchor's orderHash, so the on-chain JSONL-mirroring
+chain is intact across all four anchors.)
 
 Both TXs reference the same `orderHash = 0xfe44195b…14ba9`, both from
 the same wallet `0xe67e…e8D9`, three blocks apart. Off-chain
@@ -330,7 +362,7 @@ panellist can poke every component without reading source.
 
 ## Test coverage and CI
 
-- 24 PQ-signing tests covering: variant lock-in for SLH-DSA-SHAKE-256s;
+- 26 PQ-signing tests covering: variant lock-in for SLH-DSA-SHAKE-256s;
   round-trip + tampering for ML-DSA, SLH-DSA, and Ed25519; hedged-order
   round-trip + per-component verification; tamper invalidates all three
   signatures; legacy ML-DSA-only orders still verify; replay rejection;
@@ -378,9 +410,9 @@ panellist can poke every component without reading source.
   classical baseline by Brazilian-Cerrado portfolio researchers on
   Heron in February 2026, using ZNE in their case.
 - **Area 3 — Digital Infrastructure Secured Against Quantum Computing.**
-  The PQ signing layer is not narrative — it is verified by 24 PQ tests
+  The PQ signing layer is not narrative — it is verified by 26 PQ tests
   + 22 Monad-TX Python tests + 21 Foundry tests on two contracts
-  (67 total) and produces tamper-evident artefacts that a reviewer can
+  (69 total) and produces tamper-evident artefacts that a reviewer can
   audit without running the code. **Both contracts are live on Monad
   testnet** ([AuditAnchor](https://testnet.monadscan.com/address/0x0e649c383cfa6be1998445d0a7a8e1cc7540d239),
   [MonadAllocationVault](https://testnet.monadscan.com/address/0xc39e298ce89cdfc934c697c9fe0cc4baa80b87f5)),
@@ -401,9 +433,10 @@ panellist can poke every component without reading source.
   Note: the signed-order's `expected_vol` field is *yield-vol* (the
   annualised standard deviation of daily APY drift on stablecoin /
   staking pools, ≈0.34%), which is intentionally low because these
-  are fixed-income-like instruments; the implied per-order Sharpe of
-  ≈52 is yield-Sharpe in a Treasuries-like regime, not a price-return
-  alpha claim. The price-return Sharpe is the backtest's 1.59 (which
+  are fixed-income-like instruments where volatility lives in *yield
+  drift* (small day-to-day APY fluctuation), not in *token price*;
+  the implied per-order Sharpe of ≈52 is yield-Sharpe in a
+  Treasuries-like regime, not a price-return alpha claim. The price-return Sharpe is the backtest's 1.59 (which
   loses to 1/N — see the honest-framing line above); the on-chain ECDSA gap is documented in
   [`SECURITY.md`](SECURITY.md) as the Q-Day risk we are *preparing for*
   rather than *eliminating*. We avoid the failure mode of pitching
@@ -411,51 +444,143 @@ panellist can poke every component without reading source.
 
 ## What would happen with funding
 
-1. **Deploy both contracts on Monad mainnet.** AuditAnchor and
-   MonadAllocationVault are already deployed + Monadscan-verified on
-   Monad testnet (see addresses above) with 21 Foundry tests passing.
-   Mainnet (chainId 143) deployment is gated behind the prize so
-   competition funds — not development funds — pay for production
-   bytecode. The same `forge script` commands swap `--rpc-url` to
-   reach mainnet.
-2. **Wire an automated wallet broadcaster** (web3.py + HSM-backed key
-   custody) so the agent's `monad_tx.py` output is auto-broadcast on
-   a schedule rather than hand-broadcast. Manual broadcast is already
-   demonstrated on testnet (anchor TXs sequences 0–3 + two vault
-   TXs); the work is automating the broadcast loop and HSM-gating the
-   ECDSA signer.
-3. **Track FIPS 206 (FN-DSA / Falcon)**. NIST has not finalised the
-   standard as of mid-2026 — projected late 2026 / early 2027. When the
-   spec freezes, add Falcon as a fourth hedge with smaller signature
-   size for the on-chain hash-anchor calldata path.
-4. **Scale the backtest** to multi-year history and 50+ pools (current
-   MVP is 8 stocks / 8 pools, 48 monthly rebalances).
-5. **Cryptographic agility ground-up**. Bind a `crypto_suite_id`
-   integer into the signed payload (already supported via
-   `schema_version`) so future migrations to e.g. ML-DSA-87 or
-   FN-DSA-512 are zero-downtime — same audit log, additive scheme
-   versions, no key reuse.
+Ordered from highest-leverage credibility uplift to lowest-leverage
+capability extension. The mainnet deploy is genuinely the *last*
+item, not the first — gas is trivial; what mainnet credibly needs is
+the audit + bounty steps below.
+
+1. **Commission a security audit by a reputable firm.** Trail of Bits,
+   OpenZeppelin, Spearbit, ConsenSys Diligence, Cyfrin, or Zellic on
+   the full stack: AuditAnchor.sol + MonadAllocationVault.sol +
+   `src/pq_signing.py` canonicalisation + `src/orders.py` audit-chain
+   + `src/monad_tx.py` ABI encoders. Engagement budget: **$50–200K**
+   depending on scope and timeline. Output: a public audit report
+   referenced from this repo's README.
+
+2. **Stand up a paid bug bounty.** Immunefi or Code4rena listing with
+   a tiered payout ($25–100K for criticals on either contract or the
+   off-chain signing path, smaller bounties on the audit-chain
+   integrity). Six months runway before mainnet deploy is the goal.
+
+3. **Multi-oracle data-integrity layer.** Replace the unauthenticated
+   DeFiLlama feed with a multi-source consensus (Pyth + Chainlink +
+   on-chain pool reads from Morpho / Upshift / Neverland / shMONAD
+   directly) so the agent's QUBO input is signed-and-verifiable, not
+   trusted REST. This is the largest *engineering* line item —
+   roughly 2 engineer-months — and the one that turns Area-3
+   compliance from defensible to institutional-grade.
+
+4. **HSM-backed agent custody + automated broadcaster.** Move the
+   ML-DSA / SLH-DSA / Ed25519 secret keys from chmod-600 files into
+   an AWS KMS / GCP Cloud HSM / Yubico Hardware Security Module so the
+   agent's signing key cannot be exfiltrated by a local-FS attacker.
+   Wire web3.py + the same HSM for the ECDSA wallet, automating the
+   broadcast loop (manual broadcast is already demonstrated on
+   testnet — anchor sequences 0–3 + two vault TXs).
+
+5. **Statistical power on the QPU runs.** Move from 4 096 shots × 1
+   run to 4 096 shots × ≥10 independent runs, on both raw and
+   mitigated, so a paired hypothesis test reaches α = 0.05 (or
+   reveals that the directional lift we currently observe is noise —
+   either result is a useful update). Re-run on multiple Heron
+   backends to control for hardware drift. IBM Quantum compute time
+   is the cost driver here, not engineer time.
+
+6. **Mainnet deployment.** AuditAnchor + MonadAllocationVault redeploy
+   on Monad mainnet (chainId 143), exact same `forge script` with
+   `--rpc-url https://rpc.monad.xyz`. Cost: ~$50 of MON. Trivial vs
+   the audit/bounty line items above — but only credibly defensible
+   *after* the security audit has signed off on the source.
+
+7. **Capability registry (signature ≠ capability).** The current PQ
+   signature proves *who* signed an order; it does not prove the
+   signer is *authorised* to allocate $X to pool Y. A capability
+   registry contract on Monad (issuer → agent → max-allocation
+   per pool, time-bounded) closes this gap. Specification work,
+   then a third contract deployed alongside AuditAnchor + Vault.
+
+8. **Track FIPS 206 (FN-DSA / Falcon).** NIST has not finalised the
+   standard as of mid-2026 — projected late 2026 / early 2027. When
+   the spec freezes, add Falcon as a fourth hedge with the smallest
+   signature size for the on-chain hash-anchor calldata path.
+
+9. **Scale the backtest** to multi-year history and 50+ pools (current
+   MVP is 8 stocks / 8 pools, 48 monthly rebalances). Swap in
+   gradient-boosted ensembles / structured-news Ridge / a learned
+   per-pool risk model — anywhere the Ridge baseline currently loses
+   to 1/N is a candidate. The pipeline is component-agnostic.
+
+10. **Cryptographic agility ground-up.** Bind a `crypto_suite_id`
+    integer into the signed payload (already supported via
+    `schema_version`) so future migrations to e.g. ML-DSA-87 or
+    FN-DSA-512 are zero-downtime — same audit log, additive scheme
+    versions, no key reuse across schemes.
 
 ## Reproducing the artefacts
+
+There are **two valid review paths** — choose based on whether you want
+to confirm the shipped state matches the on-chain anchors (Path A) or
+exercise the full pipeline from scratch (Path B). They produce
+different outputs by design.
+
+### Path A — verify the shipped state against the on-chain anchors
+
+This is what the `cast call` block in the on-chain-anchor section above
+walks through, end-to-end. You do **not** need to run `run_pq_demo.py`.
+The shipped `outputs/signed_orders.json` contains the order whose
+canonical SHA-256 is `0xfe44195b…14ba9`, and the on-chain
+`AuditAnchor.lastHash[deployer]` returns the same hash. Every Foundry
++ Python test passes against the shipped repo.
 
 ```sh
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+python tests/test_pq_signing.py
+python tests/test_monad_tx.py
+( cd contracts && forge test )
 
+# Re-derive the canonical-bytes digest of the shipped order:
+python -c "
+import sys, hashlib; sys.path.insert(0,'.')
+from src import orders, pq_signing as pq
+print(hashlib.sha256(pq.canonical_bytes(orders.load_signed_orders()[0].order.to_dict())).hexdigest())
+"
+# Expected: fe44195b36463e33da7156285383a4fe735093ecadb1abb87684435552814ba9
+```
+
+### Path B — exercise the pipeline from scratch (new keys, new TXs)
+
+`run_pq_demo.py` generates a **fresh keypair** (if `keys/` is empty),
+a fresh UUID4 nonce, and a fresh ISO-8601 timestamp on every run, so
+every regen produces a **new orderHash that will not match our
+shipped anchors**. To anchor + escrow your fresh order on Monad
+testnet you'd broadcast new anchor + vault TXs yourself; the existing
+contracts accept any new orderHash, advancing your own per-wallet
+sequence counter independently of ours.
+
+```sh
 # 1. Run the QAOA on real hardware (needs IBM_QUANTUM_TOKEN in .env)
 python run_hardware.py
 python run_hardware.py --universe defi   # live DeFiLlama pools
 
-# 2. Sign the resulting order with ML-DSA-65, build unsigned Monad TX
+# 2. Sign the resulting order under your own fresh keys
 python run_pq_demo.py
+# → outputs/signed_orders.json    (NEW orderHash, NOT the shipped one)
+# → outputs/audit_log.jsonl       (NEW chain entry under YOUR keys)
+# → outputs/unsigned_anchor_tx.json + unsigned_alloc_tx.json (wallet-ready)
 
-# 3. Tests
-python tests/test_pq_signing.py
-python tests/test_monad_tx.py
+# 3. Optional: broadcast the unsigned TXs yourself (testnet)
+cast send --rpc-url https://testnet-rpc.monad.xyz --private-key $YOUR_KEY ...
 
 # 4. UI
 streamlit run app.py
 ```
+
+Path B is for evaluating the *pipeline*; Path A is for verifying *our
+shipped artefact* matches *our shipped on-chain anchors*. Both are
+valid; mixing them (e.g., running B then asserting your fresh
+orderHash matches A's `lastHash`) will fail by design — that's the
+canary that your fresh-keys regen actually worked.
 
 ## Contact
 

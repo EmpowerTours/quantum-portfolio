@@ -81,8 +81,10 @@ A rebalance is authorised by two independent signing layers:
      over the off-chain order. This is what the audit log preserves and
      what survives Q-Day. Three independent assumptions; an attacker
      breaking one of them still cannot forge intent.
-  2. **Wallet's ECDSA secp256k1** signs the on-chain EXECUTION — the
-     Monad transaction itself. The agent never holds the wallet's key.
+  2. **Wallet's ECDSA secp256k1** signs the on-chain **custody** TXs —
+     the anchor and the vault deposit on Monad. The agent never holds
+     the wallet's key. The on-chain leg is custody + audit-event, not
+     trade execution (see SUBMISSION.md "What this is and is not").
 
 Either layer alone is insufficient: intent-without-wallet cannot reach
 the chain; wallet-without-intent has no Q-Day-resistant audit trail. An
@@ -117,8 +119,9 @@ because:
    the agent's ML-DSA layer can be re-used directly.
 
 It does NOT prevent a future Q-Day-capable attacker from forging the
-on-chain Monad transaction that *executes* the order. That requires a
-chain-level PQ signature scheme, which is outside the scope of this MVP.
+on-chain Monad transaction that *anchors and escrows* the order. That
+requires a chain-level PQ signature scheme, which is outside the scope
+of this MVP.
 
 ### Off-chain data sources are trusted-but-not-verified
 Pool yield data is fetched from the public DeFiLlama API
@@ -136,8 +139,48 @@ predictions). This is research-grade; not exploitable at the current
 scope.
 
 ### The agent's private key is on disk, not in an HSM
-For a production deployment we would store the ML-DSA secret key in a
-hardware security module (HSM) or secure enclave, not a chmod-600 file.
+For a production deployment we would store the ML-DSA, SLH-DSA, and
+Ed25519 secret keys in a hardware security module (HSM) or secure
+enclave, not chmod-600 files. The PQClean reference implementation
+underlying `quantcrypt` is constant-time at the C layer, but a Python
+process running on a multi-tenant host can still leak via process
+memory dumps, side-channel observation of allocation patterns, or
+swap-file persistence. The threat model documented here assumes the
+agent runs on a single-tenant machine the operator controls. HSM
+migration is funded line item #4 in `SUBMISSION.md`'s "What would
+happen with funding" section.
+
+### MonadAllocationVault accepts ANY 32-byte hash from ANY caller
+The vault's `execute(bytes32 orderHash, ...)` makes no on-chain check
+that `orderHash` corresponds to a real PQ-signed RebalanceOrder — the
+contract has no way to do this, since ML-DSA verification on-chain
+costs ~500M gas. **An attacker can spend their own gas to call
+`execute` with a garbage `orderHash`, polluting the on-chain
+`Allocated` event stream with hashes that do not appear in any
+shipped `signed_orders.json`.** This is by design:
+- It does not let the attacker steal deposits — deposits are keyed
+  by `(msg.sender, orderHash)`, so the attacker can only pollute
+  their own slot.
+- It does not let the attacker forge the agent's history — the
+  agent's `orderHash` collision space is 2²⁵⁶ and the indexer's
+  filter (Allocated event topic[1] == agent's wallet address) is
+  msg.sender-scoped.
+- It does cost the attacker gas, so the attack is grief-only, not
+  cheap-spam.
+- The off-chain `outputs/signed_orders.json` + `outputs/audit_log.jsonl`
+  remain the source of truth for "what orderHashes correspond to
+  real agent decisions". The on-chain log is an *anchor*, not the
+  primary record.
+
+A reviewer who wants to assert "the agent made decision X" must:
+1. Find the order in `signed_orders.json` whose SHA-256 = X.
+2. Run `verify_signed_order(...)` — must return True under all three
+   PQ schemes.
+3. Confirm the on-chain `Allocated` event topic[2] = X and topic[1]
+   = the agent's wallet address.
+
+Skipping step (1) or (2) means trusting the on-chain log alone, which
+is not safe for the attacker-polluted-vault case.
 
 ### Streamlit binding
 The Streamlit UI binds to `127.0.0.1:8501` by default (see
@@ -176,5 +219,20 @@ python -c "from src import orders; \
 python tests/test_pq_signing.py
 ```
 
-All artefacts are produced deterministically (modulo ML-DSA's hedged
-randomness in `sign`).
+**Reproducibility scope.** The signature *verification* is fully
+deterministic — a reviewer running `verify_signed_order` against the
+shipped `outputs/signed_orders.json` gets True. The signature
+*generation*, however, is non-deterministic by design:
+- ML-DSA uses internal hedged randomness on every sign call;
+- the agent generates fresh ML-DSA + SLH-DSA + Ed25519 keypairs on
+  first run if `keys/` is empty;
+- each `RebalanceOrder` carries a fresh UUID4 `nonce` and `order_id`
+  and a current-time `issued_at`.
+
+A fresh clone running `run_pq_demo.py` therefore produces a
+**different `outputs/signed_orders.json` than what we shipped**,
+with a different SHA-256 and a different embedded public key. To
+verify *the shipped artefact*, do not re-run `run_pq_demo.py` first
+(see SUBMISSION.md "Path A" vs "Path B"). To verify *the pipeline*,
+do re-run it — and broadcast your own anchor + vault TXs from your
+own wallet if you want a complete on-chain trail.

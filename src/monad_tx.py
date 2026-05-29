@@ -162,7 +162,7 @@ def decode_order_calldata(hex_data: str) -> tuple[dict[str, Any], bytes, bytes]:
 #
 # Selectors verified with `forge inspect MonadAllocationVault methods`.
 ALLOC_EXECUTE_SELECTOR = bytes.fromhex("4a987805")  # execute(bytes32,bytes32[],uint16[])
-ALLOC_EXECUTE_GAS_LIMIT = 200_000                     # one-time cold-SSTORE batch
+ALLOC_EXECUTE_GAS_LIMIT = 130_000                     # measured ~88K on testnet (3-pool), +47% headroom
 
 
 def encode_alloc_calldata(order_hash: bytes,

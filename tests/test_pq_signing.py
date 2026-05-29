@@ -295,6 +295,40 @@ def test_legacy_ml_dsa_only_order_still_verifies():
     assert orders.verify_signed_order(signed)
 
 
+# --- Schema-version policy ------------------------------------------------
+
+def test_future_schema_version_rejected():
+    """An order with schema_version > current SCHEMA_VERSION must fail
+    verification — we cannot reason about fields we do not know how to
+    canonicalise. Pre-fix this was only documented, not enforced."""
+    kp = pq.generate_keypair()
+    order = orders.RebalanceOrder(
+        pools=["AAPL"], weights=[1.0],
+        expected_return=0.1, expected_vol=0.2,
+        schema_version=orders.SCHEMA_VERSION + 99,
+    )
+    signed = orders.sign_order(order, kp, seen_nonces=set())
+    # Signature itself is valid (signer used schema=100); receiver MUST
+    # still refuse because future fields might silently desync.
+    assert not orders.verify_signed_order(signed), (
+        "verify_signed_order accepted a future schema_version - the "
+        "documented policy in src/orders.py:23 is now unenforced"
+    )
+
+
+def test_current_schema_version_accepted():
+    """Sanity check: SCHEMA_VERSION (current) verifies. Catches a
+    regression where the future-check above accidentally rejects today."""
+    kp = pq.generate_keypair()
+    order = orders.RebalanceOrder(
+        pools=["AAPL"], weights=[1.0],
+        expected_return=0.1, expected_vol=0.2,
+        schema_version=orders.SCHEMA_VERSION,
+    )
+    signed = orders.sign_order(order, kp, seen_nonces=set())
+    assert orders.verify_signed_order(signed)
+
+
 # --- B3: append_audit concurrency under flock -----------------------------
 
 def test_concurrent_append_audit_preserves_chain(tmp_path: Path | None = None):
