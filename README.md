@@ -13,8 +13,8 @@ with post-quantum cryptography.
   walk-forward (no lookahead), feeds the QUBO's expected-return vector.
   Covariance is Ledoit-Wolf shrunk.
 - **Hedged post-quantum security**: every rebalance order is triple-signed
-  with **ML-DSA-65** (FIPS 204, lattice PQ), **SLH-DSA-SHAKE-128s**
-  (FIPS 205, hash-based PQ), and **Ed25519** (RFC 8032, classical).
+  with **ML-DSA-65** (FIPS 204, lattice PQ), **SLH-DSA-SHAKE-256s**
+  (FIPS 205, hash-based PQ, Level-5), and **Ed25519** (RFC 8032, classical).
   Three independent security assumptions — an attacker must break all
   three to forge an order. Nonces are tracked to prevent replay;
   mutated fields invalidate every signature; the audit log is
@@ -27,7 +27,7 @@ with post-quantum cryptography.
   demonstration + Q-Day-ready off-chain order layer.
 
 This is the submission artefact for the **Santander X Global Challenge:
-Quantum AI Leap** (Pillar 2 + Pillar 3, application deadline
+Quantum AI Leap** (Area 2 + Area 3, application deadline
 2026-06-30). See [`SUBMISSION.md`](SUBMISSION.md) for the application
 narrative and [`SECURITY.md`](SECURITY.md) for the threat model.
 
@@ -78,13 +78,19 @@ solver, which is consistency at this scale (not advantage).
 # 1. Re-run the QAOA on real hardware (needs IBM_QUANTUM_TOKEN in .env)
 python run_hardware.py
 
-# 2. Sign the resulting order with ML-DSA-65 + verify + write audit log
+# 2. Sign the resulting order with the hedged PQ stack + verify + write
+#    audit log (also produces the unsigned Monad TX)
 python run_pq_demo.py
 
-# 3. Run the test suite (PQ signing round-trips, replay protection, etc.)
+# 3. Run the Python test suites (PQ signing, replay, audit chain,
+#    walk-forward lookahead, AuditAnchor calldata)
 python tests/test_pq_signing.py
+python tests/test_monad_tx.py
 
-# 4. Run the walk-forward backtest with AI-forecast μ
+# 4. Run the Foundry test suite on AuditAnchor.sol
+( cd contracts && forge test )
+
+# 5. Run the walk-forward backtest with AI-forecast μ
 python run_backtest.py
 ```
 
@@ -109,8 +115,14 @@ python run_backtest.py
 │   ├── qaoa_hw.py               Penalty-QAOA on hardware (raw / mitigated)
 │   ├── solvers.py               Classical exact + QAOA-sim solvers
 │   └── xy_qaoa.py               XY-mixer QAOA reference implementation (not in current HW path)
+├── contracts/                   Foundry sub-project (solc 0.8.28)
+│   ├── foundry.toml
+│   ├── src/AuditAnchor.sol      ~30 K gas on-chain anchor for SHA-256(order)
+│   ├── test/AuditAnchor.t.sol   8 tests + 256-run fuzz
+│   └── script/Deploy.s.sol      Monad testnet/mainnet deploy script
 ├── tests/
-│   └── test_pq_signing.py       7 round-trip + tampering tests
+│   ├── test_pq_signing.py       24 round-trip + tampering + concurrency tests
+│   └── test_monad_tx.py         12 calldata + AuditAnchor calldata tests
 ├── outputs/
 │   ├── hardware_run.json        Cached IBM-QPU result
 │   ├── backtest.json            Walk-forward metrics
@@ -126,7 +138,7 @@ QAOA comes from Farhi et al. (2014). The portfolio formulation follows
 Mugel et al. (2022). The XY-mixer reference implementation in
 `src/xy_qaoa.py` follows Hadfield et al. (2017) but is not on the
 current hardware path. ML-DSA-65 follows NIST FIPS 204 (2024) and
-SLH-DSA-SHAKE-128s follows NIST FIPS 205 (2024); both are provided by
+SLH-DSA-SHAKE-256s follows NIST FIPS 205 (2024); both are provided by
 `quantcrypt` (PQClean precompiled bindings). The Ed25519 classical leg
 uses pyca's `cryptography` library. The hedged-by-default architecture
 follows the May 2026 `quantum-safe-py` reference implementation

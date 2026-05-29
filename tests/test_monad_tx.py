@@ -76,6 +76,95 @@ def test_calldata_detects_corruption():
     raise AssertionError("decoder accepted a corrupted blob")
 
 
+# --- AuditAnchor integration ---------------------------------------------
+
+ANCHOR_ADDR = "0xA1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+
+
+def test_order_sha256_matches_canonical_bytes():
+    """order_sha256 must hash exactly the bytes a Solidity verifier would
+    reconstruct from the on-chain calldata of the on-chain order TX."""
+    import hashlib
+    signed = _make_signed_order()
+    expected = hashlib.sha256(pq.canonical_bytes(signed.order.to_dict())).digest()
+    assert mtx.order_sha256(signed) == expected
+    assert len(expected) == 32
+
+
+def test_anchor_calldata_selector_no_seq():
+    """anchor(bytes32) — selector 0xeecdf927, 36-byte calldata total."""
+    signed = _make_signed_order()
+    h = mtx.order_sha256(signed)
+    blob = mtx.encode_anchor_calldata(h)
+    raw = bytes.fromhex(blob[2:])
+    assert len(raw) == 4 + 32, f"expected 36 bytes, got {len(raw)}"
+    assert raw[:4] == bytes.fromhex("eecdf927"), "wrong anchor(bytes32) selector"
+    assert raw[4:] == h
+
+
+def test_anchor_calldata_selector_with_sequence():
+    """anchor(bytes32, uint64) — selector 0xdb2c4aca, 68-byte calldata."""
+    signed = _make_signed_order()
+    h = mtx.order_sha256(signed)
+    blob = mtx.encode_anchor_calldata(h, expected_sequence=42)
+    raw = bytes.fromhex(blob[2:])
+    assert len(raw) == 4 + 32 + 32, f"expected 68 bytes, got {len(raw)}"
+    assert raw[:4] == bytes.fromhex("db2c4aca"), "wrong anchor(bytes32,uint64) selector"
+    assert raw[4:36] == h
+    # uint64 left-padded into a 32-byte word, big-endian
+    seq_word = int.from_bytes(raw[36:68], "big")
+    assert seq_word == 42
+
+
+def test_anchor_calldata_rejects_bad_hash_length():
+    try:
+        mtx.encode_anchor_calldata(b"too short")
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError on non-32-byte hash")
+
+
+def test_anchor_calldata_rejects_overflow_sequence():
+    h = b"\x00" * 32
+    try:
+        mtx.encode_anchor_calldata(h, expected_sequence=2 ** 64)
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError on uint64 overflow")
+
+
+def test_build_anchor_tx_field_shape():
+    signed = _make_signed_order()
+    tx = mtx.build_anchor_tx(
+        signed, anchor_contract=ANCHOR_ADDR, nonce=3, expected_sequence=0,
+    )
+    assert tx.chainId == 143         # Monad mainnet
+    assert tx.type == 2              # EIP-1559
+    assert tx.to == ANCHOR_ADDR
+    assert tx.value == 0
+    assert tx.gas == mtx.ANCHOR_GAS_LIMIT
+    assert tx.gas < 100_000, "anchor gas budget should fit the ~30K narrative"
+    # Calldata begins with the with-sequence selector.
+    assert tx.data.startswith("0xdb2c4aca")
+
+
+def test_build_anchor_tx_rejects_bad_contract_address():
+    signed = _make_signed_order()
+    try:
+        mtx.build_anchor_tx(signed, anchor_contract="0xnotanaddress", nonce=0)
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError on malformed anchor_contract")
+
+
+def test_chain_id_is_monad_mainnet():
+    """Independent assertion: MONAD_CHAIN_ID constant equals 143
+    (Monad mainnet). Guards against a paste-typo to a testnet value."""
+    assert mtx.MONAD_CHAIN_ID == 143, (
+        f"MONAD_CHAIN_ID drifted: {mtx.MONAD_CHAIN_ID} (mainnet is 143)"
+    )
+
+
 if __name__ == "__main__":
     tests = [v for k, v in globals().items() if k.startswith("test_") and callable(v)]
     failures = 0

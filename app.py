@@ -330,7 +330,7 @@ with tab_pq:
     col1, col2, col3 = st.columns(3)
     col1.metric("ML-DSA-65 (FIPS 204)", "lattice PQ",
                 f"pk {_pq.PUBLIC_KEY_BYTES} B · sig ≤ {_pq.SIGNATURE_BYTES_MAX} B")
-    col2.metric("SLH-DSA-128s (FIPS 205)", "hash-based PQ",
+    col2.metric("SLH-DSA-256s (FIPS 205)", "hash-based PQ · Level-5",
                 f"pk {_pq.SLH_DSA_PUBLIC_KEY_BYTES} B · sig ~29 KB")
     col3.metric("Ed25519 (RFC 8032)", "classical",
                 f"pk {_pq.ED25519_PUBLIC_KEY_BYTES} B · sig {_pq.ED25519_SIGNATURE_BYTES} B")
@@ -456,6 +456,47 @@ with tab_pq:
     else:
         st.info("Run `python run_pq_demo.py` to produce an unsigned TX, or "
                 "use the sign button above and the next demo run will write it.")
+
+    st.divider()
+    st.subheader("On-chain anchor (AuditAnchor.sol)")
+    st.markdown(
+        "A separate, minimal Solidity contract — `contracts/src/AuditAnchor.sol` "
+        "— anchors the **SHA-256 of each signed order** as an event "
+        "(`Anchored(address, bytes32, uint64, bytes32)`). Cost: **~30 K gas** "
+        "per call ([Foundry measurement](https://github.com/EmpowerTours/quantum-portfolio/blob/main/contracts/test/AuditAnchor.t.sol): "
+        "3.9 K function body + 21 K base + ~5 K warm SSTOREs).  \n"
+        "We deliberately do **not** verify ML-DSA on-chain — a pure-Solidity "
+        "verifier would cost ~500 M gas. The hash anchor preserves the "
+        "off-chain hash-chain's tamper-evidence on-chain at a cost EVM "
+        "consensus can sustain today."
+    )
+    try:
+        from src import monad_tx as _mtx
+        latest_signed = (_orders.load_signed_orders() or [None])[-1]
+        if latest_signed is not None:
+            _DEMO_ANCHOR = "0x0e649C383CFA6be1998445D0A7a8E1cc7540D239"   # AuditAnchor deployed on Monad testnet (chainId 10143)
+            anchor_tx = _mtx.build_anchor_tx(
+                latest_signed,
+                anchor_contract=_DEMO_ANCHOR,
+                nonce=0,
+                expected_sequence=0,
+            )
+            order_hash_hex = _mtx.order_sha256(latest_signed).hex()
+            st.caption(
+                f"SHA-256(canonical order) = `{order_hash_hex}`  ·  "
+                f"gas budget = {anchor_tx.gas:,}  ·  "
+                f"chainId = {anchor_tx.chainId} (Monad mainnet)"
+            )
+            import json as _json
+            st.code(_json.dumps(anchor_tx.to_dict(), indent=2), language="json")
+            st.caption(
+                f"Contract deployed and Monadscan-verified on Monad "
+                f"testnet (chainId 10143). View on "
+                f"[Monadscan]({'https://testnet.monadscan.com/address/' + _DEMO_ANCHOR.lower()}). "
+                "Mainnet deployment is gated behind any Santander prize event."
+            )
+    except Exception as _e:  # noqa: BLE001
+        st.warning(f"Could not build anchor TX preview: {_e}")
 
 
 # ---------- Tab: Methodology ----------
