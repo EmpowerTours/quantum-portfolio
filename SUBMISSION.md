@@ -195,6 +195,73 @@ production bytecode. The exact same `forge script` command with
 `--rpc-url https://rpc.monad.xyz` and chainId 143 in `Deploy.s.sol`
 reproduces this artefact on mainnet.
 
+### On-chain execution — MonadAllocationVault.sol
+
+AuditAnchor proves *that an agent decision existed*. The companion
+contract `contracts/src/MonadAllocationVault.sol` proves *that a user
+acted on it*: the user signs a TX that deposits native MON into the
+vault under the agent's `orderHash`, and the vault emits an `Allocated`
+event linking the wallet, the orderHash, the amount, and the
+agent-selected pool weights.
+
+Why native MON, not a synthetic test token: the agent's recommendation
+is denominated in real on-chain value the user actually controls; a
+fake stablecoin would be theatre. Withdrawals are gated to msg.sender's
+own deposit slot — the user can pull their MON back at any time with
+`withdraw(orderHash, amount)`.
+
+**Live testnet deployment** (Monadscan-verified, same network/compiler
+as AuditAnchor):
+
+| | |
+|---|---|
+| Contract address | [`0xC39e298ce89cDfc934c697c9Fe0CC4BAA80B87f5`](https://testnet.monadscan.com/address/0xc39e298ce89cdfc934c697c9fe0cc4baa80b87f5) |
+| Verified source on Monadscan | ✅ |
+| Deploy script | `contracts/script/DeployVault.s.sol` |
+
+**End-to-end provenance trail, demonstrated on testnet:**
+
+| Step | Contract | TX | Gas |
+|---|---|---|---|
+| 1. Anchor `orderHash` on-chain | AuditAnchor | [`0x11906707…20f8`](https://testnet.monadscan.com/tx/0x11906707517c296b63b863bd851d998b860f1364635425d8f787df28077820f8) | 47 061 |
+| 2. Allocate `0.01 MON` to vault | MonadAllocationVault | [`0x09f440b8…1f5b8`](https://testnet.monadscan.com/tx/0x09f440b8217c054e88c7aef6bc1b1b3048b371725f6b3cb2a734ea58e521f5b8) | 88 644 |
+
+Both TXs reference the same `orderHash = 0x75e6a8c9…1ebb2e65`, both
+from the same wallet `0xe67e…e8D9`, blocks apart. Off-chain
+`outputs/signed_orders.json` contains the order whose SHA-256 equals
+that exact hash, signed under all three PQ schemes. A reviewer
+verifies the full chain with:
+
+```sh
+# 1. Confirm the off-chain signed order's hash matches the on-chain anchor.
+cast call --rpc-url https://testnet-rpc.monad.xyz \
+  0x0e649C383CFA6be1998445D0A7a8E1cc7540D239 \
+  "lastHash(address)(bytes32)" 0xe67e13D545C76C2b4e28DFE27Ad827E1FC18e8D9
+# → 0x75e6a8c9f9832ea912fbaf5c2e690f7f39bb14970b0d0d08a3ce2ee61ebb2e65
+
+# 2. Confirm the same hash credited a vault deposit.
+cast call --rpc-url https://testnet-rpc.monad.xyz \
+  0xC39e298ce89cDfc934c697c9Fe0CC4BAA80B87f5 \
+  "deposits(address,bytes32)(uint256)" \
+  0xe67e13D545C76C2b4e28DFE27Ad827E1FC18e8D9 \
+  0x75e6a8c9f9832ea912fbaf5c2e690f7f39bb14970b0d0d08a3ce2ee61ebb2e65
+# → 10000000000000000  (= 0.01 MON)
+
+# 3. Verify the off-chain artefact reconstructs the same hash.
+python -c "
+import sys, hashlib, json
+sys.path.insert(0,'.')
+from src import orders, pq_signing as pq
+o = orders.load_signed_orders()[0]
+print(hashlib.sha256(pq.canonical_bytes(o.order.to_dict())).hexdigest())
+"
+# → 75e6a8c9f9832ea912fbaf5c2e690f7f39bb14970b0d0d08a3ce2ee61ebb2e65
+```
+
+The agent's PQ-signed decision is byte-linked through the off-chain
+hash-chain → AuditAnchor → MonadAllocationVault, end-to-end auditable
+without trusting the submitter.
+
 ### DeFi-native data layer
 
 Live pool data from **DeFiLlama**'s public API, with a curated
@@ -225,15 +292,24 @@ panellist can poke every component without reading source.
   **append_audit refuses to record an unverifiable order**; **AI
   walk-forward is lookahead-free** (corrupting prices past `as_of` does
   not change the prediction).
-- 12 Monad-TX tests covering: calldata round trip with shared
+- 20 Monad-TX Python tests covering: calldata round trip with shared
   canonicalisation against the PQ-signing layer; transaction field
   shape; bad-address rejection; corruption detection; **AuditAnchor
-  calldata selectors verified against `forge inspect`**; **anchor
-  TX gas budget under 100 K**; **MONAD_CHAIN_ID locked at 143
-  (mainnet)** so a typo to a testnet value fails CI.
-- 8 Foundry tests on `AuditAnchor.sol` (genesis, chain linking,
-  per-anchorer counter isolation, sequence-mismatch revert, zero-hash
-  revert, overload coherence, gas budget, 256-run fuzz).
+  calldata selectors verified against `forge inspect`**; **anchor TX
+  gas budget under 100 K**; **MONAD_CHAIN_ID locked at 143 (mainnet)**;
+  **MonadAllocationVault execute() selector lock-in (`0x4a987805`)**;
+  **fractional-weights → uint16 basis-points round-trip sums to 10000**;
+  **pool label keccak matches Solidity's hash byte-for-byte**.
+- 21 Foundry tests across two contracts:
+    * AuditAnchor (8): genesis, chain linking, per-anchorer counter
+      isolation, sequence-mismatch revert, zero-hash revert, overload
+      coherence, gas budget, 256-run fuzz.
+    * MonadAllocationVault (13): execute records & emits event,
+      reverts on zero value / zero hash / length mismatch / weights
+      sum mismatch, withdraw happy path + insufficient-deposit revert,
+      per-user and per-orderHash isolation, naked-send revert,
+      reentrancy guard via CEI ordering, gas budget, 256-run fuzz on
+      deposit/withdraw invariant.
 - GitHub Actions runs the full suite on Python 3.11 and 3.12 on every
   push, plus an import smoke test of every source module on top of the
   full `requirements.txt`. Audit-chain verification of the shipped
@@ -252,14 +328,17 @@ panellist can poke every component without reading source.
   Heron in February 2026, using ZNE in their case.
 - **Area 3 — Digital Infrastructure Secured Against Quantum Computing.**
   The PQ signing layer is not narrative — it is verified by 24 PQ tests
-  + 12 Monad-TX tests + 8 Foundry tests on `AuditAnchor.sol` (44 total)
-  and produces tamper-evident artefacts that a reviewer can audit
-  without running the code. **AuditAnchor.sol is live on Monad testnet**
-  at [`0x0e649…0D239`](https://testnet.monadscan.com/address/0x0e649c383cfa6be1998445d0a7a8e1cc7540d239),
-  Monadscan-verified, with two on-chain anchors already linked into the
-  off-chain JSONL hash chain. Aligned with the NIST FIPS 204 algorithm
-  NEAR Protocol enabled at L1 on 2026-05-06 — the first production L1
-  to ship a finalised PQ signature.
+  + 20 Monad-TX Python tests + 21 Foundry tests on two contracts
+  (65 total) and produces tamper-evident artefacts that a reviewer can
+  audit without running the code. **Both contracts are live on Monad
+  testnet** ([AuditAnchor](https://testnet.monadscan.com/address/0x0e649c383cfa6be1998445d0a7a8e1cc7540d239),
+  [MonadAllocationVault](https://testnet.monadscan.com/address/0xc39e298ce89cdfc934c697c9fe0cc4baa80b87f5)),
+  Monadscan-verified, with a real end-to-end provenance trail already
+  on-chain: one PQ-signed agent decision → SHA-256 anchored →
+  user-signed 0.01 MON allocation deposit, all three artefacts linked
+  by the same 32-byte orderHash. Aligned with the NIST FIPS 204
+  algorithm NEAR Protocol enabled at L1 on 2026-05-06 — the first
+  production L1 to ship a finalised PQ signature.
 - **Mexico-eligible.** EmpowerTours SAS de CV is incorporated in
   Mexico, qualifying under the LATAM startup criteria.
 - **Built honestly.** The code does not claim quantum advantage; the

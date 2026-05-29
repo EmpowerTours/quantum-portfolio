@@ -150,6 +150,155 @@ def decode_order_calldata(hex_data: str) -> tuple[dict[str, Any], bytes, bytes]:
     return order, sig, pk
 
 
+# --- MonadAllocationVault integration -----------------------------------
+#
+# MonadAllocationVault.sol (contracts/src/MonadAllocationVault.sol) lets the
+# user broadcast a real on-chain effect that references the agent's
+# PQ-signed RebalanceOrder: the user deposits native MON into the vault
+# under the order's SHA-256, the vault records per-user / per-order
+# balance, and emits an `Allocated` event linking the agent's decision
+# to a concrete on-chain action. Withdrawals are gated to msg.sender's
+# own deposit.
+#
+# Selectors verified with `forge inspect MonadAllocationVault methods`.
+ALLOC_EXECUTE_SELECTOR = bytes.fromhex("4a987805")  # execute(bytes32,bytes32[],uint16[])
+ALLOC_EXECUTE_GAS_LIMIT = 200_000                     # one-time cold-SSTORE batch
+
+
+def encode_alloc_calldata(order_hash: bytes,
+                           pool_hashes: list[bytes],
+                           weights_bps: list[int]) -> str:
+    """Pack a MonadAllocationVault.execute(bytes32,bytes32[],uint16[]) call.
+
+    `pool_hashes` are 32-byte labels (typically keccak256 of the pool
+    name string from the agent's off-chain RebalanceOrder). Length must
+    match weights_bps; weights_bps must sum to 10_000.
+    """
+    if len(order_hash) != 32:
+        raise ValueError(f"order_hash must be 32 bytes, got {len(order_hash)}")
+    if len(pool_hashes) != len(weights_bps):
+        raise ValueError(
+            f"length mismatch: {len(pool_hashes)} pools vs {len(weights_bps)} weights"
+        )
+    if not all(len(p) == 32 for p in pool_hashes):
+        raise ValueError("each pool_hash must be 32 bytes")
+    if sum(weights_bps) != 10_000:
+        raise ValueError(f"weights must sum to 10000 bps, got {sum(weights_bps)}")
+    if any(w < 0 or w > 0xFFFF for w in weights_bps):
+        raise ValueError("each weight must fit in uint16")
+
+    n = len(pool_hashes)
+    # ABI layout for execute(bytes32, bytes32[], uint16[]):
+    #   word 0:        orderHash (bytes32)
+    #   word 1:        offset to pools array (= 0x60)
+    #   word 2:        offset to weights array (= 0x60 + 32 + 32*n)
+    #   ---- pools array ----
+    #   word P0:       length
+    #   words P1..Pn:  pool hashes
+    #   ---- weights array ----
+    #   word W0:       length
+    #   words W1..Wn:  each weight as a 32-byte left-padded uint16
+    head = b""
+    head += order_hash
+    pools_offset  = 0x60
+    weights_offset = pools_offset + 0x20 + 0x20 * n
+    head += pools_offset.to_bytes(32, "big")
+    head += weights_offset.to_bytes(32, "big")
+    body = n.to_bytes(32, "big")
+    for p in pool_hashes:
+        body += p
+    body += n.to_bytes(32, "big")
+    for w in weights_bps:
+        body += w.to_bytes(32, "big")
+    return "0x" + (ALLOC_EXECUTE_SELECTOR + head + body).hex()
+
+
+def _keccak256(data: bytes) -> bytes:
+    """Ethereum's keccak256 (not NIST SHA-3-256). Uses eth_hash via the
+    cryptography stack already in our deps, with a pysha3 fallback."""
+    try:
+        from Crypto.Hash import keccak as _kk
+        h = _kk.new(digest_bits=256)
+        h.update(data)
+        return h.digest()
+    except ImportError:
+        import sha3
+        return sha3.keccak_256(data).digest()
+
+
+def pool_label_hash(label: str) -> bytes:
+    """keccak256(label.utf8) — used to encode RebalanceOrder.pools[i]
+    into the bytes32 the vault expects. The off-chain order keeps the
+    human-readable label; the on-chain log keeps the deterministic
+    32-byte identifier so a reviewer can recover the label by
+    pre-imaging from the shipped signed_orders.json."""
+    return _keccak256(label.encode("utf-8"))
+
+
+def fractional_weights_to_bps(weights: list[float]) -> list[int]:
+    """Convert agent's fractional weights (sum=1.0) to uint16 basis points
+    that sum to exactly 10_000. We allocate floor(w * 10000) to each pool
+    and give the rounding remainder to the largest-weight pool so the
+    sum constraint holds without breaking proportionality much."""
+    if not weights:
+        return []
+    raw = [int(w * 10_000) for w in weights]
+    remainder = 10_000 - sum(raw)
+    if remainder != 0:
+        idx = max(range(len(raw)), key=lambda i: weights[i])
+        raw[idx] += remainder
+    if sum(raw) != 10_000:
+        raise ValueError(f"failed to round to 10000 bps: {raw} sum={sum(raw)}")
+    return raw
+
+
+def build_alloc_tx(
+    signed: SignedOrder,
+    *,
+    vault_contract: str,
+    nonce: int,
+    amount_wei: int,
+    gas_limit: int = ALLOC_EXECUTE_GAS_LIMIT,
+    max_fee_gwei: int = DEFAULT_MAX_FEE_GWEI,
+    priority_gwei: int = DEFAULT_PRIORITY_GWEI,
+    chain_id: int = MONAD_CHAIN_ID,
+) -> UnsignedMonadTx:
+    """Build an unsigned EIP-1559 TX that deposits `amount_wei` of native
+    MON into the MonadAllocationVault under the agent's signed-order hash.
+
+    The vault enforces:
+      * orderHash != 0
+      * pools.length == weights.length
+      * sum(weightsBps) == 10000
+
+    On success the vault credits the deposit to msg.sender's slot keyed
+    by orderHash and emits `Allocated(user, orderHash, amount, pools,
+    weights)`. The user can later call `withdraw(orderHash, amount)` to
+    pull their MON back.
+    """
+    if not (vault_contract.startswith("0x") and len(vault_contract) == 42):
+        raise ValueError(f"vault_contract must be 0x-prefixed 20-byte hex: {vault_contract}")
+    if amount_wei <= 0:
+        raise ValueError(f"amount_wei must be positive, got {amount_wei}")
+
+    order_hash  = order_sha256(signed)
+    pool_hashes = [pool_label_hash(p) for p in signed.order.pools]
+    weights_bps = fractional_weights_to_bps(signed.order.weights)
+
+    return UnsignedMonadTx(
+        chainId=chain_id,
+        type=2,
+        nonce=nonce,
+        maxFeePerGas=max_fee_gwei * 10 ** 9,
+        maxPriorityFeePerGas=priority_gwei * 10 ** 9,
+        gas=gas_limit,
+        to=vault_contract,
+        value=amount_wei,
+        data=encode_alloc_calldata(order_hash, pool_hashes, weights_bps),
+        accessList=[],
+    )
+
+
 # --- AuditAnchor contract integration ------------------------------------
 #
 # AuditAnchor.sol (contracts/src/AuditAnchor.sol) anchors the SHA-256 of a

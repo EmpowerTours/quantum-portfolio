@@ -40,9 +40,14 @@ HARDWARE_RUN_DEFI   = Path("outputs/hardware_run_defi.json")
 HARDWARE_RUN_STOCKS = Path("outputs/hardware_run.json")
 KEYS_DIR            = Path("keys")
 
-# Deployed on Monad testnet (chainId 10143), Monadscan-verified.
+# Deployed on Monad testnet (chainId 10143), both Monadscan-verified.
 # Mainnet deployment is gated behind any Santander prize event.
 AUDIT_ANCHOR_TESTNET = "0x0e649C383CFA6be1998445D0A7a8E1cc7540D239"
+ALLOC_VAULT_TESTNET  = "0xC39e298ce89cDfc934c697c9Fe0CC4BAA80B87f5"
+
+# Demo allocation amount (0.01 MON). The vault's `withdraw` lets the
+# same wallet pull the deposit back, so this is reversible test value.
+DEMO_ALLOC_WEI = 10**16
 
 # Agent's broadcast wallet. The same key signs the on-chain ECDSA TX
 # (intent → execution separation, see SECURITY.md). Public address only,
@@ -209,7 +214,6 @@ def main() -> None:
     print(f"  chainId={tx.chainId}  to={tx.to}  calldata={len(tx.data)//2 - 1} bytes")
 
     # Path B: AuditAnchor — anchors only the 32-byte SHA-256, ~30 K gas.
-    # The contract is already deployed on Monad testnet (see address constant).
     anchor_tx = monad_tx.build_anchor_tx(
         signed,
         anchor_contract=AUDIT_ANCHOR_TESTNET,
@@ -222,6 +226,24 @@ def main() -> None:
     print(f"Built unsigned anchor TX     → {anchor_path}")
     print(f"  chainId={anchor_tx.chainId}  to={anchor_tx.to}  "
           f"calldata={len(anchor_tx.data)//2 - 1} bytes  gas={anchor_tx.gas:,}")
+
+    # Path C: MonadAllocationVault — deposits native MON under orderHash.
+    # Real on-chain effect (msg.value moves into the vault), withdrawable
+    # by the same wallet. Forms the third leg of the provenance trail:
+    # signed_orders.json (off-chain) → AuditAnchor (on-chain hash) →
+    # MonadAllocationVault (on-chain value + event).
+    alloc_tx = monad_tx.build_alloc_tx(
+        signed,
+        vault_contract=ALLOC_VAULT_TESTNET,
+        nonce=0,
+        amount_wei=DEMO_ALLOC_WEI,
+        chain_id=DEMO_CHAIN_ID,
+    )
+    alloc_path = Path("outputs/unsigned_alloc_tx.json")
+    alloc_path.write_text(json.dumps(alloc_tx.to_dict(), indent=2))
+    print(f"Built unsigned alloc TX      → {alloc_path}")
+    print(f"  chainId={alloc_tx.chainId}  to={alloc_tx.to}  "
+          f"value={alloc_tx.value} wei (0.01 MON)  gas={alloc_tx.gas:,}")
     print("  (sign with a wallet to broadcast — execution intentionally")
     print("   separated from PQ-signed authorisation; see SECURITY.md)")
 

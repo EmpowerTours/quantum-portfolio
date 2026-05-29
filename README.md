@@ -117,9 +117,12 @@ python run_backtest.py
 │   └── xy_qaoa.py               XY-mixer QAOA reference implementation (not in current HW path)
 ├── contracts/                   Foundry sub-project (solc 0.8.28)
 │   ├── foundry.toml
-│   ├── src/AuditAnchor.sol      ~30 K gas on-chain anchor for SHA-256(order)
-│   ├── test/AuditAnchor.t.sol   8 tests + 256-run fuzz
-│   └── script/Deploy.s.sol      Monad testnet/mainnet deploy script
+│   ├── src/AuditAnchor.sol            ~30 K gas on-chain anchor for SHA-256(order)
+│   ├── src/MonadAllocationVault.sol   native-MON vault recording per-orderHash deposits
+│   ├── test/AuditAnchor.t.sol         8 tests + 256-run fuzz
+│   ├── test/MonadAllocationVault.t.sol  13 tests + 256-run fuzz
+│   ├── script/Deploy.s.sol            deploys AuditAnchor
+│   └── script/DeployVault.s.sol       deploys MonadAllocationVault
 ├── tests/
 │   ├── test_pq_signing.py       24 round-trip + tampering + concurrency tests
 │   └── test_monad_tx.py         12 calldata + AuditAnchor calldata tests

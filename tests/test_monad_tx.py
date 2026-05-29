@@ -165,6 +165,95 @@ def test_chain_id_is_monad_mainnet():
     )
 
 
+# --- MonadAllocationVault integration ------------------------------------
+
+VAULT_ADDR = "0xC39e298ce89cDfc934c697c9Fe0CC4BAA80B87f5"
+
+
+def test_pool_label_hash_matches_solidity_keccak():
+    """keccak256("Morpho STEAKETH (Monad)") must match the bytes the
+    Solidity test computes for the same label string."""
+    h = mtx.pool_label_hash("Morpho STEAKETH (Monad)")
+    assert len(h) == 32
+    # Verified by hand: keccak256("Morpho STEAKETH (Monad)") =
+    expected = "9e9f3bf2e2cbe91454d6ed764dbea0ee7a3b0fbe6733abe791333f811ac71264"
+    assert h.hex() == expected, f"keccak drift: {h.hex()} != {expected}"
+
+
+def test_fractional_weights_to_bps_sums_to_10000():
+    """Three equal-weight pools: 0.333.. each → 3334/3333/3333."""
+    bps = mtx.fractional_weights_to_bps([1/3, 1/3, 1/3])
+    assert sum(bps) == 10_000
+    assert all(0 <= w <= 0xFFFF for w in bps)
+    # One entry absorbs the +1 rounding remainder.
+    assert sorted(bps) == [3333, 3333, 3334]
+
+
+def test_fractional_weights_to_bps_handles_two_pools():
+    bps = mtx.fractional_weights_to_bps([0.5, 0.5])
+    assert sum(bps) == 10_000
+    assert bps == [5000, 5000]
+
+
+def test_alloc_calldata_selector_matches_forge_inspect():
+    """ALLOC_EXECUTE_SELECTOR must equal the first 4 bytes of
+    keccak256("execute(bytes32,bytes32[],uint16[])") — the value
+    `forge inspect MonadAllocationVault methods` reports."""
+    signed = _make_signed_order()
+    h = mtx.order_sha256(signed)
+    pools = [mtx.pool_label_hash(p) for p in signed.order.pools]
+    weights = mtx.fractional_weights_to_bps(signed.order.weights)
+    blob = mtx.encode_alloc_calldata(h, pools, weights)
+    raw = bytes.fromhex(blob[2:])
+    assert raw[:4] == bytes.fromhex("4a987805"), \
+        f"wrong execute(bytes32,bytes32[],uint16[]) selector: {raw[:4].hex()}"
+
+
+def test_alloc_calldata_rejects_length_mismatch():
+    h = b"\x00" * 32
+    try:
+        mtx.encode_alloc_calldata(h, [b"\x00" * 32, b"\x01" * 32], [10_000])
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError on length mismatch")
+
+
+def test_alloc_calldata_rejects_bad_weight_sum():
+    h = b"\x00" * 32
+    try:
+        mtx.encode_alloc_calldata(h, [b"\x00" * 32], [9_999])
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError on weights != 10000")
+
+
+def test_build_alloc_tx_field_shape():
+    signed = _make_signed_order()
+    tx = mtx.build_alloc_tx(
+        signed,
+        vault_contract=VAULT_ADDR,
+        nonce=0,
+        amount_wei=10**16,
+        chain_id=mtx.MONAD_TESTNET_CHAIN_ID,
+    )
+    assert tx.chainId == 10143
+    assert tx.to == VAULT_ADDR
+    assert tx.value == 10**16
+    assert tx.gas <= 250_000, "alloc gas budget exceeds reasonable bound"
+    assert tx.data.startswith("0x4a987805")
+
+
+def test_build_alloc_tx_rejects_zero_value():
+    signed = _make_signed_order()
+    try:
+        mtx.build_alloc_tx(
+            signed, vault_contract=VAULT_ADDR, nonce=0, amount_wei=0,
+        )
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError on zero amount_wei")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in globals().items() if k.startswith("test_") and callable(v)]
     failures = 0
