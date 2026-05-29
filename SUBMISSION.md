@@ -102,14 +102,18 @@ an order — the assumptions are deliberately disjoint:
 | **SLH-DSA-SHAKE-256s** | NIST FIPS 205 (2024), Level-5 | SHA-3 collision resistance | 64 B / ~29 KB |
 | **Ed25519** | RFC 8032 | Curve25519 discrete log | 32 B / 64 B |
 
-The architecture follows the hybrid-by-default pattern of the May 2026
-`quantum-safe-py` reference implementation (arxiv 2605.17061) but is
-implemented directly against `quantcrypt` (PQClean-bound) and `cryptography`
-(pyca/cryptography) so we control the v0.1.0 dependency risk. We sign
-with the same NIST FIPS 204 algorithm NEAR Protocol enabled at L1 on
-**2026-05-06**, 21 days before this submission — the first production
-L1 to ship a NIST-finalised PQ signature, and the strongest available
-evidence that this stack is on a live deployment trajectory.
+The triple-sign hedge construction is the standard hybrid-PQ pattern
+(one lattice + one hash-based + one classical with disjoint security
+assumptions); we implement it directly against `quantcrypt`
+(PQClean-bound) and `cryptography` (pyca/cryptography) to control
+dependency risk. We sign with the same NIST FIPS 204 algorithm NEAR
+Protocol committed to at L1 on **2026-05-06** — the first major L1 to
+commit to a NIST-finalised PQ signature at the account layer, with
+testnet rollout planned for end of Q2 2026
+([BanklessTimes, 2026-05-07](https://www.banklesstimes.com/articles/2026/05/07/near-protocol-soars-after-quantum-safe-signing-confirmed-for-q2/)).
+NEAR's commitment is the strongest available signal that the standardised
+ML-DSA stack is on a production-deployment trajectory, even if neither
+NEAR nor we run it at L1-mainnet yet.
 
 Each signature covers the full canonical encoding of:
 
@@ -133,8 +137,9 @@ forward extension is the only mutation that survives.
 (chainId 143) with the signed order embedded in calldata. A wallet —
 the agent never holds the wallet key — provides the ECDSA signature
 that lets the chain accept the transaction. This is **two-key custody**
-by design: the agent's PQ key authorises intent, the wallet's ECDSA
-key authorises execution. Either alone is insufficient.
+by design: the agent's PQ key authorises **intent**, the wallet's
+ECDSA key authorises **on-chain custody** (the anchor + vault TX).
+Either alone is insufficient.
 
 ### On-chain audit anchor — AuditAnchor.sol
 
@@ -195,20 +200,44 @@ production bytecode. The exact same `forge script` command with
 `--rpc-url https://rpc.monad.xyz` and chainId 143 in `Deploy.s.sol`
 reproduces this artefact on mainnet.
 
-### On-chain execution — MonadAllocationVault.sol
+### On-chain custody anchor — MonadAllocationVault.sol
 
 AuditAnchor proves *that an agent decision existed*. The companion
 contract `contracts/src/MonadAllocationVault.sol` proves *that a user
-acted on it*: the user signs a TX that deposits native MON into the
-vault under the agent's `orderHash`, and the vault emits an `Allocated`
-event linking the wallet, the orderHash, the amount, and the
-agent-selected pool weights.
+escrowed value referencing it*: the user signs a TX that deposits
+native MON into the vault keyed by the agent's `orderHash`, and the
+vault emits an `Allocated` event linking the wallet, the orderHash,
+the amount, and the agent-selected pool weights.
+
+**What this is and is not.** The vault is an **escrow + audit-event
+contract**, not a DEX or yield router. It accepts native MON, records
+per-user / per-orderHash deposit, emits an indexed event, and lets the
+same user withdraw. It does **not** swap tokens, route to a DEX, or
+generate yield — the deposited MON sits in the contract until the
+depositor withdraws. The on-chain primitive shipped here is therefore
+*custody-with-attribution*: the user has committed value against a
+specific PQ-signed agent decision, and that commitment is a permanent
+on-chain event indexers can replay. When a Monad-native DEX ships on
+testnet (none exists today — see "Discovery" paragraph below) the
+vault is upgraded to a routing-aware successor; the `Allocated` event
+shape stays stable so historical orders remain replayable.
 
 Why native MON, not a synthetic test token: the agent's recommendation
-is denominated in real on-chain value the user actually controls; a
-fake stablecoin would be theatre. Withdrawals are gated to msg.sender's
-own deposit slot — the user can pull their MON back at any time with
-`withdraw(orderHash, amount)`.
+is denominated in real on-chain value the user actually controls.
+Withdrawals are gated to msg.sender's own deposit slot — the user can
+pull their MON back at any time with `withdraw(orderHash, amount)`.
+
+**Discovery note on testnet DEX availability.** Six rounds of discovery
+(GeckoTerminal, MonadVision, MCP-MONI config, mainnet Uniswap V3
+deterministic addresses, Uniswap-deployer's actual CREATE2 outputs,
+**Kuru's own official `docs.kuru.io/contracts/Contract-addresses`**)
+returned zero working DEX contracts on the current Monad testnet —
+all canonical router/token addresses listed in ecosystem docs have
+empty bytecode on the live RPC. The testnet appears to have been
+reset around 2025-12-16 and ecosystem documentation has not caught up.
+Only Permit2 (deterministic CREATE2 redeploy) and the ERC-4337
+EntryPoint are confirmed live. The custody-anchor design ships the
+*agent-facing protocol* now; real DEX routing waits for the ecosystem.
 
 **Live testnet deployment** (Monadscan-verified, same network/compiler
 as AuditAnchor):
@@ -223,44 +252,64 @@ as AuditAnchor):
 
 | Step | Contract | TX | Gas |
 |---|---|---|---|
-| 1. Anchor `orderHash` on-chain | AuditAnchor | [`0x11906707…20f8`](https://testnet.monadscan.com/tx/0x11906707517c296b63b863bd851d998b860f1364635425d8f787df28077820f8) | 47 061 |
-| 2. Allocate `0.01 MON` to vault | MonadAllocationVault | [`0x09f440b8…1f5b8`](https://testnet.monadscan.com/tx/0x09f440b8217c054e88c7aef6bc1b1b3048b371725f6b3cb2a734ea58e521f5b8) | 88 644 |
+| 1. Anchor `orderHash` on-chain | AuditAnchor | [`0x60d32b16…2da8e`](https://testnet.monadscan.com/tx/0x60d32b1610dfb28a630dd8f4a64d9c6a9bc4fa4ef2a99700f69c4ef84e62da8e) | 47 061 |
+| 2. Escrow `0.01 MON` under `orderHash` | MonadAllocationVault | [`0x7be13153…18ef66`](https://testnet.monadscan.com/tx/0x7be13153bd7103d4cdbba3edd7ea4593a6e9579a69ca25a9790f0cbe6f18ef66) | 71 476 |
 
-Both TXs reference the same `orderHash = 0x75e6a8c9…1ebb2e65`, both
-from the same wallet `0xe67e…e8D9`, blocks apart. Off-chain
-`outputs/signed_orders.json` contains the order whose SHA-256 equals
-that exact hash, signed under all three PQ schemes. A reviewer
-verifies the full chain with:
+Both TXs reference the same `orderHash = 0xfe44195b…14ba9`, both from
+the same wallet `0xe67e…e8D9`, three blocks apart. Off-chain
+`outputs/signed_orders.json` contains the order whose canonical
+SHA-256 equals that exact hash, signed under all three PQ schemes.
+
+**Q-Day caveat on the on-chain leg.** The two on-chain TXs above are
+signed with secp256k1 ECDSA (Monad's native scheme). A Shor-capable
+adversary forges them on Q-Day, breaking the on-chain witness. The
+**off-chain** signed_orders.json + audit_log.jsonl remain
+PQ-tamper-evident — the agent's decision provenance survives Q-Day
+even after the on-chain anchor becomes forgeable. When Monad (or the
+chain we run on) ships a PQ-signed TX scheme, the anchor TX inherits
+that protection without code changes to the agent. This is the
+standard hybrid posture: the *audit trail* is quantum-safe today; the
+*on-chain settlement* awaits chain-level PQ. SECURITY.md threat-model
+row "Q-Day quantum attacker (on-chain)" documents this explicitly.
+
+A reviewer verifies the full chain with:
 
 ```sh
-# 1. Confirm the off-chain signed order's hash matches the on-chain anchor.
+# 1. Confirm the on-chain anchor's last hash for the agent's wallet.
 cast call --rpc-url https://testnet-rpc.monad.xyz \
   0x0e649C383CFA6be1998445D0A7a8E1cc7540D239 \
   "lastHash(address)(bytes32)" 0xe67e13D545C76C2b4e28DFE27Ad827E1FC18e8D9
-# → 0x75e6a8c9f9832ea912fbaf5c2e690f7f39bb14970b0d0d08a3ce2ee61ebb2e65
+# → 0xfe44195b36463e33da7156285383a4fe735093ecadb1abb87684435552814ba9
 
 # 2. Confirm the same hash credited a vault deposit.
 cast call --rpc-url https://testnet-rpc.monad.xyz \
   0xC39e298ce89cDfc934c697c9Fe0CC4BAA80B87f5 \
   "deposits(address,bytes32)(uint256)" \
   0xe67e13D545C76C2b4e28DFE27Ad827E1FC18e8D9 \
-  0x75e6a8c9f9832ea912fbaf5c2e690f7f39bb14970b0d0d08a3ce2ee61ebb2e65
+  0xfe44195b36463e33da7156285383a4fe735093ecadb1abb87684435552814ba9
 # → 10000000000000000  (= 0.01 MON)
 
-# 3. Verify the off-chain artefact reconstructs the same hash.
+# 3. Verify the shipped off-chain artefact reconstructs the same hash.
 python -c "
-import sys, hashlib, json
+import sys, hashlib
 sys.path.insert(0,'.')
 from src import orders, pq_signing as pq
 o = orders.load_signed_orders()[0]
 print(hashlib.sha256(pq.canonical_bytes(o.order.to_dict())).hexdigest())
 "
-# → 75e6a8c9f9832ea912fbaf5c2e690f7f39bb14970b0d0d08a3ce2ee61ebb2e65
+# → fe44195b36463e33da7156285383a4fe735093ecadb1abb87684435552814ba9
 ```
 
 The agent's PQ-signed decision is byte-linked through the off-chain
 hash-chain → AuditAnchor → MonadAllocationVault, end-to-end auditable
-without trusting the submitter.
+without trusting the submitter (off-chain leg is Q-Day-resistant;
+on-chain leg inherits Monad's ECDSA Q-Day exposure).
+
+**On-chain footprint disclosure.** The shipped state on testnet is one
+deployer wallet that has made four anchors (sequences 0–3) and two
+vault deposits totalling 0.02 MON. This is an *end-to-end demo*, not a
+production system with public users. The pitch is the *provable
+composability* of the three-layer chain, not on-chain TPS.
 
 ### DeFi-native data layer
 
@@ -292,14 +341,16 @@ panellist can poke every component without reading source.
   **append_audit refuses to record an unverifiable order**; **AI
   walk-forward is lookahead-free** (corrupting prices past `as_of` does
   not change the prediction).
-- 20 Monad-TX Python tests covering: calldata round trip with shared
+- 22 Monad-TX Python tests covering: calldata round trip with shared
   canonicalisation against the PQ-signing layer; transaction field
   shape; bad-address rejection; corruption detection; **AuditAnchor
   calldata selectors verified against `forge inspect`**; **anchor TX
   gas budget under 100 K**; **MONAD_CHAIN_ID locked at 143 (mainnet)**;
   **MonadAllocationVault execute() selector lock-in (`0x4a987805`)**;
   **fractional-weights → uint16 basis-points round-trip sums to 10000**;
-  **pool label keccak matches Solidity's hash byte-for-byte**.
+  **pool label keccak matches Solidity's hash byte-for-byte**;
+  **fractional-weights raises on zero-sum or negative input** so the
+  on-chain Allocated event cannot misrepresent agent intent.
 - 21 Foundry tests across two contracts:
     * AuditAnchor (8): genesis, chain linking, per-anchorer counter
       isolation, sequence-mismatch revert, zero-hash revert, overload
@@ -328,41 +379,51 @@ panellist can poke every component without reading source.
   Heron in February 2026, using ZNE in their case.
 - **Area 3 — Digital Infrastructure Secured Against Quantum Computing.**
   The PQ signing layer is not narrative — it is verified by 24 PQ tests
-  + 20 Monad-TX Python tests + 21 Foundry tests on two contracts
-  (65 total) and produces tamper-evident artefacts that a reviewer can
+  + 22 Monad-TX Python tests + 21 Foundry tests on two contracts
+  (67 total) and produces tamper-evident artefacts that a reviewer can
   audit without running the code. **Both contracts are live on Monad
   testnet** ([AuditAnchor](https://testnet.monadscan.com/address/0x0e649c383cfa6be1998445d0a7a8e1cc7540d239),
   [MonadAllocationVault](https://testnet.monadscan.com/address/0xc39e298ce89cdfc934c697c9fe0cc4baa80b87f5)),
   Monadscan-verified, with a real end-to-end provenance trail already
   on-chain: one PQ-signed agent decision → SHA-256 anchored →
-  user-signed 0.01 MON allocation deposit, all three artefacts linked
-  by the same 32-byte orderHash. Aligned with the NIST FIPS 204
-  algorithm NEAR Protocol enabled at L1 on 2026-05-06 — the first
-  production L1 to ship a finalised PQ signature.
+  user-signed 0.01 MON custody deposit, all three artefacts linked by
+  the same 32-byte orderHash. Aligned with the NIST FIPS 204 algorithm
+  NEAR Protocol committed to at L1 on 2026-05-06 — the first major L1
+  to commit to a NIST-finalised PQ signature option at the account
+  layer (Q2 2026 testnet rollout planned).
 - **Mexico-eligible.** EmpowerTours SAS de CV is incorporated in
   Mexico, qualifying under the LATAM startup criteria.
 - **Built honestly.** The code does not claim quantum advantage; the
-  backtest does not claim alpha (Sharpe 1.59 vs equal-weight 2.11 is
-  reported, not hidden — the AI strategy underperforms the naive
-  baseline at this scale, which is the honest result of a lookahead-free
-  walk-forward); the on-chain ECDSA gap is documented in
+  backtest does not claim alpha (Sharpe 1.59 vs equal-weight 2.11 on
+  the *price-return* walk-forward backtest is reported, not hidden —
+  the AI strategy underperforms the naive baseline at this scale,
+  which is the honest result of a lookahead-free walk-forward).
+  Note: the signed-order's `expected_vol` field is *yield-vol* (the
+  annualised standard deviation of daily APY drift on stablecoin /
+  staking pools, ≈0.34%), which is intentionally low because these
+  are fixed-income-like instruments; the implied per-order Sharpe of
+  ≈52 is yield-Sharpe in a Treasuries-like regime, not a price-return
+  alpha claim. The price-return Sharpe is the backtest's 1.59 (which
+  loses to 1/N — see the honest-framing line above); the on-chain ECDSA gap is documented in
   [`SECURITY.md`](SECURITY.md) as the Q-Day risk we are *preparing for*
   rather than *eliminating*. We avoid the failure mode of pitching
   capabilities the code does not have.
 
 ## What would happen with funding
 
-1. **Deploy `AuditAnchor.sol` on Monad mainnet.** The contract is
-   already written and Foundry-tested (8 tests, 256-run fuzz, gas
-   measured at ~30 K per call). Mainnet deployment is gated behind
-   the prize event so competition funds — not development funds —
-   pay for production bytecode. Testnet deployment (`chainid 10143`)
-   is staged in `contracts/script/Deploy.s.sol` ready for `forge
-   script --rpc-url $MONAD_TESTNET_RPC --broadcast`.
-2. **Wire an actual wallet integration** (web3.py + a hardware wallet
-   path) so the agent's `monad_tx.py` output becomes a real broadcast
-   transaction. Closes the gap between "ready-to-sign artifact" and
-   "broadcast on Monad mainnet."
+1. **Deploy both contracts on Monad mainnet.** AuditAnchor and
+   MonadAllocationVault are already deployed + Monadscan-verified on
+   Monad testnet (see addresses above) with 21 Foundry tests passing.
+   Mainnet (chainId 143) deployment is gated behind the prize so
+   competition funds — not development funds — pay for production
+   bytecode. The same `forge script` commands swap `--rpc-url` to
+   reach mainnet.
+2. **Wire an automated wallet broadcaster** (web3.py + HSM-backed key
+   custody) so the agent's `monad_tx.py` output is auto-broadcast on
+   a schedule rather than hand-broadcast. Manual broadcast is already
+   demonstrated on testnet (anchor TXs sequences 0–3 + two vault
+   TXs); the work is automating the broadcast loop and HSM-gating the
+   ECDSA signer.
 3. **Track FIPS 206 (FN-DSA / Falcon)**. NIST has not finalised the
    standard as of mid-2026 — projected late 2026 / early 2027. When the
    spec freezes, add Falcon as a fourth hedge with smaller signature

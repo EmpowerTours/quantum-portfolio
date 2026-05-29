@@ -162,11 +162,25 @@ contract MonadAllocationVaultTest is Test {
         attacker.deposit{value: 5 ether}(ORDER_1, pools3, weights3);
         assertEq(vault.deposits(address(attacker), ORDER_1), 5 ether);
 
-        // Single withdraw call. The attacker tries to re-enter; the CEI
-        // pattern (state updated before .call) makes the re-entry's
-        // `deposits[attacker][ORDER_1] - amount` underflow and revert.
+        uint256 vaultBalanceBefore    = address(vault).balance;
+        uint256 attackerBalanceBefore = address(attacker).balance;
+
+        // The attacker tries to re-enter; the CEI pattern (state updated
+        // before .call) makes the re-entry's available -= amount
+        // underflow and revert the inner call. The outer call propagates.
         vm.expectRevert();
         attacker.attack(ORDER_1, 5 ether);
+
+        // Post-attack invariants:
+        // 1. Attacker's accounting slot is unchanged (no funds escaped).
+        assertEq(vault.deposits(address(attacker), ORDER_1), 5 ether,
+                 "attacker's deposit slot drifted despite reverted attack");
+        // 2. Vault still holds the original 5 ETH (nothing was drained).
+        assertEq(address(vault).balance, vaultBalanceBefore,
+                 "vault balance changed despite reverted attack");
+        // 3. Attacker's external balance is unchanged.
+        assertEq(address(attacker).balance, attackerBalanceBefore,
+                 "attacker received funds despite reverted attack");
     }
 
     function test_GasUnderBudget() public {

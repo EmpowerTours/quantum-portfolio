@@ -125,7 +125,7 @@ python run_backtest.py
 │   └── script/DeployVault.s.sol       deploys MonadAllocationVault
 ├── tests/
 │   ├── test_pq_signing.py       24 round-trip + tampering + concurrency tests
-│   └── test_monad_tx.py         12 calldata + AuditAnchor calldata tests
+│   └── test_monad_tx.py         22 calldata + AuditAnchor + vault tests
 ├── outputs/
 │   ├── hardware_run.json        Cached IBM-QPU result
 │   ├── backtest.json            Walk-forward metrics
@@ -143,9 +143,9 @@ Mugel et al. (2022). The XY-mixer reference implementation in
 current hardware path. ML-DSA-65 follows NIST FIPS 204 (2024) and
 SLH-DSA-SHAKE-256s follows NIST FIPS 205 (2024); both are provided by
 `quantcrypt` (PQClean precompiled bindings). The Ed25519 classical leg
-uses pyca's `cryptography` library. The hedged-by-default architecture
-follows the May 2026 `quantum-safe-py` reference implementation
-([arxiv 2605.17061](https://arxiv.org/abs/2605.17061)).
+uses pyca's `cryptography` library. The triple-sign hedge construction
+is the standard hybrid-PQ pattern (one lattice + one hash-based + one
+classical signature with disjoint security assumptions).
 
 ## License
 

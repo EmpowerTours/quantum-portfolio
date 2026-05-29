@@ -109,7 +109,16 @@ contract MonadAllocationVault {
         if (!ok) revert TransferFailed();
     }
 
-    /// @notice Convenience: vault's total MON balance (all users combined).
+    /// @notice Convenience: vault's total MON balance. NOTE: this returns
+    ///         `address(this).balance`, which a hostile contract could
+    ///         inflate by SELFDESTRUCTing with the vault as recipient
+    ///         (still possible from contracts deployed before Cancun's
+    ///         selfdestruct restriction). The accurate per-user accounting
+    ///         lives in `deposits[user][orderHash]` and is unaffected by
+    ///         force-sent ETH. Use this view only for monitoring, not for
+    ///         protocol invariants. A future mainnet redeploy can switch
+    ///         to an explicit `internalBalance` counter if external
+    ///         invariants need to depend on it.
     function totalLocked() external view returns (uint256) {
         return address(this).balance;
     }

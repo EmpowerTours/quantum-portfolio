@@ -195,6 +195,27 @@ def test_fractional_weights_to_bps_handles_two_pools():
     assert bps == [5000, 5000]
 
 
+def test_fractional_weights_to_bps_rejects_zero_sum():
+    """Pre-fix: [0,0,0] returned [10000,0,0], silently inflating pool 0
+    to 100%. After fix: must raise so the on-chain Allocated event
+    cannot misrepresent the agent's intent."""
+    try:
+        mtx.fractional_weights_to_bps([0.0, 0.0, 0.0])
+    except ValueError as e:
+        assert "0" in str(e).lower() or "sum" in str(e).lower()
+        return
+    raise AssertionError("expected ValueError on zero-sum weights")
+
+
+def test_fractional_weights_to_bps_rejects_negative():
+    """Negative weights are nonsense for portfolio allocations."""
+    try:
+        mtx.fractional_weights_to_bps([-0.1, 1.1])
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError on negative weight")
+
+
 def test_alloc_calldata_selector_matches_forge_inspect():
     """ALLOC_EXECUTE_SELECTOR must equal the first 4 bytes of
     keccak256("execute(bytes32,bytes32[],uint16[])") — the value

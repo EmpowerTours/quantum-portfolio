@@ -116,23 +116,32 @@ contract AuditAnchorTest is Test {
         assertEq(abi.decode(logs[1].data, (bytes32)), H1);
     }
 
-    /// Gas snapshot — keep us honest about the ~30 K gas target documented
-    /// in SUBMISSION.md. Fails CI if anchoring ever drifts above 60 K.
+    /// Gas snapshot — keep us honest about the ~30 K-end-to-end gas
+    /// target documented in SUBMISSION.md. The numbers asserted here are
+    /// the function-body cost only (gasleft delta around the call); the
+    /// real end-to-end TX cost on Monad testnet adds the 21K base TX +
+    /// 32-byte calldata = ~25K, landing the total around 47K gas (the
+    /// observed cost of seq 1-3 in the shipped TXs). Tightening these
+    /// bounds catches accidental gas regressions before they reach the
+    /// chain.
     function test_GasUnderBudget() public {
         vm.prank(alice);
         uint256 g0 = gasleft();
         anchorContract.anchor(H1, 0);
         uint256 used = g0 - gasleft();
-        // First anchor pays the cold-SSTORE penalty for sequence & lastHash —
-        // higher than steady-state. Second anchor is the production cost.
-        assertLt(used, 100_000, "first anchor over 100K gas");
+        // First anchor pays the cold-SSTORE penalty (2 fresh slots,
+        // ~22.1K gas each). Function body lands ~50K + function dispatch.
+        assertLt(used, 70_000, "first anchor function body over 70K gas");
+        emit log_named_uint("cold anchor (function body)", used);
 
         vm.prank(alice);
         g0 = gasleft();
         anchorContract.anchor(H2, 1);
         used = g0 - gasleft();
-        assertLt(used, 60_000, "steady-state anchor over 60K gas - narrative says ~30K");
-        emit log_named_uint("steady-state anchor gas", used);
+        // Warm SSTORE (~5K each * 2) + event emit + reads = well under 15K.
+        // The bound of 15K asserts steady-state is actually steady.
+        assertLt(used, 15_000, "warm anchor function body over 15K gas - narrative says ~30K end-to-end");
+        emit log_named_uint("warm anchor (function body)", used);
     }
 
     /// Fuzz: arbitrary non-zero hashes always succeed, monotonic counter

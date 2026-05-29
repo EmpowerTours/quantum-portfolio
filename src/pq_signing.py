@@ -14,9 +14,10 @@ assumptions. An attacker must break ALL THREE to forge an order:
     the legacy chain of trust (no PQ tooling) can verify the order today;
     breaks on Q-Day but survives any classical or lattice-only attack.
 
-Architectural pattern follows `quantum-safe-py` (arxiv 2605.17061, May
-2026) — hybrid-by-default + hedge — but implemented directly against
-`quantcrypt` and `cryptography` for control over a v0.1.0 dependency.
+Standard hybrid-PQ hedge construction (one lattice + one hash-based +
+one classical with disjoint security assumptions), implemented
+directly against `quantcrypt` and `cryptography` to control dependency
+risk.
 
 Backend: `quantcrypt` 1.0.x (PQClean precompiled binaries via Python bindings).
 PQClean is the reference C implementation used by liboqs and other PQ

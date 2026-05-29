@@ -314,8 +314,8 @@ with tab_pq:
         "signatures bind the QPU job ID, pool selection, weights, and a "
         "UUID nonce together so a Q-Day-capable attacker still cannot forge, "
         "tamper with, or replay a recorded order. Architecture follows the "
-        "May 2026 `quantum-safe-py` hybrid-by-default pattern "
-        "([arxiv 2605.17061](https://arxiv.org/abs/2605.17061))."
+        "standard hybrid-PQ hedge construction (one lattice + one "
+        "hash-based + one classical with disjoint security assumptions)."
     )
     st.caption("Read SECURITY.md for the full threat model: what this "
                "protects, and what it deliberately does not (on-chain "

@@ -17,9 +17,9 @@ Every rebalance decision is wrapped in a JSON `RebalanceOrder` containing:
 - `agent_id`
 
 The canonical JSON encoding of this dictionary is signed with **three
-independent signature schemes** — a hedged-by-default architecture
-following the May 2026 `quantum-safe-py` reference implementation
-([arxiv 2605.17061](https://arxiv.org/abs/2605.17061)):
+independent signature schemes** — the standard hybrid-PQ hedge
+construction (one lattice + one hash-based + one classical) with
+disjoint security assumptions:
 
 | Scheme | Standard | Sizes (pk / sig) | Security assumption |
 |---|---|---|---|
@@ -32,11 +32,11 @@ schemes and pyca's `cryptography` for Ed25519. Backend choice is
 deliberate: PQClean is the reference C implementation underneath LF
 PQCA's `liboqs`; shipping precompiled binaries removes the C-toolchain
 dependency at install time without abandoning the audited reference
-code. Same NIST FIPS 204 algorithm NEAR Protocol enabled at L1 on
-2026-05-06, 21 days before this submission — the first production L1
-to adopt a NIST-finalised PQ signature, and the strongest available
-evidence that the standardised stack we sign with is on a live
-production deployment trajectory.
+code. Same NIST FIPS 204 algorithm NEAR Protocol committed to at L1
+on 2026-05-06, with Q2 2026 testnet rollout planned — the first major
+L1 to commit to a NIST-finalised PQ signature option at the account
+layer, and the strongest available signal that the standardised stack
+we sign with is on a production-deployment trajectory.
 
 This means:
 - **Tampering**: changing any field of the order — pool list, weights,

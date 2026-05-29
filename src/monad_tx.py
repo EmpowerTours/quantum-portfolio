@@ -239,9 +239,22 @@ def fractional_weights_to_bps(weights: list[float]) -> list[int]:
     """Convert agent's fractional weights (sum=1.0) to uint16 basis points
     that sum to exactly 10_000. We allocate floor(w * 10000) to each pool
     and give the rounding remainder to the largest-weight pool so the
-    sum constraint holds without breaking proportionality much."""
+    sum constraint holds without breaking proportionality much.
+
+    Rejects degenerate inputs: empty list, negative weights, or all-zero
+    weights would otherwise silently produce "100% to pool 0" which
+    misrepresents the agent's intent on-chain.
+    """
     if not weights:
         return []
+    if any(w < 0 for w in weights):
+        raise ValueError(f"negative weights not allowed: {weights}")
+    s = sum(weights)
+    if s <= 0:
+        raise ValueError(
+            "weights sum to 0 — would silently inflate first pool to 100% "
+            "and misrepresent the agent's allocation. Refusing to encode."
+        )
     raw = [int(w * 10_000) for w in weights]
     remainder = 10_000 - sum(raw)
     if remainder != 0:
