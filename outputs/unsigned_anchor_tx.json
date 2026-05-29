@@ -1,0 +1,12 @@
+{
+  "chainId": 10143,
+  "type": 2,
+  "nonce": 0,
+  "maxFeePerGas": 50000000000,
+  "maxPriorityFeePerGas": 1000000000,
+  "gas": 60000,
+  "to": "0x0e649C383CFA6be1998445D0A7a8E1cc7540D239",
+  "value": 0,
+  "data": "0xdb2c4aca75e6a8c9f9832ea912fbaf5c2e690f7f39bb14970b0d0d08a3ce2ee61ebb2e650000000000000000000000000000000000000000000000000000000000000000",
+  "accessList": []
+}

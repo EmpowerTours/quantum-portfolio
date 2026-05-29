@@ -11,6 +11,7 @@ outputs/*
 !outputs/backtest.json
 !outputs/signed_orders.json
 !outputs/unsigned_monad_tx.json
+!outputs/unsigned_anchor_tx.json
 !outputs/audit_log.jsonl
 !outputs/p_optimal.png
 !outputs/backtest_equity.png
