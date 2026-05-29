@@ -21,28 +21,36 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      - name: Install minimal deps for tests
-        # The full requirements include qiskit + streamlit, which the
-        # PQ test suite does not exercise. Install only what tests/ uses.
+      - name: Install runtime deps
+        # Tests import src.pq_signing (quantcrypt) and src.orders
+        # (cryptography), so we install the pinned runtime requirements.
         run: |
           python -m pip install --upgrade pip
-          pip install dilithium-py
+          pip install -r requirements.txt
 
       - name: Run PQ signing test suite
         run: python tests/test_pq_signing.py
 
-      - name: Verify the audit log (chain integrity) of shipped fixtures
+      - name: Run Monad TX test suite
+        run: python tests/test_monad_tx.py
+
+      - name: Verify shipped signed orders + audit-log chain integrity
+        # signed_orders.json + audit_log.jsonl are shipped as reproducibility
+        # artefacts. The signed-orders file proves every embedded order
+        # verifies against its embedded public key under all three signature
+        # schemes; the audit log proves the hash-chain is intact. A reviewer
+        # who clones the repo can verify both offline.
         run: |
           python -c "
-          from pathlib import Path
           import sys
           sys.path.insert(0, '.')
           from src import orders
-          # signed_orders.json is shipped as a reproducibility artefact;
-          # verify each one against its embedded public key.
           for s in orders.load_signed_orders():
               assert orders.verify_signed_order(s), s.order.order_id
               print('verified', s.order.order_id, 'pools=', s.order.pools)
+          ok, n, reason = orders.verify_audit_chain()
+          assert ok, f'audit chain broken: {reason}'
+          print(f'audit chain intact: {n} entries')
           "
 
   imports:

@@ -184,6 +184,27 @@ def test_audit_chain_detects_deletion(tmp_path: Path | None = None):
 
 # --- SLH-DSA hedge (hash-based PQ, independent assumption) ----------------
 
+def test_slh_dsa_variant_is_shake_256s_not_128s():
+    """Lock in the SLH-DSA parameter set. quantcrypt's `SMALL_SPHINCS` maps to
+    PQClean's `sphincs-shake-256s-simple` — the Level-5 (256-bit) small
+    variant, NOT the Level-1 (128-bit) variant. FIPS 205 parameter table:
+
+      SHAKE-128s: pk=32  sk=64   sig=7856   (Level-1)
+      SHAKE-256s: pk=64  sk=128  sig=29792  (Level-5)
+
+    Our shipped sizes match 256s. This test guards against a future
+    quantcrypt update introducing a real 128s class and a refactor
+    silently re-labelling the hedge as the wrong (weaker) parameter set.
+    """
+    kp = pq.slh_dsa_generate_keypair()
+    sig = pq.slh_dsa_sign({"x": 1}, kp.sk)
+    # FIPS 205 SHAKE-256s sizes — distinguishes from 128s in one assertion each.
+    assert len(kp.pk) == 64, "pk size matches SHAKE-256s (128s would be 32 B)"
+    assert len(kp.sk) == 128, "sk size matches SHAKE-256s (128s would be 64 B)"
+    assert len(sig) == 29792, "sig length matches SHAKE-256s (128s would be 7856 B)"
+    assert "256s" in pq.SLH_DSA_ALGORITHM, f"algo label must say 256s, got: {pq.SLH_DSA_ALGORITHM}"
+
+
 def test_slh_dsa_sign_verify_roundtrip():
     kp = pq.slh_dsa_generate_keypair()
     assert len(kp.pk) == pq.SLH_DSA_PUBLIC_KEY_BYTES == 64
@@ -272,6 +293,150 @@ def test_legacy_ml_dsa_only_order_still_verifies():
     signed = orders.sign_order(order, kp, seen_nonces=set())
     assert not signed.is_hedged
     assert orders.verify_signed_order(signed)
+
+
+# --- B3: append_audit concurrency under flock -----------------------------
+
+def test_concurrent_append_audit_preserves_chain(tmp_path: Path | None = None):
+    """Two concurrent append_audit calls must serialise correctly.
+
+    The previous (unlocked) implementation could let two callers read the
+    same prev_hash and append entries pointing to the same predecessor,
+    irrecoverably breaking the chain. With POSIX flock the second writer
+    waits for the first to flush, picks up the updated prev_hash, and
+    verify_audit_chain returns True with n == 2.
+    """
+    import threading
+    if tmp_path is None:
+        tmp_path = Path(tempfile.mkdtemp())
+    log = tmp_path / "audit_race.jsonl"
+    try:
+        ml_kp = pq.ensure_keypair(tmp_path)
+        slh_kp = pq.slh_dsa_ensure_keypair(tmp_path)
+        ed_kp = pq.ed25519_ensure_keypair(tmp_path)
+
+        signed_orders_list = []
+        for i in range(2):
+            o = orders.RebalanceOrder(
+                pools=[f"R{i}"], weights=[1.0],
+                expected_return=0.05, expected_vol=0.10,
+            )
+            signed_orders_list.append(
+                orders.sign_order_hedged(o, ml_kp, slh_kp, ed_kp, seen_nonces=set())
+            )
+
+        barrier = threading.Barrier(2)
+        errors: list[Exception] = []
+
+        def worker(s: orders.SignedOrder) -> None:
+            try:
+                barrier.wait()
+                orders.append_audit(s, log_path=log)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(s,))
+                   for s in signed_orders_list]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"concurrent workers raised: {errors!r}"
+        ok, n, reason = orders.verify_audit_chain(log)
+        assert ok, f"concurrent appends broke the chain: {reason}"
+        assert n == 2, f"expected 2 entries, got {n}"
+    finally:
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+# --- H4: reverse-line scan past the old 64 KB invariant -------------------
+
+def test_last_line_hash_survives_huge_lines(tmp_path: Path | None = None):
+    """The doubling-window reverse scan must find the last line even when
+    individual entries exceed the previous 64 KB buffer. We synthesise a
+    log with one ~80 KB entry — the old fixed-window implementation
+    would return the SHA-256 of a truncated fragment for this file."""
+    import hashlib as _hl
+    if tmp_path is None:
+        tmp_path = Path(tempfile.mkdtemp())
+    log = tmp_path / "huge.jsonl"
+    try:
+        big_entry = '{"x":"' + ("A" * 80_000) + '"}'
+        log.write_text(big_entry + "\n")
+        expected = _hl.sha256(big_entry.encode("utf-8")).hexdigest()
+        assert orders._last_line_hash(log) == expected
+    finally:
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+# --- H6: append_audit fails closed on a bad signature ---------------------
+
+def test_append_audit_refuses_unverifiable_order(tmp_path: Path | None = None):
+    """A post-sign verify failure is a bug — append_audit must raise rather
+    than write a 'verified_at_sign_time=False' entry that still burns the
+    nonce in _load_seen_nonces."""
+    if tmp_path is None:
+        tmp_path = Path(tempfile.mkdtemp())
+    log = tmp_path / "audit.jsonl"
+    try:
+        kp = pq.ensure_keypair(tmp_path)
+        order = orders.RebalanceOrder(
+            pools=["GLD"], weights=[1.0],
+            expected_return=0.05, expected_vol=0.10,
+        )
+        signed = orders.sign_order(order, kp, seen_nonces=set())
+        # Tamper after-the-fact so the verify call inside append_audit fails.
+        signed.order.weights = [0.5]
+        try:
+            orders.append_audit(signed, log_path=log)
+        except orders.AuditVerifyFailed:
+            pass
+        else:
+            raise AssertionError("append_audit accepted an unverifiable order")
+        assert not log.exists(), "audit log was created despite verify failure"
+    finally:
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+# --- H2: walk-forward forecaster has no future-price lookahead ------------
+
+def test_walk_forward_has_no_lookahead():
+    """Future prices after as_of must not influence training-row selection.
+
+    Construct two price series identical through `as_of + horizon_days`,
+    then diverge wildly. A lookahead-free walk-forward forecaster sees
+    only the identical prefix and produces an identical prediction at
+    as_of. The pre-fix implementation used `df.index <= as_of`, letting
+    the last `horizon_days` training rows consume prices strictly past
+    as_of — directly observable here.
+    """
+    import numpy as np
+    import pandas as pd
+    from src.ai_forecast import _train_one_asset
+
+    dates = pd.date_range("2024-01-01", periods=400, freq="B")
+    rng = np.random.default_rng(42)
+    rets = rng.normal(0, 0.01, size=400)
+    prices = pd.Series(np.cumprod(1 + rets) * 100.0, index=dates)
+
+    as_of = dates[250]
+    horizon = 21
+
+    y_clean, _ = _train_one_asset(prices, as_of, horizon)
+
+    prices_corrupt = prices.copy()
+    # Corrupt strictly AFTER as_of. With the lookahead fix, training
+    # consumes prices through position (250 - horizon + horizon) = 250 only,
+    # so corruption at 251+ is invisible. Without the fix, training rows
+    # at positions 230..250 use corrupted prices at 251..271 → different y.
+    prices_corrupt.iloc[251:] = prices_corrupt.iloc[251:] * 100.0
+    y_corrupt, _ = _train_one_asset(prices_corrupt, as_of, horizon)
+
+    assert abs(y_clean - y_corrupt) < 1e-12, (
+        f"future-price corruption changed walk-forward prediction "
+        f"(lookahead leak): clean={y_clean:.6g} corrupt={y_corrupt:.6g}"
+    )
 
 
 if __name__ == "__main__":

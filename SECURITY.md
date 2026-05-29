@@ -24,17 +24,19 @@ following the May 2026 `quantum-safe-py` reference implementation
 | Scheme | Standard | Sizes (pk / sig) | Security assumption |
 |---|---|---|---|
 | **ML-DSA-65** | NIST FIPS 204 (2024) | 1952 B / 3309 B | Module-LWE / MSIS (lattice) |
-| **SLH-DSA-SHAKE-128s** | NIST FIPS 205 (2024) | 64 B / ~29 KB | SHA-3 collision resistance |
+| **SLH-DSA-SHAKE-256s** | NIST FIPS 205 (2024), Level-5 | 64 B / ~29 KB | SHA-3 collision resistance |
 | **Ed25519** | RFC 8032 | 32 B / 64 B | Curve25519 discrete log |
 
 Implementation is `quantcrypt` 1.0+ (PQClean-bound) for the two PQ
 schemes and pyca's `cryptography` for Ed25519. Backend choice is
 deliberate: PQClean is the reference C implementation underneath LF
-PQCA's `liboqs` (whose Python bindings 0.15.0 stable shipped 2026-05-15);
-shipping precompiled binaries removes the C-toolchain dependency without
-abandoning the audited reference code. Same NIST FIPS 204 algorithm
-NEAR Protocol enabled at L1 on 2026-05-06, 19 days before this
-submission.
+PQCA's `liboqs`; shipping precompiled binaries removes the C-toolchain
+dependency at install time without abandoning the audited reference
+code. Same NIST FIPS 204 algorithm NEAR Protocol enabled at L1 on
+2026-05-06, 21 days before this submission — the first production L1
+to adopt a NIST-finalised PQ signature, and the strongest available
+evidence that the standardised stack we sign with is on a live
+production deployment trajectory.
 
 This means:
 - **Tampering**: changing any field of the order — pool list, weights,

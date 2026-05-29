@@ -28,8 +28,10 @@ from __future__ import annotations
 
 import base64
 import datetime as dt
+import fcntl
 import hashlib
 import json
+import os
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -251,21 +253,58 @@ def verify_signed_order_components(signed: SignedOrder) -> dict[str, bool]:
 
 
 def _last_line_hash(log_path: Path) -> str:
-    """Return SHA-256 of the last non-empty line of the log, or genesis."""
+    """Return SHA-256 of the last non-empty line of the log, or genesis.
+
+    Doubling-window reverse scan: starts with an 8 KB window at EOF and
+    doubles until the window contains a complete trailing line (or the
+    whole file). Correct regardless of individual line length, where the
+    previous fixed 64 KB scan would silently return SHA-256 of a
+    truncated fragment for any entry crossing that threshold.
+
+    Always opens its own fresh file descriptor — the caller (including
+    `append_audit` while holding `flock`) gets a guaranteed-current view
+    of the inode rather than a possibly-stale BufferedRandom state from
+    its own open handle.
+    """
     if not log_path.exists() or log_path.stat().st_size == 0:
         return GENESIS_PREV_HASH
-    with log_path.open("rb") as fh:
-        # Read from the end backwards a chunk at a time. The log lines are
-        # ~5 KB each in the worst case, so 64 KB always covers the last one.
-        try:
-            fh.seek(-65536, 2)
-        except OSError:
-            fh.seek(0)
-        chunk = fh.read()
-    lines = [ln for ln in chunk.splitlines() if ln.strip()]
-    if not lines:
+
+    file_size = log_path.stat().st_size
+    window = 8192
+    last_line = b""
+    while True:
+        start = max(0, file_size - window)
+        with log_path.open("rb") as fh:
+            fh.seek(start)
+            chunk = fh.read(file_size - start)
+        # Strip trailing newlines so the file's terminator does not look
+        # like a "line break" inside the chunk.
+        stripped = chunk.rstrip(b"\r\n")
+        if not stripped:
+            # File contained only whitespace.
+            return GENESIS_PREV_HASH
+        last_nl = stripped.rfind(b"\n")
+        if last_nl >= 0:
+            last_line = stripped[last_nl + 1:]
+            break
+        # No prior newline in the window — either the trailing line spans
+        # past our window's start, or the entire file is one line.
+        if start == 0 or window >= file_size:
+            last_line = stripped
+            break
+        window = min(window * 2, file_size)
+
+    if not last_line:
         return GENESIS_PREV_HASH
-    return hashlib.sha256(lines[-1]).hexdigest()
+    return hashlib.sha256(last_line).hexdigest()
+
+
+class AuditVerifyFailed(ValueError):
+    """Raised by append_audit if the signature does not verify.
+
+    A post-sign verify failure is a bug (sign produced an invalid
+    signature), not a normal-flow case to silently record. Fail loud.
+    """
 
 
 def append_audit(signed: SignedOrder,
@@ -277,16 +316,41 @@ def append_audit(signed: SignedOrder,
     Each entry stores `prev_hash` = SHA-256 of the previous line's bytes.
     Deleting or reordering lines invalidates the chain and is detected by
     `verify_audit_chain()`.
+
+    Concurrency (B3): holds an exclusive POSIX advisory lock (`flock`)
+    on the log file across the read-prev-hash + write so two concurrent
+    callers cannot append entries pointing to the same predecessor. The
+    Streamlit "Sign" button is reachable by every browser tab; an
+    unlocked race would break the chain irrecoverably.
+
+    Fail-closed (H6): if the signature does not verify, raises
+    `AuditVerifyFailed` rather than recording an unverifiable entry.
     """
     log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    ok = bool(verified) if verified is not None else verify_signed_order(signed)
+    if not ok:
+        raise AuditVerifyFailed(
+            f"refusing to append unverifiable order {signed.order.order_id}"
+        )
+
     entry = signed.to_dict()
-    entry["verified_at_sign_time"] = (
-        bool(verified) if verified is not None else verify_signed_order(signed)
-    )
-    entry["prev_hash"] = _last_line_hash(log_path)
-    line = json.dumps(entry, separators=(",", ":"))
-    with log_path.open("a") as fh:
-        fh.write(line + "\n")
+    entry["verified_at_sign_time"] = True
+
+    # Hold the lock on a write-only append fd; read the prev-hash via a
+    # fresh fd inside the locked section so we always see the current
+    # on-disk state (Python's BufferedRandom on an already-open fd can
+    # return cached metadata from before another writer's flush).
+    with log_path.open("ab") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            entry["prev_hash"] = _last_line_hash(log_path)
+            line = (json.dumps(entry, separators=(",", ":")) + "\n").encode("utf-8")
+            fh.write(line)
+            fh.flush()
+            os.fsync(fh.fileno())  # durability before releasing the lock
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
 def verify_audit_chain(log_path: Path = AUDIT_LOG_PATH) -> tuple[bool, int, str]:

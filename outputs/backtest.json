@@ -13,19 +13,19 @@
   "risk_factor": 0.5,
   "metrics": {
     "Quantum-AI rebalanced": {
-      "total_return": 2.4459315316149466,
-      "ann_return": 0.3727862514533873,
-      "ann_vol": 0.2511167274852293,
-      "sharpe": 1.484513816290134,
-      "max_drawdown": -0.24980753142374068
+      "total_return": 2.6176740579900635,
+      "ann_return": 0.39854757348020264,
+      "ann_vol": 0.2506860161899368,
+      "sharpe": 1.5898277037448945,
+      "max_drawdown": -0.2498074549185727
     },
     "Equal-weight buy & hold": {
-      "total_return": 2.2117887776943705,
-      "ann_return": 0.3482693586302763,
-      "ann_vol": 0.18648348492026595,
-      "sharpe": 1.8675614024436777,
-      "max_drawdown": -0.16286230387741063
+      "total_return": 2.5048618411652943,
+      "ann_return": 0.3870370491797699,
+      "ann_vol": 0.18376882375501274,
+      "sharpe": 2.1061083227900483,
+      "max_drawdown": -0.15647461343137636
     }
   },
-  "n_rebalances": 48
+  "n_rebalances": 47
 }

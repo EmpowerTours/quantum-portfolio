@@ -5,9 +5,11 @@ assumptions. An attacker must break ALL THREE to forge an order:
 
   * **ML-DSA-65** (NIST FIPS 204) — Module-Lattice. Lattice-based PQ,
     AES-192-equivalent classical security level. Primary PQ signature.
-  * **SLH-DSA-SHAKE-128s** (NIST FIPS 205) — hash-based PQ. Depends only
-    on SHA-3/SHAKE collision resistance — strictly weaker assumption than
-    lattices. Hedges against lattice cryptanalytic breakthroughs.
+  * **SLH-DSA-SHAKE-256s** (NIST FIPS 205) — hash-based PQ, Level-5
+    parameter set (matches AES-256-equivalent classical security).
+    Depends only on SHA-3/SHAKE collision resistance — strictly weaker
+    assumption than lattices. Hedges against lattice cryptanalytic
+    breakthroughs.
   * **Ed25519** (RFC 8032) — classical EdDSA on Curve25519. Included so
     the legacy chain of trust (no PQ tooling) can verify the order today;
     breaks on Q-Day but survives any classical or lattice-only attack.
@@ -66,15 +68,19 @@ PUBLIC_KEY_BYTES = 1952
 SECRET_KEY_BYTES = 4032
 SIGNATURE_BYTES_MAX = 3309   # FIPS 204 max; actual sigs may be shorter
 
-# SLH-DSA-SHAKE-128s — NIST FIPS 205 hash-based signature. Used as a hedge
-# signature alongside ML-DSA: if a lattice break ever appears against
+# SLH-DSA-SHAKE-256s — NIST FIPS 205 hash-based signature, Level-5
+# parameter set (256-bit classical security, AES-256-equivalent). Used
+# as a hedge alongside ML-DSA: if a lattice break ever appears against
 # ML-DSA, SLH-DSA still holds under the strictly weaker assumption that
 # SHA-3/SHAKE remains collision-resistant. Trade-off: large signatures
-# (~7.8 KB) and slow signing (~50–500 ms), acceptable for one rebalance
-# per hour. Key sizes here come from FIPS 205 small variant: pk=64, sk=128.
-SLH_DSA_ALGORITHM = "SLH-DSA-SHAKE-128s (NIST FIPS 205)"
+# (~29 KB) and slow signing (~50–500 ms), acceptable for one rebalance
+# per hour. FIPS 205 parameter table for SHAKE-256s: pk=64, sk=128,
+# sig=29792. quantcrypt's `SMALL_SPHINCS` maps to PQClean's
+# `sphincs-shake-256s-simple` — verified empirically by sizes.
+SLH_DSA_ALGORITHM = "SLH-DSA-SHAKE-256s (NIST FIPS 205)"
 SLH_DSA_PUBLIC_KEY_BYTES = 64
 SLH_DSA_SECRET_KEY_BYTES = 128
+SLH_DSA_SIGNATURE_BYTES = 29792   # FIPS 205 SHAKE-256s fixed signature length
 
 
 # --- canonical JSON serialisation ----------------------------------------
@@ -202,7 +208,7 @@ def verify(payload: Any, signature: bytes, pk: bytes) -> bool:
 
 @dataclass(frozen=True)
 class SLHDSAKeyPair:
-    """SLH-DSA-SHAKE-128s keypair. Treat .sk as a secret."""
+    """SLH-DSA-SHAKE-256s keypair. Treat .sk as a secret."""
     pk: bytes
     sk: bytes
 
@@ -246,7 +252,7 @@ def slh_dsa_ensure_keypair(path: Path | str) -> SLHDSAKeyPair:
 
 
 def slh_dsa_sign(payload: Any, sk: bytes) -> bytes:
-    """Sign the canonical encoding of `payload` with SLH-DSA-SHAKE-128s."""
+    """Sign the canonical encoding of `payload` with SLH-DSA-SHAKE-256s."""
     if len(sk) != SLH_DSA_SECRET_KEY_BYTES:
         raise ValueError(f"sk length {len(sk)} != {SLH_DSA_SECRET_KEY_BYTES}")
     return bytes(_slhdsa.sign(sk, canonical_bytes(payload)))

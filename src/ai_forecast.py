@@ -52,14 +52,33 @@ def _features(prices: pd.Series) -> pd.DataFrame:
 
 def _train_one_asset(prices: pd.Series, as_of: pd.Timestamp,
                      horizon_days: int) -> tuple[float, float]:
-    """Fit Ridge on features up to as_of; return (forecast_return, r2)."""
+    """Fit Ridge on features up to as_of; return (forecast_return, r2).
+
+    Walk-forward, lookahead-free: a training row at price-index position t
+    has y = (price[t + horizon_days] / price[t]) - 1 — so its target
+    depends on prices `horizon_days` rows forward. We cap training at the
+    latest row whose y-target date is still <= as_of. The previous
+    implementation used `df.index <= as_of` which let the last
+    `horizon_days` training rows consume prices strictly after as_of —
+    a 21-day lookahead leak.
+    """
     feat = _features(prices)
     fwd = prices.pct_change(horizon_days).shift(-horizon_days)  # target
     df = feat.join(fwd.rename("y")).dropna()
-    train = df.loc[df.index <= as_of]
+
+    prices_until_as_of = prices.loc[prices.index <= as_of]
+    if len(prices_until_as_of) <= horizon_days:
+        # Not enough history before as_of to form a single lookahead-free
+        # training row. Fall back to trailing-mean return.
+        recent = prices_until_as_of.pct_change().tail(63)
+        return float(recent.mean()) * horizon_days, float("nan")
+
+    # Latest training-row date whose y-target date is <= as_of.
+    last_safe_date = prices_until_as_of.index[-1 - horizon_days]
+    train = df.loc[df.index <= last_safe_date]
+
     if len(train) < 60:
-        # not enough data -- fall back to trailing mean of daily returns
-        recent = prices.loc[prices.index <= as_of].pct_change().tail(63)
+        recent = prices_until_as_of.pct_change().tail(63)
         return float(recent.mean()) * horizon_days, float("nan")
     X, y = train.drop(columns="y"), train["y"]
     pipe = Pipeline([("scale", StandardScaler()),
