@@ -149,6 +149,63 @@ contract RoutingVaultTest is Test {
         vault.executeAndRoute{value: 1 ether}(orderHash, tokenOuts, pairs, weights, minOuts);
     }
 
+    /// AMM quote MUST match Uniswap V2's exact formula:
+    /// amountOut = (amountIn * (1000 - feePerMille) * reserveOut) /
+    ///            (reserveIn * 1000 + amountIn * (1000 - feePerMille))
+    /// The first deployment shipped with FEE_BPS = 30 (10x the intended
+    /// V2 fee of 0.3% per-mille). This test pins the canonical math so
+    /// the same bug cannot recur silently — a future change that drifts
+    /// the fee constant fails here before any swap goes out.
+    function test_QuoteMatchesCanonicalV2Formula() public view {
+        (uint112 r0, uint112 r1) = pairWmonUsdc.getReserves();
+        uint256 amountIn = 0.01 ether;
+
+        // On-chain quote
+        bool wmonIsT0 = address(pairWmonUsdc.token0()) == address(wmon);
+        uint256 onChainQuote = wmonIsT0
+            ? pairWmonUsdc.quoteToken1Out(amountIn)
+            : pairWmonUsdc.quoteToken0Out(amountIn);
+
+        // Canonical V2 formula
+        uint256 feePerMille = pairWmonUsdc.FEE_PER_MILLE();
+        uint256 amountInWithFee = amountIn * (1000 - feePerMille);
+        (uint256 reserveIn, uint256 reserveOut) = wmonIsT0
+            ? (uint256(r0), uint256(r1))
+            : (uint256(r1), uint256(r0));
+        uint256 v2Quote = (amountInWithFee * reserveOut) /
+                          (reserveIn * 1000 + amountInWithFee);
+
+        assertEq(onChainQuote, v2Quote, "AMM quote drifted from Uniswap V2 formula");
+        assertEq(feePerMille, 3, "FEE_PER_MILLE must be 3 (canonical 0.3%)");
+    }
+
+    /// Constant-product invariant: after a swap, k must STRICTLY grow
+    /// (because the fee stays in the reserves). If k shrinks, the AMM
+    /// is leaking value.
+    function test_KInvariantStrictlyGrowsAfterSwap() public {
+        (uint112 r0Before, uint112 r1Before) = pairWmonUsdc.getReserves();
+        uint256 kBefore = uint256(r0Before) * uint256(r1Before);
+
+        // Do the swap that the agent's RoutingVault would do:
+        // 0.05 WMON in → some USDC out.
+        bytes32 orderHash = keccak256("k-invariant-test");
+        address[] memory tokenOuts = new address[](1);
+        address[] memory pairs = new address[](1);
+        uint16[]  memory weights = new uint16[](1);
+        uint256[] memory minOuts = new uint256[](1);
+        tokenOuts[0] = address(usdc);
+        pairs[0] = address(pairWmonUsdc);
+        weights[0] = 10_000;
+        minOuts[0] = 1;
+        vm.prank(alice);
+        vault.executeAndRoute{value: 0.05 ether}(orderHash, tokenOuts, pairs, weights, minOuts);
+
+        (uint112 r0After, uint112 r1After) = pairWmonUsdc.getReserves();
+        uint256 kAfter = uint256(r0After) * uint256(r1After);
+
+        assertGt(kAfter, kBefore, "k invariant must STRICTLY grow after swap (fee retention)");
+    }
+
     /// Allocated event must carry the orderHash so an indexer can link
     /// it to the off-chain signed_orders.json and the AuditAnchor TX.
     function test_AllocatedEventCarriesOrderHash() public {

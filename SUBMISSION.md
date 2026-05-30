@@ -277,12 +277,12 @@ Six new contracts deployed and Monadscan-verified on Monad testnet:
 
 | Contract | Address | Role |
 |---|---|---|
-| `WMON` | [`0xabe750f9…7e15e`](https://testnet.monadscan.com/address/0xabe750f9de36d69d41aaf8f20da097fb67f7e15e) | ERC20 wrap of native MON (WETH9-pattern) |
-| `mUSDC` | [`0x7914fafd…5a886`](https://testnet.monadscan.com/address/0x7914fafd4bace4904a9afa3d3d29a98691c5a886) | Test stablecoin (18 decimals, public faucet) |
-| `mUSDT` | [`0x5b61286a…afe8`](https://testnet.monadscan.com/address/0x5b61286ac88688fe8930711faa5b1155e98dafe8) | Test stablecoin (18 decimals, public faucet) |
-| `MiniAMM` (WMON/mUSDC) | [`0xee83ac7e…2ec87`](https://testnet.monadscan.com/address/0xee83ac7e916f4febdb7297363b47ee370fe2ec87) | Constant-product AMM, 0.3 % fee, V2-style swap events |
-| `MiniAMM` (WMON/mUSDT) | [`0xb7f929b7…51200`](https://testnet.monadscan.com/address/0xb7f929b78f2a88d97cdc9ef0235b113dd8351200) | Same |
-| `RoutingVault` | [`0x3ba6f8d6…dba8b`](https://testnet.monadscan.com/address/0x3ba6f8d6e873c9e7b06451fcb28c0a10bb3dba8b) | Agent-driven swap executor |
+| `WMON` | [`0xac73ddd1…8f1dd`](https://testnet.monadscan.com/address/0xac73ddd1d888a7553735b33cd3985aadb138f1dd) | ERC20 wrap of native MON (WETH9-pattern) |
+| `mUSDC` | [`0x673e80ce…db753`](https://testnet.monadscan.com/address/0x673e80ce98324877110fdcd2ffb1693bdd4db753) | Test stablecoin (18 decimals, public faucet) |
+| `mUSDT` | [`0xf8266592…86a50`](https://testnet.monadscan.com/address/0xf826659293a55d34b79a9189a68166ca1ca86a50) | Test stablecoin (18 decimals, public faucet) |
+| `MiniAMM` (WMON/mUSDC) | [`0xc3afb1ad…ca11f`](https://testnet.monadscan.com/address/0xc3afb1ad3d3b4a5fe240f1278c596563e72ca11f) | Constant-product AMM, **canonical V2 0.3% fee**, V2-style swap events |
+| `MiniAMM` (WMON/mUSDT) | [`0x5000d13f…67222`](https://testnet.monadscan.com/address/0x5000d13f6d563dba71147f17327f4aa4e9467222) | Same |
+| `RoutingVault` | [`0x2ce7281d…14ba7f`](https://testnet.monadscan.com/address/0x2ce7281d4c0221f199c1ada465e1cef21014ba7f) | Agent-driven swap executor |
 
 `RoutingVault.executeAndRoute(orderHash, tokenOuts[], pairs[], weightsBps[], minOuts[])`
 is `payable`: the caller sends MON; the vault wraps to WMON, splits
@@ -304,8 +304,8 @@ target is the agent → vault → pair flow, not full DEX functionality.
 
 | Step | Contract | TX | Effect |
 |---|---|---|---|
-| 1. Anchor `orderHash` (seq 4) | AuditAnchor | [`0x96bd74ab…b7ce`](https://testnet.monadscan.com/tx/0x96bd74ab94c9a1a459fb243f3da94e8bfe1486a443830db06d79fb3f7809b7ce) | `0xd68ff218…0754` anchored, prevHash = seq 3 |
-| 2. `executeAndRoute(0.1 MON, [mUSDC, mUSDT], 50/50)` | RoutingVault | [`0x1ed2c8b1…56f8e`](https://testnet.monadscan.com/tx/0x1ed2c8b1b5dd22d1e3fba4d43757a15714885505a2fa7db038393517b3e56f8e) | 2× `MiniAMM.Swap` events + 1 `RoutingVault.Allocated` event, all under the same orderHash. 115.64 mUSDC + 115.64 mUSDT delivered to user. |
+| 1. Anchor `orderHash` (seq 5) | AuditAnchor | [`0x521e5b50…0cb1`](https://testnet.monadscan.com/tx/0x521e5b50bb946f37de64f5fcc7be851fcabeedb67f29bf103d86c06fcd9e0cb1) | `0xc22344fd…9edb` anchored, prevHash = seq 4 |
+| 2. `executeAndRoute(0.1 MON, [mUSDC, mUSDT], 50/50)` | RoutingVault | [`0xfdfe89a6…4451`](https://testnet.monadscan.com/tx/0xfdfe89a6eb739bf8c1fe048992e85f496d1689fa2d96232c8fc12a39f7984451) | 2× `MiniAMM.Swap` events + 1 `RoutingVault.Allocated` event, all under the same orderHash. **118.71 mUSDC + 118.71 mUSDT delivered** — matches Uniswap V2 formula bit-for-bit (verified in `test_QuoteMatchesCanonicalV2Formula`). |
 
 The on-chain provenance trail is now **four steps deep, byte-linked
 end-to-end**: shipped `outputs/signed_orders.json` →

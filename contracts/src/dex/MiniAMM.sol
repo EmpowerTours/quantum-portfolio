@@ -29,7 +29,11 @@ contract MiniAMM is ERC20 {
     uint112 private _reserve1;
 
     uint256 public constant MINIMUM_LIQUIDITY = 1_000;
-    uint256 public constant FEE_BPS = 30; // 0.3%
+    /// @notice Swap fee in per-mille (parts per 1000). V2-canonical value
+    ///         is 3 = 0.3%. Initial deployment used FEE_BPS = 30 (a
+    ///         misnamed constant that produced an actual 3% fee). Fixed
+    ///         in the v2 redeploy of the mini-DEX stack.
+    uint256 public constant FEE_PER_MILLE = 3;
 
     event Mint(address indexed sender, uint256 amount0, uint256 amount1, uint256 liquidity);
     event Burn(address indexed sender, uint256 amount0, uint256 amount1, address indexed to);
@@ -156,8 +160,8 @@ contract MiniAMM is ERC20 {
 
         // Apply 0.3% fee. Multiply balances by 1000 - fee_bps; the k
         // invariant becomes: balance0Adjusted * balance1Adjusted >= r0 * r1 * 1000 * 1000.
-        uint256 balance0Adjusted = balance0 * 1000 - amount0In * FEE_BPS;
-        uint256 balance1Adjusted = balance1 * 1000 - amount1In * FEE_BPS;
+        uint256 balance0Adjusted = balance0 * 1000 - amount0In * FEE_PER_MILLE;
+        uint256 balance1Adjusted = balance1 * 1000 - amount1In * FEE_PER_MILLE;
         if (balance0Adjusted * balance1Adjusted < uint256(r0) * uint256(r1) * 1_000_000) {
             revert InvalidK();
         }
@@ -172,7 +176,7 @@ contract MiniAMM is ERC20 {
     function quoteToken1Out(uint256 amountIn) external view returns (uint256) {
         (uint112 r0, uint112 r1) = getReserves();
         if (r0 == 0 || r1 == 0 || amountIn == 0) return 0;
-        uint256 amountInWithFee = amountIn * (1000 - FEE_BPS);
+        uint256 amountInWithFee = amountIn * (1000 - FEE_PER_MILLE);
         uint256 numerator = amountInWithFee * r1;
         uint256 denominator = uint256(r0) * 1000 + amountInWithFee;
         return numerator / denominator;
@@ -182,7 +186,7 @@ contract MiniAMM is ERC20 {
     function quoteToken0Out(uint256 amountIn) external view returns (uint256) {
         (uint112 r0, uint112 r1) = getReserves();
         if (r0 == 0 || r1 == 0 || amountIn == 0) return 0;
-        uint256 amountInWithFee = amountIn * (1000 - FEE_BPS);
+        uint256 amountInWithFee = amountIn * (1000 - FEE_PER_MILLE);
         uint256 numerator = amountInWithFee * r0;
         uint256 denominator = uint256(r1) * 1000 + amountInWithFee;
         return numerator / denominator;
