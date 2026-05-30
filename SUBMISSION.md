@@ -252,17 +252,70 @@ is denominated in real on-chain value the user actually controls.
 Withdrawals are gated to msg.sender's own deposit slot — the user can
 pull their MON back at any time with `withdraw(orderHash, amount)`.
 
-**Discovery note on testnet DEX availability.** Six rounds of discovery
-(GeckoTerminal, MonadVision, MCP-MONI config, mainnet Uniswap V3
-deterministic addresses, Uniswap-deployer's actual CREATE2 outputs,
-**Kuru's own official `docs.kuru.io/contracts/Contract-addresses`**)
-returned zero working DEX contracts on the current Monad testnet —
-all canonical router/token addresses listed in ecosystem docs have
-empty bytecode on the live RPC. The testnet appears to have been
-reset around 2025-12-16 and ecosystem documentation has not caught up.
-Only Permit2 (deterministic CREATE2 redeploy) and the ERC-4337
-EntryPoint are confirmed live. The custody-anchor design ships the
-*agent-facing protocol* now; real DEX routing waits for the ecosystem.
+**Discovery note → resolution.** Initial discovery rounds (GeckoTerminal,
+MonadVision, MCP-MONI config, mainnet Uniswap V3 deterministic
+addresses, Uniswap-deployer's actual CREATE2 outputs, Kuru's official
+`docs.kuru.io/contracts/Contract-addresses`, LFJ's `developers.lfj.gg`,
+Bean Exchange's documented router) returned **zero working DEX
+contracts** on the current Monad testnet — every canonical address
+listed in ecosystem docs has empty bytecode on the live RPC across
+four independent RPC providers (Monad official, thirdweb, Ankr,
+dRPC). The testnet appears to have been reset around 2025-12-16
+and ecosystem documentation has not caught up; most teams have
+migrated to Monad **mainnet** (live since November 2025, chainId 143)
+where the 0x Swap API aggregates Kuru, Crystal, Clober, OctoSwap,
+Atlantis, IziSwap, Intro, Morpheus, LFJ, and Uniswap.
+
+Rather than block on the testnet ecosystem catching up, we deployed
+**our own minimal Uniswap V2-style AMM stack** on Monad testnet so
+the agent → routed-trade flow is provable end-to-end today. The full
+six-contract deployment is described in the next section.
+
+### Real on-chain trade execution — `RoutingVault` + MiniAMM
+
+Six new contracts deployed and Monadscan-verified on Monad testnet:
+
+| Contract | Address | Role |
+|---|---|---|
+| `WMON` | [`0xabe750f9…7e15e`](https://testnet.monadscan.com/address/0xabe750f9de36d69d41aaf8f20da097fb67f7e15e) | ERC20 wrap of native MON (WETH9-pattern) |
+| `mUSDC` | [`0x7914fafd…5a886`](https://testnet.monadscan.com/address/0x7914fafd4bace4904a9afa3d3d29a98691c5a886) | Test stablecoin (18 decimals, public faucet) |
+| `mUSDT` | [`0x5b61286a…afe8`](https://testnet.monadscan.com/address/0x5b61286ac88688fe8930711faa5b1155e98dafe8) | Test stablecoin (18 decimals, public faucet) |
+| `MiniAMM` (WMON/mUSDC) | [`0xee83ac7e…2ec87`](https://testnet.monadscan.com/address/0xee83ac7e916f4febdb7297363b47ee370fe2ec87) | Constant-product AMM, 0.3 % fee, V2-style swap events |
+| `MiniAMM` (WMON/mUSDT) | [`0xb7f929b7…51200`](https://testnet.monadscan.com/address/0xb7f929b78f2a88d97cdc9ef0235b113dd8351200) | Same |
+| `RoutingVault` | [`0x3ba6f8d6…dba8b`](https://testnet.monadscan.com/address/0x3ba6f8d6e873c9e7b06451fcb28c0a10bb3dba8b) | Agent-driven swap executor |
+
+`RoutingVault.executeAndRoute(orderHash, tokenOuts[], pairs[], weightsBps[], minOuts[])`
+is `payable`: the caller sends MON; the vault wraps to WMON, splits
+by weight, routes each portion through the requested AMM pair with
+explicit per-pool slippage protection, transfers output tokens to
+`msg.sender`, and emits an `Allocated(user, orderHash, amountIn,
+tokenOuts, amountsOut, weightsBps)` event linking the on-chain trade
+back to the agent's PQ-signed off-chain order.
+
+`MiniAMM` is a fresh implementation of Uniswap V2's `x*y = k` AMM
+math under `solc 0.8.28` (V2's reference contracts target 0.5.x).
+The constant-product invariant, the 0.3 % fee, the `Swap`/`Sync`/
+`Mint`/`Burn` event shapes, and the LP-token bookkeeping match V2;
+the contract surface is intentionally smaller (one pair per
+deployment, no flash loans, no callbacks) because the demonstration
+target is the agent → vault → pair flow, not full DEX functionality.
+
+**End-to-end demonstrated on testnet — 0.1 MON → 115.64 mUSDC + 115.64 mUSDT:**
+
+| Step | Contract | TX | Effect |
+|---|---|---|---|
+| 1. Anchor `orderHash` (seq 4) | AuditAnchor | [`0x96bd74ab…b7ce`](https://testnet.monadscan.com/tx/0x96bd74ab94c9a1a459fb243f3da94e8bfe1486a443830db06d79fb3f7809b7ce) | `0xd68ff218…0754` anchored, prevHash = seq 3 |
+| 2. `executeAndRoute(0.1 MON, [mUSDC, mUSDT], 50/50)` | RoutingVault | [`0x1ed2c8b1…56f8e`](https://testnet.monadscan.com/tx/0x1ed2c8b1b5dd22d1e3fba4d43757a15714885505a2fa7db038393517b3e56f8e) | 2× `MiniAMM.Swap` events + 1 `RoutingVault.Allocated` event, all under the same orderHash. 115.64 mUSDC + 115.64 mUSDT delivered to user. |
+
+The on-chain provenance trail is now **four steps deep, byte-linked
+end-to-end**: shipped `outputs/signed_orders.json` →
+`AuditAnchor.lastHash[wallet]` → `RoutingVault.Allocated` event →
+two `MiniAMM.Swap` events, all from the same wallet `0xe67e…e8D9`,
+all referencing the same 32-byte orderHash, all reviewer-verifiable
+via `cast call` without trusting us. Production deployments swap
+`RoutingVault` for a successor that calls the live Kuru / Uniswap
+router on Monad mainnet — the agent-facing event shape stays
+identical so historical orders remain replayable across upgrades.
 
 **Live testnet deployment** (Monadscan-verified, same network/compiler
 as AuditAnchor):
