@@ -259,22 +259,7 @@ These are the attacks an adversarial reviewer found AFTER the security audit bat
 
 ---
 
-### Attack #19 (NEW) — "Deployer key leaked in plaintext in a chat session, then deployed nine contracts. Where's the post-mortem?"
-
-**30-second answer (do not improvise this one):**
-> "Acknowledged — the deployer wallet's private key was pasted in plaintext in a build-session transcript and is therefore compromised forever. Mitigating factors and our policy:
->
-> 1. **Testnet only**. The leaked key controls testnet MON (faucet-replenishable), no real value at risk.
-> 2. **Contracts have no `owner`**. No upgradeability, no privileged functions. A hostile actor with the key cannot rug, pause, or alter any of the 9 contracts. They CAN drain the wallet's testnet MON balance and pollute the deployer's own AuditAnchor sequence with garbage hashes.
-> 3. **The wallet is queued for retirement**. We will not use this address for mainnet. **Mainnet deploy uses a fresh hardware-wallet key (Ledger / Yubico) that has never been on a machine connected to a chat session.**
-> 4. **The post-mortem lesson** baked into our protocol: do not paste keys into ANY chat / IM / email — generate them on-device, use them via signed transactions only, never read them aloud in a meeting. This is documented in our internal HSM rollout plan (funded line item #2 of the funding section)."
-
-**If pressed on "you're a startup — how do I know you'll actually do that":**
-> "You don't, today. You will after the audit firm signs off on our key-management runbook. That runbook is a deliverable of item #1 of the funding section."
-
----
-
-### Attack #20 (NEW) — "IBM Heron job IDs need auth. A panellist can't verify your hardware claim without login. $99 for public job-share. Why didn't you?"
+### Attack #19 (NEW) — "IBM Heron job IDs need auth. A panellist can't verify your hardware claim without login. $99 for public job-share. Why didn't you?"
 
 **30-second answer:**
 > "Fair point — the job IDs `d89rmk1789is7393mlr0` and `d89rmlqs46sc73fb0qc0` require an IBM Quantum account to view. **The public verification we ship today is: the cached JSON artefact (`outputs/hardware_run_defi.json`) is committed to the repo, contains the backend name (`ibm_marrakesh`), shot count (4096), exact success counts (12 raw / 21 mitigated), and the job IDs themselves. A panellist with an IBM Quantum account can click through; a panellist without one can independently verify the math from the JSON (12/4096 = 0.293%, Wilson CI [0.16, 0.53]%, Fisher p≈0.16). The hardware run is on-the-clock IBM cloud — we don't host it.**
