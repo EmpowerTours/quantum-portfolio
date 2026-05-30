@@ -282,11 +282,70 @@ with tab_hw:
 
         hw_results = [r for r in data["results"] if r.get("job_id")]
         if len(hw_results) >= 2:
+            import math
+            from scipy.stats import fisher_exact
+
             raw = next(r for r in hw_results if "raw" in r["method"].lower())
             mit = next(r for r in hw_results if "mitig" in r["method"].lower())
-            lift = (mit["p_optimal"] - raw["p_optimal"]) / max(
-                raw["p_optimal"], 1e-9) * 100
-            st.metric("Mitigation lift in P(optimal)", f"{lift:+.1f}%")
+            shots = int(data["shots"])
+            raw_x = round(raw["p_optimal"] * shots)
+            mit_x = round(mit["p_optimal"] * shots)
+
+            def _wilson(x: int, n: int, z: float = 1.96) -> tuple[float, float]:
+                if n == 0:
+                    return (0.0, 0.0)
+                p = x / n
+                denom = 1.0 + z * z / n
+                center = (p + z * z / (2.0 * n)) / denom
+                half = z * math.sqrt((p * (1 - p) + z * z / (4.0 * n)) / n) / denom
+                return (max(0.0, center - half), min(1.0, center + half))
+
+            raw_lo, raw_hi = _wilson(raw_x, shots)
+            mit_lo, mit_hi = _wilson(mit_x, shots)
+            _, pvalue = fisher_exact([
+                [raw_x, shots - raw_x],
+                [mit_x, shots - mit_x],
+            ])
+
+            st.markdown(
+                "**P(optimal) — single-run frequency, not a tested lift.** "
+                "We report raw success counts plus Wilson 95% CIs and a "
+                "Fisher exact p-value so a reviewer running the math sees "
+                "the same numbers we do — the observed mitigated > raw "
+                "ordering is a **directional consistency check**, not a "
+                "hypothesis-tested significance claim."
+            )
+            col_raw, col_mit, col_p = st.columns(3)
+            col_raw.metric(
+                "Raw HW",
+                f"{raw_x}/{shots} ({raw['p_optimal']*100:.3f} %)",
+                f"Wilson CI [{raw_lo*100:.2f}, {raw_hi*100:.2f}] %",
+                delta_color="off",
+            )
+            col_mit.metric(
+                "Mitigated HW (XY4 DD + twirling)",
+                f"{mit_x}/{shots} ({mit['p_optimal']*100:.3f} %)",
+                f"Wilson CI [{mit_lo*100:.2f}, {mit_hi*100:.2f}] %",
+                delta_color="off",
+            )
+            ci_overlap = raw_hi > mit_lo
+            col_p.metric(
+                "Fisher exact p-value",
+                f"{pvalue:.3f}",
+                "CIs overlap" if ci_overlap else "CIs disjoint",
+                delta_color="off",
+            )
+            st.caption(
+                "Reaching α = 0.05 significance on lifts of this magnitude "
+                "requires ≳10× more shots or replicated independent runs — "
+                "both shipped as funded line item #5 in SUBMISSION.md. "
+                "Methodological precedent (arXiv 2602.09047, 88 qubits, "
+                "ZNE, n=7) reports a statistically significant +31.6 % "
+                "improvement on a portfolio QUBO on the same Heron family, "
+                "but **their p-value does not transfer to our single-run "
+                "data** — we cite the paper as direction-of-effect "
+                "evidence only."
+            )
 
         chart = Path("outputs/p_optimal.png")
         if chart.exists():
