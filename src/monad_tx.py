@@ -37,7 +37,32 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import pq_signing as pq
-from .orders import SignedOrder
+from .orders import SignedOrder, verify_signed_order
+
+
+class UnverifiableOrder(ValueError):
+    """Raised by any builder when a SignedOrder fails signature verification.
+
+    Cross-system audit finding #10: pre-fix `build_*_tx` and
+    `encode_order_calldata` would happily produce calldata from a
+    tampered `outputs/signed_orders.json` — a remote attacker who
+    writes to the file (or a fresh-clone reviewer running on a
+    poisoned artefact) could anchor a forged SHA-256 on-chain. Every
+    public builder now verifies before serialising; the signature is
+    the load-bearing trust boundary.
+    """
+
+
+def _verify_or_raise(signed: SignedOrder) -> None:
+    if not verify_signed_order(signed):
+        raise UnverifiableOrder(
+            f"signed order {signed.order.order_id} fails PQ signature "
+            "verification — refusing to build calldata that would "
+            "anchor an un-attested hash on-chain. If the artefact was "
+            "regenerated cleanly via run_pq_demo.py the embedded "
+            "signature should verify; if it does not, the artefact "
+            "is tampered or corrupted."
+        )
 
 # Monad chain IDs (verify at https://docs.monad.xyz/developer-essentials).
 # We keep mainnet as the default so a copy-paste typo to testnet fails
@@ -88,6 +113,10 @@ class UnsignedMonadTx:
 def encode_order_calldata(signed: SignedOrder) -> str:
     """Pack a signed order into a single 0x-hex calldata blob.
 
+    Fail-closed: verifies the embedded PQ signature before serialising.
+    Raises `UnverifiableOrder` if verify fails — preventing tampered
+    or corrupted artefacts from producing on-chain calldata.
+
     Layout (length-prefixed bytes triples):
       4-byte magic        b'PQO1' (literal ASCII; v1 format)
       2-byte order_len    big-endian uint16
@@ -99,6 +128,7 @@ def encode_order_calldata(signed: SignedOrder) -> str:
 
     The reverse parser lives in decode_order_calldata().
     """
+    _verify_or_raise(signed)
     # Use the SAME canonicalisation as pq_signing.canonical_bytes (H5):
     # signature verification depends on byte-identical canonical form, so
     # a Solidity / non-Python verifier that hashes the on-chain calldata
@@ -291,6 +321,7 @@ def build_alloc_tx(
         raise ValueError(f"vault_contract must be 0x-prefixed 20-byte hex: {vault_contract}")
     if amount_wei <= 0:
         raise ValueError(f"amount_wei must be positive, got {amount_wei}")
+    _verify_or_raise(signed)
 
     order_hash  = order_sha256(signed)
     pool_hashes = [pool_label_hash(p) for p in signed.order.pools]
@@ -370,6 +401,7 @@ def build_anchor_tx(
     """
     if not (anchor_contract.startswith("0x") and len(anchor_contract) == 42):
         raise ValueError(f"anchor_contract must be a 0x-prefixed 20-byte hex: {anchor_contract}")
+    _verify_or_raise(signed)
     order_hash = order_sha256(signed)
     return UnsignedMonadTx(
         chainId=chain_id,

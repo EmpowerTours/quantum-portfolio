@@ -213,6 +213,76 @@ For something that's actually broken:
 
 ---
 
+## Group 6 — Build-process attacks (added 2026-05-30 after the mini-DEX deploy)
+
+These are the attacks an adversarial reviewer found AFTER the security audit batch. They target the build process itself, not any single technical claim. **They are the highest-leverage attacks because they make every other defence sound retroactive.** Memorise these.
+
+### Attack #15 (NEW, NO DEFENCE → BUILT) — "Your AMM shipped with a 10× fee bug. What other 10× bugs are still in code you didn't catch?"
+
+**This is the single most damaging attack on the list.** A 10× error on the single most-tested constant in DeFi turns every other claim ("80 tests, CI green, V2 bit-for-bit") into a presumption of falsity.
+
+**The honest defence — turn weakness into a credibility gain:**
+
+> "Yes — we shipped, deployed, demoed and committed an AMM labelled `0.3% V2-canonical` while the contract took `3%`. Pure 10×. We caught it because a *next-step* hands-on math check — quote a small swap, hand-compute V2's formula, diff — showed the on-chain quote returned 21.83 instead of the V2-canonical 22.43 for 0.01 WMON in. The cause: I named the constant `FEE_BPS = 30` (intending basis points) but the math treated it as per-mille — so 30 per-mille is 3.0%, not 0.30%.
+>
+> The fix is *not* what's interesting; what's interesting is the regression. **`test_QuoteMatchesCanonicalV2Formula` now pins the on-chain quote to V2's hand-computed formula byte-for-byte, AND asserts `FEE_PER_MILLE == 3`.** A future change that drifts the constant fails the test before deploy. That's the V2-conformance test that should have existed before deploy, not after. **Funding line item #1's deliverable is exactly this kind of pre-deploy conformance pin across the contract surface — not just "an audit" in the abstract.**
+>
+> What other 10× bugs could be in code we didn't catch? Honestly: I don't know. That's why the audit + bounty steps exist BEFORE mainnet. The fee bug is in the public commit history, the regression is in the test, both are reviewer-verifiable. If you have specific suspicions about other constants, I'd rather hear them now than at mainnet."
+
+**Why this works:** acknowledges the bug, identifies the systemic cause, shows the institutional fix, and reframes audit funding as concrete deliverables rather than abstract reassurance. **A reviewer who gets honest engineering self-awareness will respect it more than they would have respected a clean build.**
+
+**Do NOT:** try to defend the bug as "small," "caught early," or "didn't reach production." It was deployed. It executed real swaps. The honest framing is the only safe ground.
+
+---
+
+### Attack #16 (NEW, NO DEFENCE → BUILT) — "Trail of Bits takes months. Your AMM was written in 5 hours. Why should I trust unaudited code with 'V2-canonical' in the docstring?"
+
+**30-second answer:**
+> "You shouldn't. That's exactly why mainnet deploy is gated behind a real audit firm. What I shipped on testnet is a *reference implementation* — small surface, only one pair per contract, no flash loans, no callbacks, V2 math pinned by tests. It exists because no working DEX existed on Monad testnet when we needed one, and rolling our own was the fastest path to a real end-to-end provenance trail. **The audit deliverable funded by the prize is not "audit AuditAnchor + Vault" — it's the full stack including MiniAMM. I'd budget toward the higher end of $50-200K specifically because the MiniAMM surface needs careful review.**"
+
+**If pressed on "what V2 edge cases did you test":**
+> "First-LP donation attack — MINIMUM_LIQUIDITY=1000 burned to 0xdead, sized so the attacker's `sqrt(1001*1001) - 1000 = 1` LP can't capture donated balance. Constant-product k invariant — `test_KInvariantStrictlyGrowsAfterSwap` asserts k grows after every swap. V2 quote formula equality — pinned bit-for-bit. What I did NOT test: a fork test against a real Uniswap V2 pair under load, fee-on-transfer tokens, ERC777 hooks, MEV sandwich behaviour. Those are audit work."
+
+---
+
+### Attack #17 (NEW) — "Streamlit UI showed +75% headline. SUBMISSION.md says p≈0.16, not significant. How did the +75% UI go live if you do weekly honesty reviews?"
+
+**30-second answer:**
+> "It went live because the +75% was the original framing across both the UI and the doc, and when we updated the doc's statistical framing two days ago (raw counts + Wilson CIs + Fisher p), we didn't propagate the UI in the same commit. I caught it during the screenshot pass for this submission — commit `11142ed` fixes it, both surfaces now show the same statistical-honesty content. The lesson is: doc/UI consistency is a regression-test surface, not a manual review checkpoint. If we win, item #5 of the audit is partly UI-conformance: every assertion in the doc should be machine-checkable against the rendered UI."
+
+---
+
+### Attack #18 (NEW) — "9 verified contracts including the deprecated 3%-fee MiniAMM. Sloppy. Why is the broken contract still owners-of-record on Monadscan?"
+
+**30-second answer:**
+> "The buggy 3%-fee contracts are at `0xabe750…` and `0x7914fa…`. They are intentionally retained on-chain as the bug-fix paper trail: the commit history shows the fee bug discovery, the fix, and the redeploy. SUBMISSION.md "Real on-chain trade execution" section points at the *current* contracts (0xac73dd…, 0xc3afb1…, etc.); the older ones are documented in the SECURITY.md "old contracts" annex. **They are not deprecated by Monadscan because Monad has no contract deprecation primitive** — but they're labelled in the commit history and the README points readers at the new addresses. For mainnet we'd deploy once after the audit and not redeploy mid-flight."
+
+---
+
+### Attack #19 (NEW) — "Deployer key leaked in plaintext in a chat session, then deployed nine contracts. Where's the post-mortem?"
+
+**30-second answer (do not improvise this one):**
+> "Acknowledged — the deployer wallet's private key was pasted in plaintext in a build-session transcript and is therefore compromised forever. Mitigating factors and our policy:
+>
+> 1. **Testnet only**. The leaked key controls testnet MON (faucet-replenishable), no real value at risk.
+> 2. **Contracts have no `owner`**. No upgradeability, no privileged functions. A hostile actor with the key cannot rug, pause, or alter any of the 9 contracts. They CAN drain the wallet's testnet MON balance and pollute the deployer's own AuditAnchor sequence with garbage hashes.
+> 3. **The wallet is queued for retirement**. We will not use this address for mainnet. **Mainnet deploy uses a fresh hardware-wallet key (Ledger / Yubico) that has never been on a machine connected to a chat session.**
+> 4. **The post-mortem lesson** baked into our protocol: do not paste keys into ANY chat / IM / email — generate them on-device, use them via signed transactions only, never read them aloud in a meeting. This is documented in our internal HSM rollout plan (funded line item #2 of the funding section)."
+
+**If pressed on "you're a startup — how do I know you'll actually do that":**
+> "You don't, today. You will after the audit firm signs off on our key-management runbook. That runbook is a deliverable of item #1 of the funding section."
+
+---
+
+### Attack #20 (NEW) — "IBM Heron job IDs need auth. A panellist can't verify your hardware claim without login. $99 for public job-share. Why didn't you?"
+
+**30-second answer:**
+> "Fair point — the job IDs `d89rmk1789is7393mlr0` and `d89rmlqs46sc73fb0qc0` require an IBM Quantum account to view. **The public verification we ship today is: the cached JSON artefact (`outputs/hardware_run_defi.json`) is committed to the repo, contains the backend name (`ibm_marrakesh`), shot count (4096), exact success counts (12 raw / 21 mitigated), and the job IDs themselves. A panellist with an IBM Quantum account can click through; a panellist without one can independently verify the math from the JSON (12/4096 = 0.293%, Wilson CI [0.16, 0.53]%, Fisher p≈0.16). The hardware run is on-the-clock IBM cloud — we don't host it.**
+>
+> For the final submission package we'll generate a public job-share URL for both runs (≈$0 — public job sharing is built into IBM Quantum's free tier when explicitly enabled). I'll add that to the to-do before the panel session."
+
+---
+
 ## Final reminder before the session
 
 - Print this doc. Mark the three attacks you fear most.

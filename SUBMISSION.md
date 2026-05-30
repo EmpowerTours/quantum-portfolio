@@ -413,6 +413,50 @@ links), PQ signing (interactive sign + tamper test + chain status +
 unsigned Monad TX viewer), and Methodology. Designed so a Santander
 panellist can poke every component without reading source.
 
+## Post-deploy regression discipline (what we did about the fee bug)
+
+The mini-DEX shipped with `FEE_BPS = 30` declared as a constant — a
+naming choice that *should* have meant 0.30 % in basis points, but
+the AMM math actually treated it as per-mille, producing **3 %**
+real fee on every swap (10× the V2 default). The bug shipped, was
+deployed to testnet, executed real swaps, and was caught by a
+hands-on math check against V2's exact formula. The story matters
+because **a panel reviewer who knows DeFi will ask "you shipped a 10×
+error on the most-tested constant in DeFi — what other 10× bugs are
+in code you didn't catch?"**, and the answer is regression discipline,
+not reassurance.
+
+Three things we did about it:
+
+1. **Renamed the constant + fixed the value** — `FEE_PER_MILLE = 3`,
+   value matches V2 canonical 0.3 %. Math left identical.
+2. **Wrote the test that should have existed before deploy.**
+   `test_QuoteMatchesCanonicalV2Formula` (`contracts/test/RoutingVault.t.sol`)
+   asserts the on-chain `quoteToken1Out` return value equals the
+   hand-computed V2 formula `(amountIn × (1000 − feePerMille) × reserveOut) ÷ (reserveIn × 1000 + amountIn × (1000 − feePerMille))`
+   **bit-for-bit**, and asserts `FEE_PER_MILLE == 3`. A future change
+   that drifts either the constant or the formula fails this test
+   before deploy.
+3. **Added a constant-product k-invariant test.** `test_KInvariantStrictlyGrowsAfterSwap`
+   asserts `k = r0 × r1` *strictly grows* after every swap (the fee
+   stays in the reserves). If k ever shrinks, the AMM is leaking
+   value — that test would catch it.
+
+The pattern generalises: **every load-bearing on-chain constant
+should have a "this is what canonical means, bit-for-bit" test that
+the deploy pipeline runs**, not a docstring claim that the audit
+might catch. Funded line item #1 of the funding section pays for
+that pattern to be applied across the contract surface, not just
+the AMM fee.
+
+What was NOT caught at deploy and shipped on the first MiniAMM is
+preserved as a paper trail at [`0xabe750f9…7e15e`](https://testnet.monadscan.com/address/0xabe750f9de36d69d41aaf8f20da097fb67f7e15e)
+(buggy WMON) and [`0xee83ac7e…2ec87`](https://testnet.monadscan.com/address/0xee83ac7e916f4febdb7297363b47ee370fe2ec87)
+(buggy 3%-fee pair). These contracts still execute swaps; users
+calling them get 3 % fee instead of 0.3 %. They are **not** the
+contracts cited in the active provenance trail. We retain them on
+Monadscan as evidence of the bug-fix process, not for active use.
+
 ## Test coverage and CI
 
 - 28 PQ-signing tests covering: variant lock-in for SLH-DSA-SHAKE-256s;
@@ -426,7 +470,7 @@ panellist can poke every component without reading source.
   **append_audit refuses to record an unverifiable order**; **AI
   walk-forward is lookahead-free** (corrupting prices past `as_of` does
   not change the prediction).
-- 22 Monad-TX Python tests covering: calldata round trip with shared
+- 23 Monad-TX Python tests covering: calldata round trip with shared
   canonicalisation against the PQ-signing layer; transaction field
   shape; bad-address rejection; corruption detection; **AuditAnchor
   calldata selectors verified against `forge inspect`**; **anchor TX
@@ -455,8 +499,8 @@ panellist can poke every component without reading source.
 
 - **Area 3 (primary) — Digital Infrastructure Secured Against Quantum
   Computing.** The PQ signing layer is not narrative — it is verified
-  by 28 PQ tests + 22 Monad-TX Python tests + 21 Foundry tests on two
-  contracts (71 total) and produces tamper-evident artefacts that a
+  by 28 PQ tests + 23 Monad-TX Python tests + 30 Foundry tests on
+  four contracts (81 total) and produces tamper-evident artefacts that a
   reviewer can audit without running the code. **Both contracts are
   live on Monad testnet** ([AuditAnchor](https://testnet.monadscan.com/address/0x0e649c383cfa6be1998445d0a7a8e1cc7540d239),
   [MonadAllocationVault](https://testnet.monadscan.com/address/0xc39e298ce89cdfc934c697c9fe0cc4baa80b87f5)),

@@ -169,6 +169,42 @@ def test_build_anchor_tx_rejects_bad_contract_address():
     raise AssertionError("expected ValueError on malformed anchor_contract")
 
 
+def test_builders_refuse_tampered_signed_order():
+    """Cross-system audit #10: a remote attacker who writes to
+    outputs/signed_orders.json could otherwise feed a tampered order
+    into build_*_tx and anchor a forged SHA-256 on-chain. Every builder
+    must verify the embedded PQ signature before serialising calldata.
+
+    Constructs a valid SignedOrder, then mutates the order content
+    so the signature no longer covers it. Every builder MUST raise
+    UnverifiableOrder rather than produce calldata.
+    """
+    from dataclasses import replace
+    signed = _make_signed_order()
+    # Sanity: untampered signed order builds fine.
+    mtx.encode_order_calldata(signed)
+    mtx.build_alloc_tx(signed, vault_contract=VAULT_ADDR, nonce=0, amount_wei=1)
+    mtx.build_anchor_tx(signed, anchor_contract=VAULT_ADDR, nonce=0)
+
+    # Tamper: produce a SignedOrder whose order content no longer
+    # matches the signature (pools list mutated).
+    tampered_order = replace(signed.order, pools=["AAPL", "TSLA", "BTC"])
+    tampered = replace(signed, order=tampered_order)
+    assert not orders.verify_signed_order(tampered), "test setup failed: tamper should invalidate"
+
+    for fn_name, fn in [
+        ("encode_order_calldata", lambda: mtx.encode_order_calldata(tampered)),
+        ("build_alloc_tx",        lambda: mtx.build_alloc_tx(tampered, vault_contract=VAULT_ADDR, nonce=0, amount_wei=1)),
+        ("build_anchor_tx",       lambda: mtx.build_anchor_tx(tampered, anchor_contract=VAULT_ADDR, nonce=0)),
+        ("build_unsigned_tx",     lambda: mtx.build_unsigned_tx(tampered, to_address=SELF_ADDR, nonce=0)),
+    ]:
+        try:
+            fn()
+        except mtx.UnverifiableOrder:
+            continue
+        raise AssertionError(f"{fn_name} accepted tampered order without raising UnverifiableOrder")
+
+
 def test_chain_id_is_monad_mainnet():
     """Independent assertion: MONAD_CHAIN_ID constant equals 143
     (Monad mainnet). Guards against a paste-typo to a testnet value."""
