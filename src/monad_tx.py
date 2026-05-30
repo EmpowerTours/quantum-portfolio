@@ -214,16 +214,14 @@ def encode_alloc_calldata(order_hash: bytes,
 
 
 def _keccak256(data: bytes) -> bytes:
-    """Ethereum's keccak256 (not NIST SHA-3-256). Uses eth_hash via the
-    cryptography stack already in our deps, with a pysha3 fallback."""
-    try:
-        from Crypto.Hash import keccak as _kk
-        h = _kk.new(digest_bits=256)
-        h.update(data)
-        return h.digest()
-    except ImportError:
-        import sha3
-        return sha3.keccak_256(data).digest()
+    """Ethereum's keccak256 (not NIST SHA-3-256 — different paddings).
+    Backed by pycryptodome's Crypto.Hash.keccak, pinned in requirements.txt.
+    Used for pool-label hashes and ABI function selectors that must match
+    Solidity's `keccak256(...)` byte-for-byte."""
+    from Crypto.Hash import keccak as _kk
+    h = _kk.new(digest_bits=256)
+    h.update(data)
+    return h.digest()
 
 
 def pool_label_hash(label: str) -> bytes:

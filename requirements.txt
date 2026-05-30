@@ -20,3 +20,9 @@ quantcrypt>=1.0.1
 # Classical Ed25519 leg of the hedged signature (already a transitive dep
 # via several others, listed explicitly to make the security stack obvious).
 cryptography>=44.0
+# Ethereum keccak256 (NOT the same as NIST SHA-3-256; hashlib.sha3_256
+# would give wrong results). Used by src/monad_tx.py:_keccak256 for
+# pool-label hashing and ABI function selectors. pycryptodome provides
+# Crypto.Hash.keccak; eth_hash with pycryptodome backend is the
+# canonical Ethereum-tooling choice.
+pycryptodome>=3.20
