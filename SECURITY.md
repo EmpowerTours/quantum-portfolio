@@ -64,9 +64,14 @@ that preserves the chain.
 
 ### Schema versioning
 Every signed `RebalanceOrder` carries a `schema_version` integer that is
-itself part of the signed payload. Adding or renaming fields bumps the
-constant. An order signed under schema 1 cannot be re-purposed as if it
-were schema 2 — the signature covers the version.
+itself part of the signed payload. Current constant: `SCHEMA_VERSION = 1`
+(`src/orders.py:42`). Adding or renaming fields bumps the constant. An
+order signed under schema 1 cannot be re-purposed as if it were schema
+2 — the signature covers the version. Additionally, `verify_signed_order`
+rejects any incoming order whose `schema_version` exceeds the current
+constant — a receiver cannot reason about fields it does not know how
+to canonicalise, so future-version orders fail closed
+(`tests/test_pq_signing.py::test_future_schema_version_rejected`).
 
 ### Strict canonicalisation
 `canonical_bytes` rejects non-JSON-native types (`datetime`, `Decimal`,

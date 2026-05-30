@@ -49,6 +49,7 @@ import hashlib
 import json
 import os
 import stat
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -103,16 +104,54 @@ def _strict_default(obj: Any) -> Any:
     )
 
 
+def _nfc_normalize(obj: Any) -> Any:
+    """Recursively NFC-normalise every string in a JSON-able structure.
+
+    Unicode malleability hardening: the same human-visible label can have
+    multiple byte representations under different normalisation forms
+    (NFC, NFD, NFKC, NFKD). A pool label "café" produced from a macOS
+    source (NFD-prone) hashes differently than the same label typed on
+    Linux (NFC). Without normalisation, an attacker controlling the
+    label channel can re-render the "same" agent decision under a new
+    `orderHash`, defeating dedup against `AuditAnchor.lastHash`.
+    We pin NFC (Composition Form C) as the canonical form before any
+    serialisation. This is a no-op for pure ASCII (our shipped pool
+    labels), so it does not change historic hashes.
+    """
+    if isinstance(obj, str):
+        return unicodedata.normalize("NFC", obj)
+    if isinstance(obj, list):
+        return [_nfc_normalize(x) for x in obj]
+    if isinstance(obj, dict):
+        return {_nfc_normalize(k) if isinstance(k, str) else k: _nfc_normalize(v)
+                for k, v in obj.items()}
+    return obj
+
+
 def canonical_bytes(obj: Any) -> bytes:
     """Deterministic JSON encoding so signatures verify across machines.
 
-    Uses sorted keys + compact separators. Rejects non-JSON-native types
-    rather than silently coercing them (which would break round-trip).
-    This is a stable subset of RFC 8785 JCS — sufficient for an internal
-    protocol where every party uses this exact function.
+    Three hardening rules baked in:
+      1. **NFC-normalise every string** (Unicode malleability hardening).
+      2. **Sorted keys + compact separators** (stable subset of RFC 8785 JCS).
+      3. **Reject NaN / Infinity** (`allow_nan=False`) — Python's `json`
+         emits non-RFC-8259 tokens by default, which strict parsers in
+         Go / Rust / browser-side reject. A bad-faith signer could
+         otherwise produce a payload that verifies locally but
+         silently fails every external verifier.
+
+    Rejects non-JSON-native types via `_strict_default` rather than
+    silently coercing them (which would break round-trip).
+
+    No-op for pure-ASCII finite-float payloads — the shipped
+    `outputs/signed_orders.json` (and its anchored SHA-256) is
+    unchanged by introducing these hardenings; only future malicious
+    or accidentally-non-normalised input is now rejected.
     """
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"),
-                      ensure_ascii=False, default=_strict_default).encode("utf-8")
+    return json.dumps(_nfc_normalize(obj),
+                      sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False, allow_nan=False,
+                      default=_strict_default).encode("utf-8")
 
 
 def message_digest(obj: Any) -> str:

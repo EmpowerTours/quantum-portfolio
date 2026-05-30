@@ -21,8 +21,11 @@ Two artefacts are produced for every signed order:
 Schema versioning rules:
   * SCHEMA_VERSION is bumped any time RebalanceOrder gains/renames fields
   * orders with a schema_version newer than this code fail to verify
-  * orders with an older schema_version still verify (we keep the old
-    canonicalisation) — handled in canonical_payload()
+    (enforced by verify_signed_order — see test_future_schema_version_rejected)
+  * orders with an older schema_version still verify: since canonical_bytes
+    sorts keys and the dataclass `asdict` produces all current fields,
+    an older order canonicalises through the same path. No v0 history
+    exists; first stable schema = 1.
 """
 from __future__ import annotations
 
@@ -63,6 +66,21 @@ class RebalanceOrder:
     nonce: str = field(default_factory=lambda: str(uuid.uuid4()))
     issued_at: str = field(default_factory=_utcnow_iso)
     schema_version: int = SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        """Coerce numeric fields to float so canonical_bytes is stable.
+
+        Python's `json.dumps(1)` emits `"1"` but `json.dumps(1.0)` emits
+        `"1.0"` — a caller passing ints where floats are typed would
+        otherwise produce a different canonical byte string than the
+        same payload built with floats. Coerce on construction so the
+        signed bytes do not depend on caller-side type discipline.
+        """
+        self.weights = [float(w) for w in self.weights]
+        self.expected_return = float(self.expected_return)
+        self.expected_vol = float(self.expected_vol)
+        if self.qaoa_p_optimal is not None:
+            self.qaoa_p_optimal = float(self.qaoa_p_optimal)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -202,7 +220,8 @@ def sign_order_hedged(order: RebalanceOrder,
     )
 
 
-def verify_signed_order(signed: SignedOrder) -> bool:
+def verify_signed_order(signed: SignedOrder,
+                        seen_nonces: set[str] | None = None) -> bool:
     """Verify every signature attached to the order.
 
     Always verifies the ML-DSA primary signature. If hedge signatures are
@@ -216,8 +235,18 @@ def verify_signed_order(signed: SignedOrder) -> bool:
     still verify — adding fields is the only way schemas evolve, and an
     older order's canonical bytes are a strict prefix of what a current
     signer would produce when re-signed.
+
+    Replay policy: pass `seen_nonces` (typically the set returned by
+    `_load_seen_nonces`) to reject orders whose nonce has already been
+    consumed. With the default `seen_nonces=None`, replay-protection is
+    OFF — appropriate for a fresh verifier inspecting a single artefact,
+    but a receiver consuming a live stream MUST pass the set so that a
+    bit-identical replay of a previously valid signed order is rejected
+    even when the signature itself is cryptographically valid.
     """
     if signed.order.schema_version > SCHEMA_VERSION:
+        return False
+    if seen_nonces is not None and signed.order.nonce in seen_nonces:
         return False
     payload = signed.order.to_dict()
     pk  = base64.b64decode(signed.public_key_b64)

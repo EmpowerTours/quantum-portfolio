@@ -362,7 +362,7 @@ panellist can poke every component without reading source.
 
 ## Test coverage and CI
 
-- 26 PQ-signing tests covering: variant lock-in for SLH-DSA-SHAKE-256s;
+- 28 PQ-signing tests covering: variant lock-in for SLH-DSA-SHAKE-256s;
   round-trip + tampering for ML-DSA, SLH-DSA, and Ed25519; hedged-order
   round-trip + per-component verification; tamper invalidates all three
   signatures; legacy ML-DSA-only orders still verify; replay rejection;
@@ -400,21 +400,12 @@ panellist can poke every component without reading source.
 
 ## Why this fits the challenge
 
-- **Area 2 — Quantum Software and AI-Driven Intelligence.** The pipeline
-  runs today on a single workstation; the QPU portion runs today on
-  `ibm_marrakesh`. Nothing waits for fault-tolerant hardware. Our
-  XY4 DD + gate/measurement twirling stack on a portfolio QUBO is the
-  same direction (NISQ Heron + heavy mitigation on a finance problem)
-  demonstrated to give a statistically significant
-  ([p=0.0009](https://arxiv.org/abs/2602.09047)) improvement over the
-  classical baseline by Brazilian-Cerrado portfolio researchers on
-  Heron in February 2026, using ZNE in their case.
-- **Area 3 — Digital Infrastructure Secured Against Quantum Computing.**
-  The PQ signing layer is not narrative — it is verified by 26 PQ tests
-  + 22 Monad-TX Python tests + 21 Foundry tests on two contracts
-  (69 total) and produces tamper-evident artefacts that a reviewer can
-  audit without running the code. **Both contracts are live on Monad
-  testnet** ([AuditAnchor](https://testnet.monadscan.com/address/0x0e649c383cfa6be1998445d0a7a8e1cc7540d239),
+- **Area 3 (primary) — Digital Infrastructure Secured Against Quantum
+  Computing.** The PQ signing layer is not narrative — it is verified
+  by 28 PQ tests + 22 Monad-TX Python tests + 21 Foundry tests on two
+  contracts (71 total) and produces tamper-evident artefacts that a
+  reviewer can audit without running the code. **Both contracts are
+  live on Monad testnet** ([AuditAnchor](https://testnet.monadscan.com/address/0x0e649c383cfa6be1998445d0a7a8e1cc7540d239),
   [MonadAllocationVault](https://testnet.monadscan.com/address/0xc39e298ce89cdfc934c697c9fe0cc4baa80b87f5)),
   Monadscan-verified, with a real end-to-end provenance trail already
   on-chain: one PQ-signed agent decision → SHA-256 anchored →
@@ -423,6 +414,17 @@ panellist can poke every component without reading source.
   NEAR Protocol committed to at L1 on 2026-05-06 — the first major L1
   to commit to a NIST-finalised PQ signature option at the account
   layer (Q2 2026 testnet rollout planned).
+- **Area 2 (secondary) — Quantum Software and AI-Driven Intelligence.**
+  The pipeline runs today on a single workstation; the QPU portion
+  runs today on `ibm_marrakesh`. Nothing waits for fault-tolerant
+  hardware. Our XY4 DD + gate/measurement twirling stack is the same
+  direction — NISQ Heron + mitigation on a finance QUBO — demonstrated
+  to give a significant lift in a concurrent **larger-scale, properly-
+  powered** February 2026 study (arXiv 2602.09047, 88 qubits, ZNE,
+  n=7 hardware runs). **Their p-value does not transfer to our
+  single 4 096-shot run** — see the methodological-precedent /
+  statistical-honesty disclaimers in the hardware-execution section
+  above; we ship directional consistency, not a tested lift.
 - **Mexico-eligible.** EmpowerTours SAS de CV is incorporated in
   Mexico, qualifying under the LATAM startup criteria.
 - **Built honestly.** The code does not claim quantum advantage; the
@@ -450,33 +452,38 @@ item, not the first — gas is trivial; what mainnet credibly needs is
 the audit + bounty steps below.
 
 1. **Commission a security audit by a reputable firm.** Trail of Bits,
-   OpenZeppelin, Spearbit, ConsenSys Diligence, Cyfrin, or Zellic on
-   the full stack: AuditAnchor.sol + MonadAllocationVault.sol +
-   `src/pq_signing.py` canonicalisation + `src/orders.py` audit-chain
-   + `src/monad_tx.py` ABI encoders. Engagement budget: **$50–200K**
-   depending on scope and timeline. Output: a public audit report
-   referenced from this repo's README.
+   OpenZeppelin, Spearbit, ConsenSys Diligence, Cyfrin, Zellic — or an
+   audit firm of comparable reputation — on the full stack:
+   AuditAnchor.sol + MonadAllocationVault.sol + `src/pq_signing.py`
+   canonicalisation + `src/orders.py` audit-chain + `src/monad_tx.py`
+   ABI encoders. Engagement budget: **$50–200K** depending on scope
+   and timeline. Output: a public audit report referenced from this
+   repo's README.
 
-2. **Stand up a paid bug bounty.** Immunefi or Code4rena listing with
+2. **HSM-backed agent custody.** Move the ML-DSA / SLH-DSA / Ed25519
+   secret keys from chmod-600 files into AWS KMS / GCP Cloud HSM /
+   Yubico Hardware Security Module so the agent's signing keys cannot
+   be exfiltrated by a local-FS attacker. **This step must precede the
+   bounty below** — exposing chmod-600 keys to a public-bounty crowd
+   would be malpractice; the HSM moves the secret out of the
+   bounty-attack surface so the bounty exclusively tests the protocol,
+   not the operator's machine. Wire web3.py + the same HSM for the
+   ECDSA wallet, automating the broadcast loop.
+
+3. **Stand up a paid bug bounty.** Immunefi or Code4rena listing with
    a tiered payout ($25–100K for criticals on either contract or the
    off-chain signing path, smaller bounties on the audit-chain
    integrity). Six months runway before mainnet deploy is the goal.
+   Sequenced after the HSM step so the bounty surface is the
+   protocol, not the operator's filesystem.
 
-3. **Multi-oracle data-integrity layer.** Replace the unauthenticated
+4. **Multi-oracle data-integrity layer.** Replace the unauthenticated
    DeFiLlama feed with a multi-source consensus (Pyth + Chainlink +
    on-chain pool reads from Morpho / Upshift / Neverland / shMONAD
    directly) so the agent's QUBO input is signed-and-verifiable, not
    trusted REST. This is the largest *engineering* line item —
    roughly 2 engineer-months — and the one that turns Area-3
    compliance from defensible to institutional-grade.
-
-4. **HSM-backed agent custody + automated broadcaster.** Move the
-   ML-DSA / SLH-DSA / Ed25519 secret keys from chmod-600 files into
-   an AWS KMS / GCP Cloud HSM / Yubico Hardware Security Module so the
-   agent's signing key cannot be exfiltrated by a local-FS attacker.
-   Wire web3.py + the same HSM for the ECDSA wallet, automating the
-   broadcast loop (manual broadcast is already demonstrated on
-   testnet — anchor sequences 0–3 + two vault TXs).
 
 5. **Statistical power on the QPU runs.** Move from 4 096 shots × 1
    run to 4 096 shots × ≥10 independent runs, on both raw and
@@ -553,10 +560,15 @@ print(hashlib.sha256(pq.canonical_bytes(orders.load_signed_orders()[0].order.to_
 `run_pq_demo.py` generates a **fresh keypair** (if `keys/` is empty),
 a fresh UUID4 nonce, and a fresh ISO-8601 timestamp on every run, so
 every regen produces a **new orderHash that will not match our
-shipped anchors**. To anchor + escrow your fresh order on Monad
-testnet you'd broadcast new anchor + vault TXs yourself; the existing
-contracts accept any new orderHash, advancing your own per-wallet
-sequence counter independently of ours.
+shipped anchors**. **Path B overwrites `outputs/signed_orders.json`
+and `outputs/unsigned_*.json`, and appends a new entry to
+`outputs/audit_log.jsonl`** — back these files up first if you want to
+re-run Path A's hash comparison afterwards. To anchor + escrow your
+fresh order on Monad testnet you'd broadcast new anchor + vault TXs
+yourself (requires testnet MON — get some from the official faucet at
+https://testnet.monad.xyz); the existing contracts accept any new
+orderHash, advancing your own per-wallet sequence counter
+independently of ours.
 
 ```sh
 # 1. Run the QAOA on real hardware (needs IBM_QUANTUM_TOKEN in .env)
@@ -580,7 +592,8 @@ Path B is for evaluating the *pipeline*; Path A is for verifying *our
 shipped artefact* matches *our shipped on-chain anchors*. Both are
 valid; mixing them (e.g., running B then asserting your fresh
 orderHash matches A's `lastHash`) will fail by design — that's the
-canary that your fresh-keys regen actually worked.
+**expected divergence** that confirms your fresh-keys regen actually
+produced a new order, not a re-derivation of ours.
 
 ## Contact
 

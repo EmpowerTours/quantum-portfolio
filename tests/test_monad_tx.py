@@ -63,17 +63,29 @@ def test_unsigned_tx_rejects_bad_address():
 
 
 def test_calldata_detects_corruption():
+    """Test-quality fix (per third-pass audit): a 0xFF XOR can leave
+    valid UTF-8 and valid JSON, in which case the decoder returns
+    successfully with corrupted content. The old test caught
+    `except Exception` only and silently passed on the parsable-garbage
+    branch. Strengthened: on a successful decode, the decoded order MUST
+    differ from the signed order — corruption that round-trips bit-for-
+    bit is the actual bug we want to catch."""
     signed = _make_signed_order()
     blob = mtx.encode_order_calldata(signed)
-    # Flip a byte inside the order JSON region (skip the magic).
+    original_dict = signed.order.to_dict()
     raw = bytearray.fromhex(blob[2:])
     raw[20] ^= 0xFF
     corrupt = "0x" + bytes(raw).hex()
     try:
-        mtx.decode_order_calldata(corrupt)
+        decoded_order, _sig, _pk = mtx.decode_order_calldata(corrupt)
     except Exception:
-        return
-    raise AssertionError("decoder accepted a corrupted blob")
+        return  # parse failure on the corrupted blob — also acceptable
+    # Parsed successfully — verify the decoded content actually differs.
+    assert decoded_order != original_dict, (
+        "corruption round-tripped bit-for-bit: decoder accepted "
+        "corrupted blob and produced the original order content - the "
+        "encoding is malleable"
+    )
 
 
 # --- AuditAnchor integration ---------------------------------------------

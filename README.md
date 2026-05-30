@@ -27,7 +27,7 @@ with post-quantum cryptography.
   demonstration + Q-Day-ready off-chain order layer.
 
 This is the submission artefact for the **Santander X Global Challenge:
-Quantum AI Leap** (Area 2 + Area 3, application deadline
+Quantum AI Leap** (Area 3 primary + Area 2 secondary, application deadline
 2026-06-30). See [`SUBMISSION.md`](SUBMISSION.md) for the application
 narrative and [`SECURITY.md`](SECURITY.md) for the threat model.
 
@@ -61,7 +61,7 @@ solver, which is consistency at this scale (not advantage).
 | Optimal selection | Morpho STEAKETH · Neverland USDC · shMONAD (all Monad) |
 | Raw job ID | [`d89rmk1789is7393mlr0`](https://quantum.ibm.com/jobs/d89rmk1789is7393mlr0) |
 | Mitigated job ID | [`d89rmlqs46sc73fb0qc0`](https://quantum.ibm.com/jobs/d89rmlqs46sc73fb0qc0) |
-| Mitigation lift in P(optimal) | **+67 %** (0.3 % → 0.5 %) |
+| Single-run P(optimal) raw / mitigated | 0.3 % → 0.5 % (directional consistency check, single 4 096-shot run — see SUBMISSION.md for Wilson CIs + Fisher exact p ≈ 0.16; **not** a significance-tested lift) |
 
 ### MVP stock universe (earlier baseline, kept for comparison)
 
@@ -70,27 +70,65 @@ solver, which is consistency at this scale (not advantage).
 | Optimal selection | GLD · SLV · NVDA |
 | Raw job ID | [`d88f7qis46sc73f9cjd0`](https://quantum.ibm.com/jobs/d88f7qis46sc73f9cjd0) |
 | Mitigated job ID | [`d88f7sdg7okc73enff00`](https://quantum.ibm.com/jobs/d88f7sdg7okc73enff00) |
-| Mitigation lift in P(optimal) | **+22.7 %** (0.537 % → 0.659 %) |
+| Single-run P(optimal) raw / mitigated | 0.537 % → 0.659 % (directional consistency check, single 4 096-shot run; Fisher exact p ≈ 0.49 — not significance-tested) |
 
 ## Reproducing
+
+**See SUBMISSION.md → "Reproducing the artefacts" for the two valid
+review paths (A: verify the shipped state; B: rerun the pipeline fresh).
+Path A is what reviewers should run first** — do NOT run
+`python run_pq_demo.py` before the verification step, because it
+overwrites the shipped `outputs/signed_orders.json` and produces a
+new orderHash that will not match our on-chain anchors.
+
+### Quick setup (one-time)
+
+```sh
+# Python 3.12 recommended (CI tests 3.11 and 3.12; 3.13 may break qiskit wheels).
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# Foundry (if not installed):
+curl -L https://foundry.paradigm.xyz | bash && foundryup
+
+# Forge-std (needed for `forge test`; not vendored in the repo):
+( cd contracts && forge install foundry-rs/forge-std --shallow --no-git )
+```
+
+### Path A — verify the shipped artefact
+
+```sh
+# 1. Python tests (28 PQ + 22 Monad-TX)
+python tests/test_pq_signing.py
+python tests/test_monad_tx.py
+
+# 2. Foundry tests (8 AuditAnchor + 13 MonadAllocationVault + 2x 256-run fuzz)
+( cd contracts && forge test )
+
+# 3. Re-derive the canonical-bytes SHA-256 of the shipped signed order:
+python -c "
+import sys, hashlib; sys.path.insert(0,'.')
+from src import orders, pq_signing as pq
+print(hashlib.sha256(pq.canonical_bytes(orders.load_signed_orders()[0].order.to_dict())).hexdigest())
+"
+# Expected: fe44195b36463e33da7156285383a4fe735093ecadb1abb87684435552814ba9
+# This must match AuditAnchor.lastHash[deployer] - see SUBMISSION.md for cast call.
+```
+
+### Path B — exercise the pipeline from scratch
+
+⚠️ **This overwrites the shipped `outputs/*.json` and appends to
+`outputs/audit_log.jsonl`.** Back them up if you want Path A
+reproducibility afterwards.
 
 ```sh
 # 1. Re-run the QAOA on real hardware (needs IBM_QUANTUM_TOKEN in .env)
 python run_hardware.py
 
-# 2. Sign the resulting order with the hedged PQ stack + verify + write
-#    audit log (also produces the unsigned Monad TX)
+# 2. Sign a NEW order under fresh keys (overwrites outputs/)
 python run_pq_demo.py
 
-# 3. Run the Python test suites (PQ signing, replay, audit chain,
-#    walk-forward lookahead, AuditAnchor calldata)
-python tests/test_pq_signing.py
-python tests/test_monad_tx.py
-
-# 4. Run the Foundry test suite on AuditAnchor.sol
-( cd contracts && forge test )
-
-# 5. Run the walk-forward backtest with AI-forecast μ
+# 3. Walk-forward backtest with AI-forecast μ
 python run_backtest.py
 ```
 
@@ -124,8 +162,9 @@ python run_backtest.py
 │   ├── script/Deploy.s.sol            deploys AuditAnchor
 │   └── script/DeployVault.s.sol       deploys MonadAllocationVault
 ├── tests/
-│   ├── test_pq_signing.py       26 round-trip + tampering + concurrency + schema-version tests
+│   ├── test_pq_signing.py       28 round-trip + tampering + concurrency + schema + Unicode + NaN tests
 │   └── test_monad_tx.py         22 calldata + AuditAnchor + vault tests
+│   (Plus 21 Foundry tests in contracts/test/ above — 71 tests total)
 ├── outputs/
 │   ├── hardware_run.json        Cached IBM-QPU result
 │   ├── backtest.json            Walk-forward metrics
