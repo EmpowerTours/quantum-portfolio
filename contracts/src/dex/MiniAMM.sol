@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @title  MiniAMM — minimal constant-product AMM (one pair per contract)
 /// @notice Mirrors Uniswap V2's `x*y=k` AMM math at a fraction of the
@@ -19,7 +20,7 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 ///         constant-product invariant and 0.3% fee are identical; the
 ///         LP token bookkeeping is identical; the wire-protocol of swap
 ///         events follows the same shape so indexers can recognise it.
-contract MiniAMM is ERC20 {
+contract MiniAMM is ERC20, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     IERC20 public immutable token0;
@@ -82,7 +83,7 @@ contract MiniAMM is ERC20 {
         uint256 amount0Desired,
         uint256 amount1Desired,
         address to
-    ) external returns (uint256 amount0, uint256 amount1, uint256 liquidity) {
+    ) external nonReentrant returns (uint256 amount0, uint256 amount1, uint256 liquidity) {
         (uint112 r0, uint112 r1) = getReserves();
         if (r0 == 0 && r1 == 0) {
             // First deposit sets the price.
@@ -122,6 +123,7 @@ contract MiniAMM is ERC20 {
     /// @notice Burn LP tokens to redeem underlying token0+token1.
     function removeLiquidity(uint256 liquidity, address to)
         external
+        nonReentrant
         returns (uint256 amount0, uint256 amount1)
     {
         uint256 _totalSupply = totalSupply();
@@ -141,7 +143,7 @@ contract MiniAMM is ERC20 {
     /// @param  amount0Out       token0 to send out (0 if swapping token0→token1)
     /// @param  amount1Out       token1 to send out (0 if swapping token1→token0)
     /// @param  to               recipient of the output token
-    function swap(uint256 amount0Out, uint256 amount1Out, address to) external {
+    function swap(uint256 amount0Out, uint256 amount1Out, address to) external nonReentrant {
         if (amount0Out == 0 && amount1Out == 0) revert InsufficientOutput();
         (uint112 r0, uint112 r1) = getReserves();
         if (amount0Out >= r0 || amount1Out >= r1) revert InsufficientOutput();
@@ -190,6 +192,29 @@ contract MiniAMM is ERC20 {
         uint256 numerator = amountInWithFee * r0;
         uint256 denominator = uint256(r1) * 1000 + amountInWithFee;
         return numerator / denominator;
+    }
+
+    /// @notice Recover tokens force-credited to the pair (SELFDESTRUCT,
+    ///         coinbase, direct transfer, or any other vector that
+    ///         pushes balance above reserve). Without this, an attacker
+    ///         could donate enough tokens to overflow uint112 and
+    ///         permanently DoS the pair. Anyone may call; the excess
+    ///         tokens go to `to`. (Audit fix M-2.)
+    function skim(address to) external nonReentrant {
+        uint256 bal0 = token0.balanceOf(address(this));
+        uint256 bal1 = token1.balanceOf(address(this));
+        if (bal0 > _reserve0) {
+            token0.safeTransfer(to, bal0 - _reserve0);
+        }
+        if (bal1 > _reserve1) {
+            token1.safeTransfer(to, bal1 - _reserve1);
+        }
+    }
+
+    /// @notice Force the reserves to match the actual balance. Companion
+    ///         to skim; lets anyone reset the accounting after force-credit.
+    function sync() external nonReentrant {
+        _update();
     }
 
     function _update() internal {

@@ -277,12 +277,12 @@ Six new contracts deployed and Monadscan-verified on Monad testnet:
 
 | Contract | Address | Role |
 |---|---|---|
-| `WMON` | [`0xac73ddd1…8f1dd`](https://testnet.monadscan.com/address/0xac73ddd1d888a7553735b33cd3985aadb138f1dd) | ERC20 wrap of native MON (WETH9-pattern) |
-| `mUSDC` | [`0x673e80ce…db753`](https://testnet.monadscan.com/address/0x673e80ce98324877110fdcd2ffb1693bdd4db753) | Test stablecoin (18 decimals, public faucet) |
-| `mUSDT` | [`0xf8266592…86a50`](https://testnet.monadscan.com/address/0xf826659293a55d34b79a9189a68166ca1ca86a50) | Test stablecoin (18 decimals, public faucet) |
-| `MiniAMM` (WMON/mUSDC) | [`0xc3afb1ad…ca11f`](https://testnet.monadscan.com/address/0xc3afb1ad3d3b4a5fe240f1278c596563e72ca11f) | Constant-product AMM, **canonical V2 0.3% fee**, V2-style swap events |
-| `MiniAMM` (WMON/mUSDT) | [`0x5000d13f…67222`](https://testnet.monadscan.com/address/0x5000d13f6d563dba71147f17327f4aa4e9467222) | Same |
-| `RoutingVault` | [`0x2ce7281d…14ba7f`](https://testnet.monadscan.com/address/0x2ce7281d4c0221f199c1ada465e1cef21014ba7f) | Agent-driven swap executor |
+| `WMON` | [`0x9eb31580…975aa`](https://testnet.monadscan.com/address/0x9eb31580dbc752629c50b9773ee6e5e03b5975aa) | ERC20 wrap of native MON (WETH9-pattern) |
+| `mUSDC` | [`0x0478bf31…fae87`](https://testnet.monadscan.com/address/0x0478bf311832ffebc87d9f9294e4414208ffae87) | Test stablecoin (18 decimals, public faucet) |
+| `mUSDT` | [`0x6e353e7a…d1574`](https://testnet.monadscan.com/address/0x6e353e7ac67a9fb410a7a6c3d9df474a561d1574) | Test stablecoin (18 decimals, public faucet) |
+| `MiniAMM` (WMON/mUSDC) | [`0xef1cf616…e359a`](https://testnet.monadscan.com/address/0xef1cf6164ab0793a7a42740153807269726e359a) | Constant-product AMM, **canonical V2 0.3% fee**, V2-style swap events, ReentrancyGuard, `skim()` |
+| `MiniAMM` (WMON/mUSDT) | [`0xca4f1118…3e159`](https://testnet.monadscan.com/address/0xca4f1118533266af41e426d96992d3833dc3e159) | Same |
+| `RoutingVault` | [`0x70580f77…e6938`](https://testnet.monadscan.com/address/0x70580f77d7602f9a03fd34f17f3cc395bbce6938) | Agent-driven swap executor (hardened: anchor-existence check, pair allowlist, ReentrancyGuard, `amountOutMin` from caller, post-loop WMON-balance invariant, `Routed` event) |
 
 `RoutingVault.executeAndRoute(orderHash, tokenOuts[], pairs[], weightsBps[], minOuts[])`
 is `payable`: the caller sends MON; the vault wraps to WMON, splits
@@ -304,8 +304,8 @@ target is the agent → vault → pair flow, not full DEX functionality.
 
 | Step | Contract | TX | Effect |
 |---|---|---|---|
-| 1. Anchor `orderHash` (seq 5) | AuditAnchor | [`0x521e5b50…0cb1`](https://testnet.monadscan.com/tx/0x521e5b50bb946f37de64f5fcc7be851fcabeedb67f29bf103d86c06fcd9e0cb1) | `0xc22344fd…9edb` anchored, prevHash = seq 4 |
-| 2. `executeAndRoute(0.1 MON, [mUSDC, mUSDT], 50/50)` | RoutingVault | [`0xfdfe89a6…4451`](https://testnet.monadscan.com/tx/0xfdfe89a6eb739bf8c1fe048992e85f496d1689fa2d96232c8fc12a39f7984451) | 2× `MiniAMM.Swap` events + 1 `RoutingVault.Allocated` event, all under the same orderHash. **118.71 mUSDC + 118.71 mUSDT delivered** — matches Uniswap V2 formula bit-for-bit (verified in `test_QuoteMatchesCanonicalV2Formula`). |
+| 1. Anchor `orderHash` (seq 6) | AuditAnchor | [`0x2c087831…54c1`](https://testnet.monadscan.com/tx/0x2c0878319c5dfabff83761ada36ba7c425f238394d1656f63ccc9da0d8c154c1) | `0xca148bff…581b` anchored, prevHash = seq 5 |
+| 2. `executeAndRoute(0.1 MON, [mUSDC, mUSDT], 50/50, amountOutMin=[117.52, 117.52])` | RoutingVault (hardened v3) | [`0x5e426661…ede4`](https://testnet.monadscan.com/tx/0x5e426661ef372e97fdc61fc04cc2fbc251aa5aab4646b77405cf6e07cfa6ede4) | 2× `MiniAMM.Swap` events + 1 `RoutingVault.Routed` event (renamed from `Allocated` to avoid event-name collision with `MonadAllocationVault`). Caller-supplied `amountOutMin` goes directly to `pair.swap` — sandwich-resistant (the on-chain quote-then-swap pattern from the prior deploy was vulnerable). **117.52 mUSDC + 117.52 mUSDT delivered** (= `amountOutMin`; the 0.99-token surplus vs the spot V2 quote stays in reserves, which is the V2-spec behavior for `amountOutMin`-driven swaps). |
 
 The on-chain provenance trail is now **four steps deep, byte-linked
 end-to-end**: shipped `outputs/signed_orders.json` →
