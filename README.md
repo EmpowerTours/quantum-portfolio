@@ -1,6 +1,6 @@
 # Quantum-Safe DeFi Allocation Agents
 
-[![Live Demo](https://img.shields.io/badge/Live_Demo-Open_Streamlit-ff4b4b?style=for-the-badge&logo=streamlit)](https://quantum-portfolio-wni3zpblnnkhktrje9j2wd.streamlit.app/)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Open_Streamlit-ff4b4b?style=for-the-badge&logo=streamlit)](https://quantum-portfolio-awhfbfwtbqmp2swgpsvxwf.streamlit.app/)
 [![Tests](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml/badge.svg)](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)
 
 ## Santander judges: start here
@@ -8,7 +8,7 @@
 No installation, IBM Quantum account, wallet, or API key is required to review
 the shipped demonstration.
 
-1. **[Open the interactive Streamlit demo](https://quantum-portfolio-wni3zpblnnkhktrje9j2wd.streamlit.app/)** — run the cached optimizer, inspect AI forecasts and backtesting, verify the real IBM hardware artefacts, and exercise PQ signing/tamper detection.
+1. **[Open the interactive Streamlit demo](https://quantum-portfolio-awhfbfwtbqmp2swgpsvxwf.streamlit.app/)** — run the cached optimizer, inspect AI forecasts and backtesting, verify the real IBM hardware artefacts, and exercise PQ signing/tamper detection.
 2. **[Watch the 81-second product walkthrough](docs/DEMO_VIDEO.mp4)**.
 3. **[Review the Santander submission narrative](SUBMISSION.md)** and the linked IBM Quantum jobs and Monad transactions.
 4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 52 Python tests plus 33 Foundry tests are documented below.
