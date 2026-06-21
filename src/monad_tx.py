@@ -19,10 +19,12 @@ Three modes shipped:
      0x0e649C383CFA6be1998445D0A7a8E1cc7540D239 (Monadscan-verified).
      → `build_anchor_tx`
 
-  3. Vault execution (future) — calls a future DEX-router-coupled vault
-     such as `AgentVault.executeRebalance(bytes order, bytes sig)`. Not
-     wired in this MVP; the trade-execution layer is deferred (see
-     "What would happen with funding" in SUBMISSION.md).
+  3. MonadAllocationVault.execute — deposits native MON under the
+     signed order hash and emits an `Allocated` event. A separate
+     RoutingVault + MiniAMM stack in contracts/ demonstrates the
+     routed-trade path on testnet; this module currently builds the
+     anchor and allocation-vault transactions used by the shipped
+     reproducibility artefacts.
 
 The transaction is NOT signed with ECDSA here. A wallet (MetaMask, a
 custodian, or web3.py) signs and broadcasts it. That intentional

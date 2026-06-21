@@ -98,11 +98,11 @@ curl -L https://foundry.paradigm.xyz | bash && foundryup
 ### Path A — verify the shipped artefact
 
 ```sh
-# 1. Python tests (28 PQ + 22 Monad-TX)
+# 1. Python tests (28 PQ + 23 Monad-TX)
 python tests/test_pq_signing.py
 python tests/test_monad_tx.py
 
-# 2. Foundry tests (8 AuditAnchor + 13 MonadAllocationVault + 2x 256-run fuzz)
+# 2. Foundry tests (8 AuditAnchor + 13 MonadAllocationVault + 12 RoutingVault)
 ( cd contracts && forge test )
 
 # 3. Re-derive the canonical-bytes SHA-256 of the shipped signed order:
@@ -157,14 +157,18 @@ python run_backtest.py
 │   ├── foundry.toml
 │   ├── src/AuditAnchor.sol            ~30 K gas on-chain anchor for SHA-256(order)
 │   ├── src/MonadAllocationVault.sol   native-MON vault recording per-orderHash deposits
+│   ├── src/RoutingVault.sol           swaps anchored MON allocations through approved AMM pairs
+│   ├── src/dex/MiniAMM.sol            minimal V2-style AMM used by RoutingVault tests/deploys
 │   ├── test/AuditAnchor.t.sol         8 tests + 256-run fuzz
 │   ├── test/MonadAllocationVault.t.sol  13 tests + 256-run fuzz
+│   ├── test/RoutingVault.t.sol        12 route + slippage + invariant tests
 │   ├── script/Deploy.s.sol            deploys AuditAnchor
-│   └── script/DeployVault.s.sol       deploys MonadAllocationVault
+│   ├── script/DeployVault.s.sol       deploys MonadAllocationVault
+│   └── script/DeployDex.s.sol         deploys WMON + mock tokens + AMM pairs + RoutingVault
 ├── tests/
 │   ├── test_pq_signing.py       28 round-trip + tampering + concurrency + schema + Unicode + NaN tests
-│   └── test_monad_tx.py         22 calldata + AuditAnchor + vault tests
-│   (Plus 21 Foundry tests in contracts/test/ above — 71 tests total)
+│   └── test_monad_tx.py         23 calldata + AuditAnchor + vault tests
+│   (Plus 33 Foundry tests in contracts/test/ above — 84 tests total)
 ├── outputs/
 │   ├── hardware_run.json        Cached IBM-QPU result
 │   ├── backtest.json            Walk-forward metrics

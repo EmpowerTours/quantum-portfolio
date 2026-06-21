@@ -14,7 +14,7 @@ streamlit==1.57.0
 yfinance==1.3.0
 requests>=2.31
 python-dotenv>=1.0
-# PQ signing: ML-DSA-65 (FIPS 204) and SLH-DSA-SHAKE-128s (FIPS 205) via
+# PQ signing: ML-DSA-65 (FIPS 204) and SLH-DSA-SHAKE-256s (FIPS 205) via
 # quantcrypt's precompiled PQClean bindings — no C toolchain at install.
 quantcrypt>=1.0.1
 # Classical Ed25519 leg of the hedged signature (already a transitive dep

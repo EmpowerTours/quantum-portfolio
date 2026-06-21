@@ -288,7 +288,7 @@ Six new contracts deployed and Monadscan-verified on Monad testnet:
 is `payable`: the caller sends MON; the vault wraps to WMON, splits
 by weight, routes each portion through the requested AMM pair with
 explicit per-pool slippage protection, transfers output tokens to
-`msg.sender`, and emits an `Allocated(user, orderHash, amountIn,
+`msg.sender`, and emits a `Routed(user, orderHash, amountIn,
 tokenOuts, amountsOut, weightsBps)` event linking the on-chain trade
 back to the agent's PQ-signed off-chain order.
 
@@ -309,7 +309,7 @@ target is the agent → vault → pair flow, not full DEX functionality.
 
 The on-chain provenance trail is now **four steps deep, byte-linked
 end-to-end**: shipped `outputs/signed_orders.json` →
-`AuditAnchor.lastHash[wallet]` → `RoutingVault.Allocated` event →
+`AuditAnchor.lastHash[wallet]` → `RoutingVault.Routed` event →
 two `MiniAMM.Swap` events, all from the same wallet `0xe67e…e8D9`,
 all referencing the same 32-byte orderHash, all reviewer-verifiable
 via `cast call` without trusting us. Production deployments swap
@@ -480,7 +480,7 @@ Monadscan as evidence of the bug-fix process, not for active use.
   **pool label keccak matches Solidity's hash byte-for-byte**;
   **fractional-weights raises on zero-sum or negative input** so the
   on-chain Allocated event cannot misrepresent agent intent.
-- 21 Foundry tests across two contracts:
+- 33 Foundry tests across three test suites:
     * AuditAnchor (8): genesis, chain linking, per-anchorer counter
       isolation, sequence-mismatch revert, zero-hash revert, overload
       coherence, gas budget, 256-run fuzz.
@@ -490,20 +490,27 @@ Monadscan as evidence of the bug-fix process, not for active use.
       per-user and per-orderHash isolation, naked-send revert,
       reentrancy guard via CEI ordering, gas budget, 256-run fuzz on
       deposit/withdraw invariant.
-- GitHub Actions runs the full suite on Python 3.11 and 3.12 on every
+    * RoutingVault (12): happy-path routing, slippage reverts,
+      anchor-existence guard, pair allowlist, token/pair validation,
+      naked-send rejection, event payload, WMON dust recovery guard,
+      canonical V2 quote formula, and k-invariant growth after swap.
+- GitHub Actions runs the Python suite on Python 3.11 and 3.12 on every
   push, plus an import smoke test of every source module on top of the
   full `requirements.txt`. Audit-chain verification of the shipped
-  `outputs/audit_log.jsonl` runs as a separate CI step.
+  `outputs/audit_log.jsonl` runs as a separate CI step. Foundry tests
+  are run locally with `cd contracts && forge test`.
 
 ## Why this fits the challenge
 
 - **Area 3 (primary) — Digital Infrastructure Secured Against Quantum
   Computing.** The PQ signing layer is not narrative — it is verified
-  by 28 PQ tests + 23 Monad-TX Python tests + 30 Foundry tests on
-  four contracts (81 total) and produces tamper-evident artefacts that a
-  reviewer can audit without running the code. **Both contracts are
-  live on Monad testnet** ([AuditAnchor](https://testnet.monadscan.com/address/0x0e649c383cfa6be1998445d0a7a8e1cc7540d239),
-  [MonadAllocationVault](https://testnet.monadscan.com/address/0xc39e298ce89cdfc934c697c9fe0cc4baa80b87f5)),
+  by 28 PQ tests + 23 Monad-TX Python tests + 33 Foundry tests
+  (84 total) and produces tamper-evident artefacts that a reviewer can
+  audit without running the code. **AuditAnchor, MonadAllocationVault,
+  and the RoutingVault mini-DEX stack are live on Monad testnet**
+  ([AuditAnchor](https://testnet.monadscan.com/address/0x0e649c383cfa6be1998445d0a7a8e1cc7540d239),
+  [MonadAllocationVault](https://testnet.monadscan.com/address/0xc39e298ce89cdfc934c697c9fe0cc4baa80b87f5),
+  [RoutingVault](https://testnet.monadscan.com/address/0x70580f77d7602f9a03fd34f17f3cc395bbce6938)),
   Monadscan-verified, with a real end-to-end provenance trail already
   on-chain: one PQ-signed agent decision → SHA-256 anchored →
   user-signed 0.01 MON custody deposit, all three artefacts linked by

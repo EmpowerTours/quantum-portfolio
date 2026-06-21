@@ -1,6 +1,6 @@
 """Round-trip + tampering tests for the PQ signing layer.
 
-Run with:  python -m pytest tests/  (or just python tests/test_pq_signing.py)
+Run with:  python tests/test_pq_signing.py
 """
 from __future__ import annotations
 
