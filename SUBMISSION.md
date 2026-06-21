@@ -9,6 +9,11 @@ audit trail survives the cryptographically relevant quantum era
 ("Q-Day").
 
 **Repository:** https://github.com/EmpowerTours/quantum-portfolio
+
+**Interactive demo:** https://quantum-portfolio-wni3zpblnnkhktrje9j2wd.streamlit.app/
+
+**81-second walkthrough:** https://github.com/EmpowerTours/quantum-portfolio/blob/main/docs/DEMO_VIDEO.mp4
+
 **License:** MIT
 **Applicant:** EmpowerTours SAS de CV (Mexico)
 **Application areas:** **Area 3 (primary)** — *Digital Infrastructure
