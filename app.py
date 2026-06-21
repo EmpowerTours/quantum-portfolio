@@ -203,13 +203,29 @@ with tab_bt:
     st.caption("Honest framing: this demonstrates the pipeline running on "
                "real DeFi yields, not a proven trading strategy. Backtests "
                "are easy to overfit.")
-    bt_warmup = st.selectbox("Warmup", ["1y"], index=0,
-                             help="Need enough history for AI features.")
+    history_days = max(0, (market.prices.index.max() - market.prices.index.min()).days)
+    warmup_options = [value for value, days_required in
+                      [("90d", 90), ("180d", 180), ("1y", 365)]
+                      if history_days >= days_required + 35]
+    if not warmup_options:
+        warmup_options = ["90d"]
+    default_warmup = "180d" if "180d" in warmup_options else warmup_options[0]
+    bt_warmup = st.selectbox(
+        "Warmup",
+        warmup_options,
+        index=warmup_options.index(default_warmup),
+        help=(f"Available overlapping history: {history_days} days. "
+              "Options must leave at least one complete monthly holding period."),
+    )
     if st.button("Run walk-forward backtest", type="primary"):
-        with st.spinner("Refitting and rebalancing month by month..."):
-            res = run_backtest(market, budget=budget,
-                                risk_factor=risk_factor,
-                                warmup=bt_warmup, use_ai=True)
+        try:
+            with st.spinner("Refitting and rebalancing month by month..."):
+                res = run_backtest(market, budget=budget,
+                                   risk_factor=risk_factor,
+                                   warmup=bt_warmup, use_ai=True)
+        except ValueError as exc:
+            st.error(str(exc))
+            st.stop()
         rows = []
         for strat, m in res.metrics.items():
             rows.append({

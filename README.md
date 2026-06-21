@@ -11,7 +11,7 @@ the shipped demonstration.
 1. **[Open the interactive Streamlit demo](https://quantum-portfolio-wni3zpblnnkhktrje9j2wd.streamlit.app/)** — run the cached optimizer, inspect AI forecasts and backtesting, verify the real IBM hardware artefacts, and exercise PQ signing/tamper detection.
 2. **[Watch the 81-second product walkthrough](docs/DEMO_VIDEO.mp4)**.
 3. **[Review the Santander submission narrative](SUBMISSION.md)** and the linked IBM Quantum jobs and Monad transactions.
-4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 51 Python tests plus 33 Foundry tests are documented below.
+4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 52 Python tests plus 33 Foundry tests are documented below.
 
 The live demo uses shipped, reproducible hardware artefacts by default. Running
 new IBM hardware jobs is optional and requires a personal IBM Quantum token.
@@ -114,7 +114,7 @@ curl -L https://foundry.paradigm.xyz | bash && foundryup
 ### Path A — verify the shipped artefact
 
 ```sh
-# 1. Python tests (28 PQ + 23 Monad-TX)
+# 1. Python tests (29 pipeline/PQ + 23 Monad-TX)
 python tests/test_pq_signing.py
 python tests/test_monad_tx.py
 
@@ -182,9 +182,9 @@ python run_backtest.py
 │   ├── script/DeployVault.s.sol       deploys MonadAllocationVault
 │   └── script/DeployDex.s.sol         deploys WMON + mock tokens + AMM pairs + RoutingVault
 ├── tests/
-│   ├── test_pq_signing.py       28 round-trip + tampering + concurrency + schema + Unicode + NaN tests
+│   ├── test_pq_signing.py       29 PQ, integrity, AI lookahead + backtest regression tests
 │   └── test_monad_tx.py         23 calldata + AuditAnchor + vault tests
-│   (Plus 33 Foundry tests in contracts/test/ above — 84 tests total)
+│   (Plus 33 Foundry tests in contracts/test/ above — 85 tests total)
 ├── outputs/
 │   ├── hardware_run.json        Cached IBM-QPU result
 │   ├── backtest.json            Walk-forward metrics

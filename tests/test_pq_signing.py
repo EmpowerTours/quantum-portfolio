@@ -531,6 +531,35 @@ def test_walk_forward_has_no_lookahead():
     )
 
 
+def test_backtest_accepts_day_warmup_with_one_year_history():
+    """The Streamlit 365-day DeFi window must leave rebalance periods."""
+    import numpy as np
+    import pandas as pd
+    from src.backtest import run_backtest
+    from src.data import MarketData
+
+    dates = pd.date_range("2025-01-01", periods=365, freq="D")
+    rng = np.random.default_rng(7)
+    returns = rng.normal(0.0002, 0.002, size=(365, 4))
+    prices = pd.DataFrame(
+        100 * np.cumprod(1 + returns, axis=0),
+        index=dates,
+        columns=["pool-a", "pool-b", "pool-c", "pool-d"],
+    )
+    daily = prices.pct_change().dropna()
+    market = MarketData(
+        list(prices.columns),
+        daily.mean().values * 252,
+        daily.cov().values * 252,
+        prices,
+        "test",
+    )
+
+    result = run_backtest(market, budget=2, warmup="180d", use_ai=True)
+    assert len(result.selections) >= 4
+    assert not result.equity.empty
+
+
 if __name__ == "__main__":
     # Run without pytest
     tests = [v for k, v in globals().items() if k.startswith("test_") and callable(v)]

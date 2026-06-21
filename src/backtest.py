@@ -48,16 +48,27 @@ def _metrics(daily: pd.Series) -> dict:
 
 
 def run_backtest(market: MarketData, budget: int = 3, risk_factor: float = 0.5,
-                 warmup: str = "1y", use_ai: bool = True) -> BacktestResult:
+                 warmup: str = "180d", use_ai: bool = True) -> BacktestResult:
     prices = market.prices
     tickers = list(prices.columns)
     n = len(tickers)
 
-    start = prices.index.min() + pd.DateOffset(years=int(warmup[0]) if warmup.endswith("y") else 1)
+    if warmup.endswith("d") and warmup[:-1].isdigit():
+        warmup_offset = pd.Timedelta(days=int(warmup[:-1]))
+    elif warmup.endswith("y") and warmup[:-1].isdigit():
+        warmup_offset = pd.DateOffset(years=int(warmup[:-1]))
+    else:
+        raise ValueError("warmup must use a value such as '90d', '180d', or '1y'")
+
+    start = prices.index.min() + warmup_offset
     rebal_idx = prices.resample("ME").last().index
     rebal_idx = rebal_idx[rebal_idx >= start]
-    rebal_dates = [d for d in rebal_idx if d in prices.index or
-                   prices.index.searchsorted(d, side="right") <= len(prices.index)]
+    if len(rebal_idx) < 2:
+        history_days = max(0, (prices.index.max() - prices.index.min()).days)
+        raise ValueError(
+            f"{warmup} warmup leaves no complete monthly holding period "
+            f"in the available {history_days}-day history"
+        )
 
     selections, daily_strat, daily_equal, dates = {}, [], [], []
 

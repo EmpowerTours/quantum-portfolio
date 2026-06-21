@@ -464,7 +464,7 @@ Monadscan as evidence of the bug-fix process, not for active use.
 
 ## Test coverage and CI
 
-- 28 PQ-signing tests covering: variant lock-in for SLH-DSA-SHAKE-256s;
+- 29 pipeline/PQ tests covering: variant lock-in for SLH-DSA-SHAKE-256s;
   round-trip + tampering for ML-DSA, SLH-DSA, and Ed25519; hedged-order
   round-trip + per-component verification; tamper invalidates all three
   signatures; legacy ML-DSA-only orders still verify; replay rejection;
@@ -474,7 +474,8 @@ Monadscan as evidence of the bug-fix process, not for active use.
   scan survives audit entries larger than the 64 KB pre-fix window**;
   **append_audit refuses to record an unverifiable order**; **AI
   walk-forward is lookahead-free** (corrupting prices past `as_of` does
-  not change the prediction).
+  not change the prediction); and the one-year DeFi history supports a
+  day-based warmup with complete monthly holding periods.
 - 23 Monad-TX Python tests covering: calldata round trip with shared
   canonicalisation against the PQ-signing layer; transaction field
   shape; bad-address rejection; corruption detection; **AuditAnchor
@@ -502,15 +503,15 @@ Monadscan as evidence of the bug-fix process, not for active use.
 - GitHub Actions runs the Python suite on Python 3.11 and 3.12 on every
   push, plus an import smoke test of every source module on top of the
   full `requirements.txt`. Audit-chain verification of the shipped
-  `outputs/audit_log.jsonl` runs as a separate CI step. Foundry tests
-  are run locally with `cd contracts && forge test`.
+  `outputs/audit_log.jsonl` runs as a separate CI step. All 33 Foundry
+  tests also run in CI.
 
 ## Why this fits the challenge
 
 - **Area 3 (primary) — Digital Infrastructure Secured Against Quantum
   Computing.** The PQ signing layer is not narrative — it is verified
-  by 28 PQ tests + 23 Monad-TX Python tests + 33 Foundry tests
-  (84 total) and produces tamper-evident artefacts that a reviewer can
+  by 29 pipeline/PQ tests + 23 Monad-TX Python tests + 33 Foundry tests
+  (85 total) and produces tamper-evident artefacts that a reviewer can
   audit without running the code. **AuditAnchor, MonadAllocationVault,
   and the RoutingVault mini-DEX stack are live on Monad testnet**
   ([AuditAnchor](https://testnet.monadscan.com/address/0x0e649c383cfa6be1998445d0a7a8e1cc7540d239),
