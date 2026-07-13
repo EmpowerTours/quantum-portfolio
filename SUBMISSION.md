@@ -239,6 +239,7 @@ Monadscan-verified (source + ABI public):
 |---|---|
 | **AuditAnchor** (mainnet) | [`0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c`](https://monadscan.com/address/0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c) |
 | **UniswapRoutingVault** (mainnet) | [`0xe2fcada067227c817b8a47b850d727ba065e16dd`](https://monadscan.com/address/0xe2fcada067227c817b8a47b850d727ba065e16dd) |
+| **MorphoSupplyAdapter** (mainnet) | [`0xB1a4341403DA395760561B85C4C96696C0D15958`](https://monadscan.com/address/0xB1a4341403DA395760561B85C4C96696C0D15958) |
 
 Unlike the testnet `RoutingVault` (which routed through our own
 `MiniAMM` because no DEX existed on testnet), the mainnet
@@ -255,20 +256,27 @@ allowlist (frozen to `[USDC]` at deploy), and an anchor gate on
 |---|---|---|---|
 | 1. Anchor `orderHash` | AuditAnchor | [`0x457c8cb2…d69c70`](https://monadscan.com/tx/0x457c8cb21ea608db9b02a530ca567b29fd85152a691f3cfd600fbf0a01d69c70) | anchored `0xf9e798a1…d3c3` = SHA-256 of a real hedged ML-DSA + SLH-DSA + Ed25519 signed order (100% USDC; `outputs/mainnet_route_order.json`) |
 | 2. `executeAndRoute(0.1 MON → USDC)` | UniswapRoutingVault | [`0x62b84806…193a3`](https://monadscan.com/tx/0x62b848064a9afb0fe990383461ceb929176d52017828b4aaa6d7e683339193a3) | routed **0.1 MON → 2 271 USDC micro-units** through the live WMON/USDC 0.3% pool [`0x659bD0BC…4a9da`](https://monadscan.com/address/0x659bD0BC4167BA25c62E05656F78043E7eD4a9da); the `Routed` event carries the anchored `orderHash`; zero WMON dust; status success |
+| 3. `supply(orderHash, USDC/WBTC market, 2 271)` | MorphoSupplyAdapter | [`0x55c6334e…8ca09`](https://monadscan.com/tx/0x55c6334e3f8f490ba3ddbeece5139201a63f4a6070b05b1d0e1aab75b1c8ca09) | supplied the **exact 2 271 USDC from step 2** into the live **Morpho Blue USDC/WBTC lending market** (`0xe35c5abc…8899`, ~4.75% supply APY); the adapter's `Supplied` event carries the same `orderHash`; the wallet now owns a real, interest-accruing supply position (≈2.23 × 10⁹ Morpho supply shares, already grown between the deposit and a later read); status success |
 
-This upgrades the proof point from "fork-verified" to **executed on
-mainnet with real value and independently verifiable** — a judge can
-read the verified source, replay the events, and confirm the anchored
-`orderHash` in step 1 matches the one in the step-2 `Routed` event,
-without trusting us.
+This is the full loop end-to-end: **one PQ-signed decision → one anchor
+→ a real DEX swap → a real yield deposit**, all three steps sharing the
+same `orderHash` and independently verifiable. A judge can read the
+three verified contracts, replay the events, and confirm the anchored
+hash in step 1 threads through the `Routed` (step 2) and `Supplied`
+(step 3) events, without trusting us.
 
-**Honest scope, unchanged.** There is still **no quantum advantage** at
-this problem size — this proves the *swap-execution* leg (native MON →
-a DeFi token through a real DEX), not yield-pool deposits. The pitch's
-lending/staking pools (Morpho, shMONAD, etc.) are not Uniswap pairs and
-need per-protocol deposit adapters, a separate path we have not built.
-The claim is precise: the agent's PQ-signed decision now settles as a
-real, anchored, on-chain trade on Monad mainnet.
+**Honest scope.** There is still **no quantum advantage** at this
+problem size (8 qubits — a classical solver is optimal and instant; the
+value is the hybrid pipeline + real-hardware + error-mitigation demo,
+not speedup). What is now proven on mainnet *with real value* is the
+full settlement path: PQ-signed, anchored decision → real DEX swap
+(MON → USDC) → real yield deposit (USDC lent into a live Morpho market,
+now accruing ~4.75%). One protocol family is covered end-to-end (Morpho
+lending); other pool types in the pitch (e.g. shMONAD staking) would
+each need their own deposit adapter built to the same anchor-gated
+pattern as `MorphoSupplyAdapter`. The claim is precise: the agent's
+decision now settles as an anchored, on-chain, **yield-bearing**
+position on Monad mainnet.
 
 ### On-chain custody anchor — MonadAllocationVault.sol
 
