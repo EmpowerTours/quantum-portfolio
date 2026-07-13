@@ -18,8 +18,10 @@ audit trail survives the cryptographically relevant quantum era
 **Applicant:** EmpowerTours SAS de CV (Mexico)
 **Application areas:** **Area 3 (primary)** — *Digital Infrastructure
 Secured Against Quantum Computing*: a hedged PQ-signed off-chain
-order layer with on-chain custody anchoring, live on Monad testnet,
-Monadscan-verified, end-to-end reviewer-reproducible. **Area 2
+order layer with on-chain custody anchoring, **executed on Monad
+mainnet with real value** (chainId 143, both contracts Monadscan-
+verified — see "Now live on Monad mainnet" below) as well as testnet,
+end-to-end reviewer-reproducible. **Area 2
 (secondary)** — *Quantum Software and AI-Driven Intelligence*: a
 hybrid QAOA + Ridge-regression pipeline running on a real IBM Heron
 QPU with honest framing (no quantum advantage at 8 qubits; AI
@@ -224,11 +226,49 @@ gas per anchor** — within the ~30 K function-body budget once base TX
 by any indexer filtering `Anchored(address indexed, bytes32 indexed,
 uint64 indexed, bytes32)` on the verified contract address.
 
-**Mainnet deployment is deliberately deferred behind a Santander prize
-event** so competition funds — not development funds — pay for
-production bytecode. The exact same `forge script` command with
-`--rpc-url https://rpc.monad.xyz` and chainId 143 in `Deploy.s.sol`
-reproduces this artefact on mainnet.
+### Now live on Monad mainnet — the full loop, executed with real value (2026-07-12)
+
+The testnet artefacts above prove the mechanism. On **2026-07-12 we
+deployed the production stack to Monad mainnet (chainId 143) and ran
+the entire quantum → PQ-signed order → on-chain anchor → real DEX swap
+loop with real MON**, from deployer wallet
+`0x8dF64bACf6b70F7787f8d14429b258B3fF958ec1`. Both contracts are
+Monadscan-verified (source + ABI public):
+
+| | Address (Monadscan-verified) |
+|---|---|
+| **AuditAnchor** (mainnet) | [`0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c`](https://monadscan.com/address/0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c) |
+| **UniswapRoutingVault** (mainnet) | [`0xe2fcada067227c817b8a47b850d727ba065e16dd`](https://monadscan.com/address/0xe2fcada067227c817b8a47b850d727ba065e16dd) |
+
+Unlike the testnet `RoutingVault` (which routed through our own
+`MiniAMM` because no DEX existed on testnet), the mainnet
+`UniswapRoutingVault` swaps through **production Uniswap v3**
+(SwapRouter02 `0xfE31F71C1b106EAc32F1A19239c9a9A72ddfb900`), which went
+live on Monad mainnet on 2025-11-24. Its `amountOutMin` is a true
+per-leg floor, it carries a `deadline`, an immutable approved-token
+allowlist (frozen to `[USDC]` at deploy), and an anchor gate on
+`ANCHOR.lastHash[msg.sender]`.
+
+**The real-value proof loop (all reviewer-verifiable on Monadscan):**
+
+| Step | Contract | TX | Effect |
+|---|---|---|---|
+| 1. Anchor `orderHash` | AuditAnchor | [`0x457c8cb2…d69c70`](https://monadscan.com/tx/0x457c8cb21ea608db9b02a530ca567b29fd85152a691f3cfd600fbf0a01d69c70) | anchored `0xf9e798a1…d3c3` = SHA-256 of a real hedged ML-DSA + SLH-DSA + Ed25519 signed order (100% USDC; `outputs/mainnet_route_order.json`) |
+| 2. `executeAndRoute(0.1 MON → USDC)` | UniswapRoutingVault | [`0x62b84806…193a3`](https://monadscan.com/tx/0x62b848064a9afb0fe990383461ceb929176d52017828b4aaa6d7e683339193a3) | routed **0.1 MON → 2 271 USDC micro-units** through the live WMON/USDC 0.3% pool [`0x659bD0BC…4a9da`](https://monadscan.com/address/0x659bD0BC4167BA25c62E05656F78043E7eD4a9da); the `Routed` event carries the anchored `orderHash`; zero WMON dust; status success |
+
+This upgrades the proof point from "fork-verified" to **executed on
+mainnet with real value and independently verifiable** — a judge can
+read the verified source, replay the events, and confirm the anchored
+`orderHash` in step 1 matches the one in the step-2 `Routed` event,
+without trusting us.
+
+**Honest scope, unchanged.** There is still **no quantum advantage** at
+this problem size — this proves the *swap-execution* leg (native MON →
+a DeFi token through a real DEX), not yield-pool deposits. The pitch's
+lending/staking pools (Morpho, shMONAD, etc.) are not Uniswap pairs and
+need per-protocol deposit adapters, a separate path we have not built.
+The claim is precise: the agent's PQ-signed decision now settles as a
+real, anchored, on-chain trade on Monad mainnet.
 
 ### On-chain custody anchor — MonadAllocationVault.sol
 
@@ -317,10 +357,12 @@ end-to-end**: shipped `outputs/signed_orders.json` →
 `AuditAnchor.lastHash[wallet]` → `RoutingVault.Routed` event →
 two `MiniAMM.Swap` events, all from the same wallet `0xe67e…e8D9`,
 all referencing the same 32-byte orderHash, all reviewer-verifiable
-via `cast call` without trusting us. Production deployments swap
-`RoutingVault` for a successor that calls the live Kuru / Uniswap
-router on Monad mainnet — the agent-facing event shape stays
-identical so historical orders remain replayable across upgrades.
+via `cast call` without trusting us. That successor is **now built and
+executed**: `UniswapRoutingVault`, which calls the live Uniswap v3
+router on Monad mainnet, ran the same loop with real value on
+2026-07-12 (see "Now live on Monad mainnet" above). The agent-facing
+`Routed` event shape is unchanged, so historical orders remain
+replayable across the testnet→mainnet upgrade.
 
 **Live testnet deployment** (Monadscan-verified, same network/compiler
 as AuditAnchor):

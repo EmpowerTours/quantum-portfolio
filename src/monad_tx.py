@@ -343,6 +343,166 @@ def build_alloc_tx(
     )
 
 
+# --- UniswapRoutingVault integration -------------------------------------
+#
+# UniswapRoutingVault.sol (contracts/src/UniswapRoutingVault.sol) is the
+# real-DEX successor to the MiniAMM-era RoutingVault: it wraps the user's
+# native MON and swaps each weighted slice into a DeFi token through the
+# production Uniswap v3 SwapRouter02 on Monad mainnet
+# (0xfE31F71C1b106EAc32F1A19239c9a9A72ddfb900, chainId 143). The caller
+# must have most-recently anchored `orderHash` on AuditAnchor, tying the
+# on-chain swap back to the off-chain QPU result + PQ signature.
+#
+# Selector verified with `cast sig` / `forge inspect UniswapRoutingVault
+# methods` — regenerate after any signature-changing edit.
+ROUTE_EXECUTE_SELECTOR = bytes.fromhex("5caf7a40")
+# executeAndRoute(bytes32,address[],uint24[],uint16[],uint256[],uint256)
+ROUTE_EXECUTE_GAS_LIMIT = 400_000   # wrap + N exactInputSingle hops; +headroom
+
+
+def encode_route_calldata(
+    order_hash: bytes,
+    token_outs: list[str],
+    fee_tiers: list[int],
+    weights_bps: list[int],
+    amount_out_min: list[int],
+    deadline: int,
+) -> str:
+    """Pack a UniswapRoutingVault.executeAndRoute(...) call.
+
+    ABI: executeAndRoute(bytes32 orderHash, address[] tokenOuts,
+                         uint24[] feeTiers, uint16[] weightsBps,
+                         uint256[] amountOutMin, uint256 deadline)
+
+    All four arrays are parallel (same length n). `token_outs` are
+    0x-prefixed 20-byte addresses; `fee_tiers` are Uniswap v3 tiers
+    (500/3000/10000); `weights_bps` must sum to 10_000; `amount_out_min`
+    are per-hop slippage floors in the output token's smallest unit;
+    `deadline` is a unix-seconds timestamp.
+
+    Hand-rolled to match the codebase's zero-web3 encoding style; pinned
+    against a `cast calldata` golden in tests/test_monad_tx.py.
+    """
+    if len(order_hash) != 32:
+        raise ValueError(f"order_hash must be 32 bytes, got {len(order_hash)}")
+    n = len(token_outs)
+    if not (n == len(fee_tiers) == len(weights_bps) == len(amount_out_min)):
+        raise ValueError(
+            f"array length mismatch: tokenOuts={n} feeTiers={len(fee_tiers)} "
+            f"weights={len(weights_bps)} amountOutMin={len(amount_out_min)}"
+        )
+    if n == 0:
+        raise ValueError("at least one pool required")
+    if sum(weights_bps) != 10_000:
+        raise ValueError(f"weights must sum to 10000 bps, got {sum(weights_bps)}")
+    if any(w < 0 or w > 0xFFFF for w in weights_bps):
+        raise ValueError("each weight must fit in uint16")
+    if any(f < 0 or f > 0xFFFFFF for f in fee_tiers):
+        raise ValueError("each fee tier must fit in uint24")
+    if any(a < 0 for a in amount_out_min):
+        raise ValueError("amountOutMin must be non-negative")
+    if deadline < 0 or deadline >= 2 ** 256:
+        raise ValueError("deadline must fit in uint256")
+
+    def addr_word(a: str) -> bytes:
+        if not (a.startswith("0x") and len(a) == 42):
+            raise ValueError(f"tokenOut must be a 0x-prefixed 20-byte hex: {a}")
+        return bytes(12) + bytes.fromhex(a[2:])
+
+    def uint_array(vals: list[int]) -> bytes:
+        out = len(vals).to_bytes(32, "big")
+        for v in vals:
+            out += v.to_bytes(32, "big")
+        return out
+
+    def addr_array(addrs: list[str]) -> bytes:
+        out = len(addrs).to_bytes(32, "big")
+        for a in addrs:
+            out += addr_word(a)
+        return out
+
+    # Head: 6 static words (orderHash, 4 array offsets, deadline).
+    head_words = 6
+    base = head_words * 0x20                     # 0xC0
+    stride = 0x20 * (1 + n)                       # length word + n elements
+    off_tokens  = base
+    off_fees    = off_tokens + stride
+    off_weights = off_fees + stride
+    off_minouts = off_weights + stride
+
+    head = (
+        order_hash
+        + off_tokens.to_bytes(32, "big")
+        + off_fees.to_bytes(32, "big")
+        + off_weights.to_bytes(32, "big")
+        + off_minouts.to_bytes(32, "big")
+        + deadline.to_bytes(32, "big")
+    )
+    body = (
+        addr_array(token_outs)
+        + uint_array(fee_tiers)
+        + uint_array(weights_bps)
+        + uint_array(amount_out_min)
+    )
+    return "0x" + (ROUTE_EXECUTE_SELECTOR + head + body).hex()
+
+
+def build_route_tx(
+    signed: SignedOrder,
+    *,
+    vault_contract: str,
+    nonce: int,
+    amount_wei: int,
+    token_outs: list[str],
+    fee_tiers: list[int],
+    amount_out_min: list[int],
+    deadline: int,
+    gas_limit: int = ROUTE_EXECUTE_GAS_LIMIT,
+    max_fee_gwei: int = DEFAULT_MAX_FEE_GWEI,
+    priority_gwei: int = DEFAULT_PRIORITY_GWEI,
+    chain_id: int = MONAD_CHAIN_ID,
+) -> UnsignedMonadTx:
+    """Build an unsigned EIP-1559 TX that routes `amount_wei` of native MON
+    through the UniswapRoutingVault into `token_outs` on Uniswap v3.
+
+    Weights are derived from the signed order (`signed.order.weights`) so
+    the on-chain allocation matches the agent's PQ-signed intent exactly.
+    The caller supplies the concrete `token_outs` (the mainnet ERC20 each
+    off-chain pool label maps to), `fee_tiers`, per-hop `amount_out_min`
+    (slippage floors the agent computes from a QuoterV2 read), and a
+    `deadline`. The order's SHA-256 must already be the caller's most
+    recent AuditAnchor entry or the vault reverts with AnchorNotFound.
+    """
+    if not (vault_contract.startswith("0x") and len(vault_contract) == 42):
+        raise ValueError(f"vault_contract must be 0x-prefixed 20-byte hex: {vault_contract}")
+    if amount_wei <= 0:
+        raise ValueError(f"amount_wei must be positive, got {amount_wei}")
+    _verify_or_raise(signed)
+
+    order_hash  = order_sha256(signed)
+    weights_bps = fractional_weights_to_bps(signed.order.weights)
+    if not (len(token_outs) == len(fee_tiers) == len(amount_out_min) == len(weights_bps)):
+        raise ValueError(
+            "token_outs / fee_tiers / amount_out_min must be parallel to the "
+            f"order's {len(weights_bps)} weighted pools"
+        )
+
+    return UnsignedMonadTx(
+        chainId=chain_id,
+        type=2,
+        nonce=nonce,
+        maxFeePerGas=max_fee_gwei * 10 ** 9,
+        maxPriorityFeePerGas=priority_gwei * 10 ** 9,
+        gas=gas_limit,
+        to=vault_contract,
+        value=amount_wei,
+        data=encode_route_calldata(
+            order_hash, token_outs, fee_tiers, weights_bps, amount_out_min, deadline
+        ),
+        accessList=[],
+    )
+
+
 # --- AuditAnchor contract integration ------------------------------------
 #
 # AuditAnchor.sol (contracts/src/AuditAnchor.sol) anchors the SHA-256 of a

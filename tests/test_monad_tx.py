@@ -323,6 +323,114 @@ def test_build_alloc_tx_rejects_zero_value():
     raise AssertionError("expected ValueError on zero amount_wei")
 
 
+# --- UniswapRoutingVault route encoding ----------------------------------
+
+# Golden generated with:
+#   cast calldata "executeAndRoute(bytes32,address[],uint24[],uint16[],uint256[],uint256)" \
+#     0x1111...1111 "[0x..aaAA,0x..bBbB]" "[3000,500]" "[6000,4000]" "[1000,2000]" 1893456000
+ROUTE_GOLDEN = (
+    "0x5caf7a40"
+    "1111111111111111111111111111111111111111111111111111111111111111"
+    "00000000000000000000000000000000000000000000000000000000000000c0"
+    "0000000000000000000000000000000000000000000000000000000000000120"
+    "0000000000000000000000000000000000000000000000000000000000000180"
+    "00000000000000000000000000000000000000000000000000000000000001e0"
+    "0000000000000000000000000000000000000000000000000000000070dbd880"
+    "0000000000000000000000000000000000000000000000000000000000000002"
+    "000000000000000000000000000000000000000000000000000000000000aaaa"
+    "000000000000000000000000000000000000000000000000000000000000bbbb"
+    "0000000000000000000000000000000000000000000000000000000000000002"
+    "0000000000000000000000000000000000000000000000000000000000000bb8"
+    "00000000000000000000000000000000000000000000000000000000000001f4"
+    "0000000000000000000000000000000000000000000000000000000000000002"
+    "0000000000000000000000000000000000000000000000000000000000001770"
+    "0000000000000000000000000000000000000000000000000000000000000fa0"
+    "0000000000000000000000000000000000000000000000000000000000000002"
+    "00000000000000000000000000000000000000000000000000000000000003e8"
+    "00000000000000000000000000000000000000000000000000000000000007d0"
+)
+
+
+def test_route_calldata_matches_cast_golden():
+    blob = mtx.encode_route_calldata(
+        order_hash=bytes.fromhex("11" * 32),
+        token_outs=[
+            "0x000000000000000000000000000000000000aaAA",
+            "0x000000000000000000000000000000000000bBbB",
+        ],
+        fee_tiers=[3000, 500],
+        weights_bps=[6000, 4000],
+        amount_out_min=[1000, 2000],
+        deadline=1893456000,
+    )
+    assert blob == ROUTE_GOLDEN, f"encoding drifted from cast golden:\n{blob}"
+
+
+def test_route_calldata_rejects_bad_weights():
+    try:
+        mtx.encode_route_calldata(
+            order_hash=bytes.fromhex("11" * 32),
+            token_outs=["0x000000000000000000000000000000000000aaAA"],
+            fee_tiers=[3000], weights_bps=[9999], amount_out_min=[0],
+            deadline=1,
+        )
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError on weights != 10000")
+
+
+def test_route_calldata_rejects_length_mismatch():
+    try:
+        mtx.encode_route_calldata(
+            order_hash=bytes.fromhex("11" * 32),
+            token_outs=["0x000000000000000000000000000000000000aaAA"],
+            fee_tiers=[3000, 500], weights_bps=[10000], amount_out_min=[0],
+            deadline=1,
+        )
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError on mismatched array lengths")
+
+
+def test_build_route_tx_wires_selector_and_value():
+    signed = _make_signed_order()  # 3 equal-weight pools
+    tx = mtx.build_route_tx(
+        signed,
+        vault_contract=VAULT_ADDR,
+        nonce=3,
+        amount_wei=10**17,
+        token_outs=[
+            "0x000000000000000000000000000000000000aaAA",
+            "0x000000000000000000000000000000000000bBbB",
+            "0x000000000000000000000000000000000000cCcC",
+        ],
+        fee_tiers=[3000, 3000, 500],
+        amount_out_min=[1, 1, 1],
+        deadline=1893456000,
+        chain_id=mtx.MONAD_CHAIN_ID,
+    )
+    assert tx.chainId == 143
+    assert tx.to == VAULT_ADDR
+    assert tx.value == 10**17
+    assert tx.data.startswith("0x5caf7a40")
+    # weights derived from the order (1/3 each -> 3334/3333/3333) sum to 10000
+    weights = mtx.fractional_weights_to_bps(signed.order.weights)
+    assert sum(weights) == 10_000
+
+
+def test_build_route_tx_rejects_arity_mismatch():
+    signed = _make_signed_order()  # 3 pools
+    try:
+        mtx.build_route_tx(
+            signed, vault_contract=VAULT_ADDR, nonce=0, amount_wei=10**16,
+            token_outs=["0x000000000000000000000000000000000000aaAA"],  # only 1
+            fee_tiers=[3000], amount_out_min=[1], deadline=1,
+        )
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError when token_outs arity != order pools")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in globals().items() if k.startswith("test_") and callable(v)]
     failures = 0
