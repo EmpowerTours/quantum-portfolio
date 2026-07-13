@@ -12,7 +12,7 @@ import { UniswapRoutingVault } from "../src/UniswapRoutingVault.sol";
 ///           WMON (wrapped native) 0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A
 ///           SwapRouter02          0xfe31f71c1b106eac32f1a19239c9a9a72ddfb900
 ///
-///         AuditAnchor is NOT yet deployed on mainnet (deliberately deferred).
+///         AuditAnchor (mainnet): 0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c.
 ///         Pass its mainnet address via AUDIT_ANCHOR_ADDR once anchored.
 ///
 ///         The approved-token universe is passed via APPROVED_TOKENS (a

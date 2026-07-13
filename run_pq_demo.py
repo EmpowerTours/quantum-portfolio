@@ -41,7 +41,7 @@ HARDWARE_RUN_STOCKS = Path("outputs/hardware_run.json")
 KEYS_DIR            = Path("keys")
 
 # Deployed on Monad testnet (chainId 10143), both Monadscan-verified.
-# Mainnet deployment is gated behind any Santander prize event.
+# The full quantum->PQ->anchor->swap->yield->ZK-attestation loop is LIVE on Monad mainnet (chainId 143), all contracts Monadscan-verified.
 AUDIT_ANCHOR_TESTNET = "0x0e649C383CFA6be1998445D0A7a8E1cc7540D239"
 ALLOC_VAULT_TESTNET  = "0xC39e298ce89cDfc934c697c9Fe0CC4BAA80B87f5"
 

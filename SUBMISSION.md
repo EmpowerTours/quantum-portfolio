@@ -205,7 +205,7 @@ zero-hash revert, overload coherence, gas budget assertion (`<60 K`),
 and a 256-run fuzz on arbitrary 32-byte digests. All pass against
 `solc 0.8.28`.
 
-**Deployment status — live on Monad testnet** (chainId 10143):
+**Deployment status — Monad testnet (chainId 10143), the original deployment** (the production redeploy is in "Now live on Monad mainnet" below):
 
 | | |
 |---|---|
@@ -324,9 +324,15 @@ Rather than block on the testnet ecosystem catching up, we deployed
 the agent → routed-trade flow is provable end-to-end today. The full
 six-contract deployment is described in the next section.
 
-### Real on-chain trade execution — `RoutingVault` + MiniAMM
+### Real on-chain trade execution — `RoutingVault` + MiniAMM (testnet foundation)
 
-Six new contracts deployed and Monadscan-verified on Monad testnet:
+> **Note:** this testnet mini-DEX was the *proof-of-mechanism* built when no
+> DEX existed on Monad testnet. It has since been **superseded on mainnet** by
+> `UniswapRoutingVault` (real Uniswap v3) + `MorphoSupplyAdapter` (real Morpho
+> lending) — see "Now live on Monad mainnet" above. Kept here as the
+> reproducible testnet lineage.
+
+Six contracts deployed and Monadscan-verified on Monad testnet:
 
 | Contract | Address | Role |
 |---|---|---|
@@ -593,20 +599,22 @@ Monadscan as evidence of the bug-fix process, not for active use.
 
 - **Area 3 (primary) — Digital Infrastructure Secured Against Quantum
   Computing.** The PQ signing layer is not narrative — it is verified
-  by 29 pipeline/PQ tests + 23 Monad-TX Python tests + 33 Foundry tests
-  (85 total) and produces tamper-evident artefacts that a reviewer can
-  audit without running the code. **AuditAnchor, MonadAllocationVault,
-  and the RoutingVault mini-DEX stack are live on Monad testnet**
-  ([AuditAnchor](https://testnet.monadscan.com/address/0x0e649c383cfa6be1998445d0a7a8e1cc7540d239),
-  [MonadAllocationVault](https://testnet.monadscan.com/address/0xc39e298ce89cdfc934c697c9fe0cc4baa80b87f5),
-  [RoutingVault](https://testnet.monadscan.com/address/0x70580f77d7602f9a03fd34f17f3cc395bbce6938)),
-  Monadscan-verified, with a real end-to-end provenance trail already
-  on-chain: one PQ-signed agent decision → SHA-256 anchored →
-  user-signed 0.01 MON custody deposit, all three artefacts linked by
-  the same 32-byte orderHash. Aligned with the NIST FIPS 204 algorithm
-  NEAR Protocol committed to at L1 on 2026-05-06 — the first major L1
-  to commit to a NIST-finalised PQ signature option at the account
-  layer (Q2 2026 testnet rollout planned).
+  by 29 pipeline/PQ tests + 28 Monad-TX Python tests + 48 Foundry tests
+  (105 total) and produces tamper-evident artefacts that a reviewer can
+  audit without running the code. **The full loop is LIVE on Monad
+  mainnet (chainId 143), all contracts Monadscan-verified**:
+  [AuditAnchor](https://monadscan.com/address/0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c),
+  [UniswapRoutingVault](https://monadscan.com/address/0xe2fcada067227c817b8a47b850d727ba065e16dd) (real Uniswap v3 swap),
+  [MorphoSupplyAdapter](https://monadscan.com/address/0xB1a4341403DA395760561B85C4C96696C0D15958) (real Morpho lending deposit), and
+  [MLDSAAttestation](https://monadscan.com/address/0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839)
+  (the order's ML-DSA-65 post-quantum signature **verified on-chain via a
+  zero-knowledge proof**). One PQ-signed agent decision → SHA-256 anchored
+  → real MON→USDC swap → real USDC supplied to a live lending market →
+  on-chain ZK attestation of the PQ signature, all linked by the same
+  32-byte `orderHash 0xf9e798a1…`. Aligned with the NIST FIPS 204
+  algorithm NEAR Protocol committed to at L1 on 2026-05-06 — the first
+  major L1 to commit to a NIST-finalised PQ signature option at the
+  account layer.
 - **Area 2 (secondary) — Quantum Software and AI-Driven Intelligence.**
   The pipeline runs today on a single workstation; the QPU portion
   runs today on `ibm_marrakesh`. Nothing waits for fault-tolerant
@@ -640,9 +648,10 @@ Monadscan as evidence of the bug-fix process, not for active use.
 ## What would happen with funding
 
 Ordered from highest-leverage credibility uplift to lowest-leverage
-capability extension. The mainnet deploy is genuinely the *last*
-item, not the first — gas is trivial; what mainnet credibly needs is
-the audit + bounty steps below.
+capability extension. The mainnet deploy is **already done** (see the
+"Now live on Monad mainnet" section above) — it was gas-trivial, exactly
+as predicted; what the live system credibly needs next is the audit +
+bounty + HSM steps below before it protects institutional value.
 
 1. **Commission a security audit by a reputable firm.** Trail of Bits,
    OpenZeppelin, Spearbit, ConsenSys Diligence, Cyfrin, Zellic — or an
@@ -686,11 +695,11 @@ the audit + bounty steps below.
    backends to control for hardware drift. IBM Quantum compute time
    is the cost driver here, not engineer time.
 
-6. **Mainnet deployment.** AuditAnchor + MonadAllocationVault redeploy
-   on Monad mainnet (chainId 143), exact same `forge script` with
-   `--rpc-url https://rpc.monad.xyz`. Cost: ~$50 of MON. Trivial vs
-   the audit/bounty line items above — but only credibly defensible
-   *after* the security audit has signed off on the source.
+6. **Mainnet deployment — DONE.** AuditAnchor, UniswapRoutingVault,
+   MorphoSupplyAdapter, and MLDSAAttestation are live and Monadscan-
+   verified on Monad mainnet (chainId 143), and the full loop was
+   executed with real value. Gas was trivial, as predicted. The audit
+   (item 1) is the gate before this protects institutional value.
 
 7. **Capability registry (signature ≠ capability).** The current PQ
    signature proves *who* signed an order; it does not prove the

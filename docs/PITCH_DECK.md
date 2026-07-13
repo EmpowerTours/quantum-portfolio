@@ -208,7 +208,7 @@ QAOA is **not** yet faster than SLSQP for this problem size. We measure the **ga
 
 <h3>Proof, not promises</h3>
 
-# 6 contracts. 84 tests.<br>Live on Monad testnet.
+# Live on Monad MAINNET.<br>105 tests. ZK-verified.
 
 <div class="grid-3">
 

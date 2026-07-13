@@ -118,7 +118,7 @@ curl -L https://foundry.paradigm.xyz | bash && foundryup
 python tests/test_pq_signing.py
 python tests/test_monad_tx.py
 
-# 2. Foundry tests (8 AuditAnchor + 13 MonadAllocationVault + 12 RoutingVault)
+# 2. Foundry tests (48 across 6 suites: AuditAnchor, MonadAllocationVault, RoutingVault, UniswapRoutingVault + fork, MorphoSupplyAdapter fork)
 ( cd contracts && forge test )
 
 # 3. Re-derive the canonical-bytes SHA-256 of the shipped signed order:
@@ -183,8 +183,8 @@ python run_backtest.py
 │   └── script/DeployDex.s.sol         deploys WMON + mock tokens + AMM pairs + RoutingVault
 ├── tests/
 │   ├── test_pq_signing.py       29 PQ, integrity, AI lookahead + backtest regression tests
-│   └── test_monad_tx.py         23 calldata + AuditAnchor + vault tests
-│   (Plus 33 Foundry tests in contracts/test/ above — 85 tests total)
+│   └── test_monad_tx.py         28 calldata + AuditAnchor + vault + route tests
+│   (Plus 48 Foundry tests in contracts/test/ above — 105 tests total)
 ├── outputs/
 │   ├── hardware_run.json        Cached IBM-QPU result
 │   ├── backtest.json            Walk-forward metrics

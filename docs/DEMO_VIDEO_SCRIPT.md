@@ -16,7 +16,7 @@
 | 4 | **Streamlit — optimizer** | 9 s | "Here's the agent picking Markowitz-optimal weights. Twelve seeds, mean and standard deviation against an SLSQP baseline — no cherry-picking." *(22 words, ~8 s)* |
 | 5 | **Streamlit — hardware tab** | 10 s | "The QAOA circuit runs on real hardware. IBM Heron, via Qiskit Runtime. Queue, depth, and qubit budget all visible. Honest measurement is the deliverable." *(26 words, ~9 s)* |
 | 6 | **Streamlit — PQ signing** | 9 s | "Every order is signed three times. ML-DSA, SLH-DSA, and Ed25519. Two lattice and hash post-quantum families, plus a classical hedge. Any one survives." *(26 words, ~9 s)* |
-| 7 | **Proof — six contracts, eighty-four tests** | 10 s | "Six contracts deployed and Monadscan-verified. Eighty-four tests passing across Python and Foundry. Reproducible from a cold clone." *(20 words, ~7 s)* — leave 3 s of silence for the numbers to land |
+| 7 | **Proof — live on Monad mainnet, 105 tests** | 10 s | "Live on Monad mainnet, all Monadscan-verified. One hundred five tests across Python and Foundry. The post-quantum signature is verified on-chain by a zero-knowledge proof. Reproducible from a cold clone." *(20 words, ~7 s)* — leave 3 s of silence for the numbers to land |
 | 8 | **Live demo TX** | 10 s | "One transaction. Zero point one MON in. One hundred seventeen point five mUSDC and mUSDT out. Anchor-gated. Sandwich-resistant by construction." *(23 words, ~8 s)* |
 | 9 | **The Ask — pilot with Santander** | 8 s | "Pilot with Santander. Q-Day-resistant treasury rails on infrastructure we can prove is honest." *(14 words, ~6 s)* |
 

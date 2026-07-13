@@ -568,7 +568,7 @@ with tab_pq:
                 f"Contract deployed and Monadscan-verified on Monad "
                 f"testnet (chainId 10143). View on "
                 f"[Monadscan]({'https://testnet.monadscan.com/address/' + _DEMO_ANCHOR.lower()}). "
-                "Mainnet deployment is gated behind any Santander prize event."
+                "The full quantum->PQ->anchor->swap->yield->ZK-attestation loop is LIVE on Monad mainnet (chainId 143), all contracts Monadscan-verified."
             )
     except Exception as _e:  # noqa: BLE001
         st.warning(f"Could not build anchor TX preview: {_e}")
