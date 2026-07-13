@@ -412,6 +412,25 @@ standard hybrid posture: the *audit trail* is quantum-safe today; the
 *on-chain settlement* awaits chain-level PQ. SECURITY.md threat-model
 row "Q-Day quantum attacker (on-chain)" documents this explicitly.
 
+**Closing the on-chain gap without waiting for the chain — ZK ML-DSA
+verification (`zk-mldsa/`).** Verifying ML-DSA-65 directly in the EVM
+costs ~500M gas (infeasible). Instead we move the lattice verification
+off-chain into the **SP1 zkVM** and check a ~230k-gas Groth16 proof
+on-chain. The guest verifies the **real mainnet order's** ML-DSA-65
+signature (pure Rust `ml-dsa` crate — confirmed byte-compatible with the
+pipeline's quantcrypt signatures) and commits `SHA-256(order)`. Measured:
+the guest **executes and verifies in the zkVM in 3,038,634 cycles, and
+the committed `orderHash` is `0xf9e798a1…d3c3` — the same order anchored,
+swapped, and Morpho-supplied on mainnet.** The on-chain consumer
+(`MLDSAAttestation.sol`) verifies the proof and records `orderHash` as
+PQ-attested, which the anchor/vault/adapter can gate on. Honest status:
+the circuit and real-order verification are proven end-to-end; final
+Groth16 proof *generation* needs the Succinct prover network or a
+≥32 GB machine (it OOMs on our 15 GB dev box — ML-DSA's SHAKE-heavy
+trace), so the on-chain deploy is a documented one-command finish
+(`zk-mldsa/README.md`), not yet executed. This is the buildable path to
+**on-chain PQ settlement today**, independent of chain-level PQ support.
+
 A reviewer verifies the full chain with:
 
 ```sh
