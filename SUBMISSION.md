@@ -426,14 +426,24 @@ mainnet order's ML-DSA-65 signature is valid was generated *and verified*
 locally** (on a 15 GB dev box — the precompile patch is what brought it
 under the memory ceiling), and the committed `orderHash` is
 `0xf9e798a1…d3c3` — the same order anchored, swapped, and Morpho-supplied
-on mainnet. The on-chain consumer (`MLDSAAttestation.sol`) verifies the
-proof and records `orderHash` as PQ-attested, which the anchor/vault/
-adapter can gate on. Honest status: the circuit, the real-order
-verification, and a real proof are done; only the final **Groth16 wrap**
-(STARK→SNARK, for the ~230k-gas on-chain check) needs a GPU / ≥32 GB box
-or the Succinct prover network — a documented one-command finish
-(`zk-mldsa/README.md`). This is the buildable path to **on-chain PQ
-settlement today**, independent of chain-level PQ support.
+on mainnet. The STARK→SNARK **Groth16 wrap** (which OOM'd on the dev box)
+was completed on a 64 GB cloud instance (~$0.32), producing a 356-byte
+EVM-verifiable proof. **That proof was then verified on-chain by SP1's
+own Groth16 verifier deployed on Monad mainnet, and permanently recorded
+as PQ-attested** — the full on-chain post-quantum settlement, executed:
+
+| | Address / TX (Monadscan-verified) |
+|---|---|
+| MLDSAAttestation (mainnet) | [`0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839`](https://monadscan.com/address/0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839) |
+| SP1 Groth16 verifier used | `0x7DA83eC4…2abd` (Succinct's canonical Monad deployment, v6.1.0) |
+| `attest()` tx | [`0x7a3cfcef…b1e3`](https://monadscan.com/tx/0x7a3cfcef63250c6b4ec38e107ecf5963158469eaa5a301bb4f58910f7711b1e3) — Groth16 proof verified on-chain; `PQOrderAttested(0xf9e798a1…)` emitted; `pqAttested[orderHash] == true` |
+
+So the agent's decision now carries an **on-chain, zero-knowledge proof
+of its post-quantum ML-DSA-65 signature** on Monad mainnet — closing the
+Q-Day on-chain gap without waiting for chain-level PQ support, and
+without the ~500M-gas cost of verifying ML-DSA in the EVM. Honest scope
+unchanged: no quantum advantage anywhere; this is the PQ-*settlement*
+path, proven end to end.
 
 A reviewer verifies the full chain with:
 
