@@ -31,11 +31,12 @@ and check a ~230k-gas Groth16 proof on-chain.
 | zkVM cycles (**keccak precompile**, `vendor/keccak`) | **1,876,372** (−38%) |
 | **Core proof generation + verification** | **GENERATED and VERIFIED locally** on this 15 GB box (peak RSS 14.75 GB) — succeeds *because* of the precompile patch (baseline OOM'd at 3.04M cycles). |
 | Program vkey | `0x00eddc1f713baedc12aa8c4a088884859c1b2560090711deea375aa734c88c37` |
-| Groth16 wrap (for on-chain) | **attempted — OOM-killed on this box** (SIGKILL at 14.9 GB RSS after ~6 min). The STARK→SNARK recursion + gnark witness need more than 15 GB, and that cost is roughly fixed regardless of guest cycles (so the precompile win doesn't help this step). Needs a GPU / >=32 GB box or the Succinct prover network. One command: `cargo run --bin evm -- --system groth16` (Docker gnark prover; Go/Docker present). |
+| Groth16 wrap (for on-chain) | OOM'd locally at 15 GB, so **generated on a 64 GB cloud box** (Vultr, ~$0.32/hr, one `provision.sh` run). Real EVM-verifiable Groth16 proof: 356-byte proof, `orderHash 0xf9e798a1…d3c3`, committed at `contracts/src/fixtures/groth16-mldsa-fixture.json`. The wrap's memory need is roughly fixed regardless of guest cycles. |
 
-The circuit, the real-order verification, **and a real STARK proof** are all
-done locally. The only remaining step for on-chain use is the Groth16 wrap,
-which is heavier than the core proof and wants a bigger box.
+The circuit, the real-order verification, the STARK proof, **and the
+EVM-verifiable Groth16 proof** are all done. What remains is the on-chain
+deploy: put an SP1 Groth16 verifier + `MLDSAAttestation` on Monad and call
+`attest()` with the fixture.
 
 ### The precompile optimization (`vendor/keccak`)
 
@@ -63,7 +64,7 @@ from `outputs/mainnet_route_order.json` via `src/pq_signing.py:canonical_bytes`.
    cargo run --release --bin evm -- --system groth16   # writes the proof + fixture
    ```
 2. Deploy the SP1 Groth16 verifier (from `succinctlabs/sp1-contracts`) on Monad
-   mainnet, then deploy `MLDSAAttestation(verifier, 0x002449ce…3b65)`.
+   mainnet, then deploy `MLDSAAttestation(verifier, 0x00eddc1f…8c37)`.
 3. Call `attest(publicValues, proofBytes)` -> the proof verifies on-chain
    (~230k gas) and `orderHash 0xf9e798a1…` is recorded as PQ-attested.
 
