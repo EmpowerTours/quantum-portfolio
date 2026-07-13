@@ -31,7 +31,7 @@ and check a ~230k-gas Groth16 proof on-chain.
 | zkVM cycles (**keccak precompile**, `vendor/keccak`) | **1,876,372** (−38%) |
 | **Core proof generation + verification** | **GENERATED and VERIFIED locally** on this 15 GB box (peak RSS 14.75 GB) — succeeds *because* of the precompile patch (baseline OOM'd at 3.04M cycles). |
 | Program vkey | `0x002449ce46906836090ce01e18c768372c80b62cd95c39360b9e070d91293b65` |
-| Groth16 wrap (for on-chain) | needs more memory than the core proof (gnark witness) → a GPU / >=32 GB box or the Succinct prover network. One command (`cargo run --bin evm -- --system groth16`). |
+| Groth16 wrap (for on-chain) | **attempted — OOM-killed on this box** (SIGKILL at 14.9 GB RSS after ~6 min). The STARK→SNARK recursion + gnark witness need more than 15 GB, and that cost is roughly fixed regardless of guest cycles (so the precompile win doesn't help this step). Needs a GPU / >=32 GB box or the Succinct prover network. One command: `cargo run --bin evm -- --system groth16` (Docker gnark prover; Go/Docker present). |
 
 The circuit, the real-order verification, **and a real STARK proof** are all
 done locally. The only remaining step for on-chain use is the Groth16 wrap,
