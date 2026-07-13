@@ -4,3 +4,9 @@ resolver = "2"
 
 [workspace.dependencies]
 alloy-sol-types = "*"
+
+# SP1 precompile acceleration: replace the pure-Rust Keccak permutation (used by
+# ml-dsa's SHAKE via the `shake` -> `keccak` crates) with one that calls SP1's
+# keccak-permute precompile inside the zkVM. Cuts cycles and prover memory.
+[patch.crates-io]
+keccak = { path = "vendor/keccak" }

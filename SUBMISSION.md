@@ -418,18 +418,22 @@ costs ~500M gas (infeasible). Instead we move the lattice verification
 off-chain into the **SP1 zkVM** and check a ~230k-gas Groth16 proof
 on-chain. The guest verifies the **real mainnet order's** ML-DSA-65
 signature (pure Rust `ml-dsa` crate — confirmed byte-compatible with the
-pipeline's quantcrypt signatures) and commits `SHA-256(order)`. Measured:
-the guest **executes and verifies in the zkVM in 3,038,634 cycles, and
-the committed `orderHash` is `0xf9e798a1…d3c3` — the same order anchored,
-swapped, and Morpho-supplied on mainnet.** The on-chain consumer
-(`MLDSAAttestation.sol`) verifies the proof and records `orderHash` as
-PQ-attested, which the anchor/vault/adapter can gate on. Honest status:
-the circuit and real-order verification are proven end-to-end; final
-Groth16 proof *generation* needs the Succinct prover network or a
-≥32 GB machine (it OOMs on our 15 GB dev box — ML-DSA's SHAKE-heavy
-trace), so the on-chain deploy is a documented one-command finish
-(`zk-mldsa/README.md`), not yet executed. This is the buildable path to
-**on-chain PQ settlement today**, independent of chain-level PQ support.
+pipeline's quantcrypt signatures) and commits `SHA-256(order)`. We
+accelerated ML-DSA's SHAKE by patching the `keccak` permutation to SP1's
+keccak precompile (`vendor/keccak`), cutting the trace from 3.04M to
+**1,876,372 cycles (−38%)**. Result: a **real STARK proof that the
+mainnet order's ML-DSA-65 signature is valid was generated *and verified*
+locally** (on a 15 GB dev box — the precompile patch is what brought it
+under the memory ceiling), and the committed `orderHash` is
+`0xf9e798a1…d3c3` — the same order anchored, swapped, and Morpho-supplied
+on mainnet. The on-chain consumer (`MLDSAAttestation.sol`) verifies the
+proof and records `orderHash` as PQ-attested, which the anchor/vault/
+adapter can gate on. Honest status: the circuit, the real-order
+verification, and a real proof are done; only the final **Groth16 wrap**
+(STARK→SNARK, for the ~230k-gas on-chain check) needs a GPU / ≥32 GB box
+or the Succinct prover network — a documented one-command finish
+(`zk-mldsa/README.md`). This is the buildable path to **on-chain PQ
+settlement today**, independent of chain-level PQ support.
 
 A reviewer verifies the full chain with:
 

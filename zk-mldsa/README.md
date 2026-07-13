@@ -27,13 +27,23 @@ and check a ~230k-gas Groth16 proof on-chain.
 |---|---|
 | Cross-library compat (quantcrypt sig ↔ RustCrypto `ml-dsa`) | verifies |
 | **Guest execute** (real mainnet order) | verified in zkVM; committed `orderHash 0xf9e798a1…d3c3` (matches the on-chain anchored order) |
-| zkVM cycles | **3,038,634** |
+| zkVM cycles (baseline) | 3,038,634 |
+| zkVM cycles (**keccak precompile**, `vendor/keccak`) | **1,876,372** (−38%) |
+| **Core proof generation + verification** | **GENERATED and VERIFIED locally** on this 15 GB box (peak RSS 14.75 GB) — succeeds *because* of the precompile patch (baseline OOM'd at 3.04M cycles). |
 | Program vkey | `0x002449ce46906836090ce01e18c768372c80b62cd95c39360b9e070d91293b65` |
-| Core / Groth16 proof generation | **OOM on this 15 GB box** (ML-DSA is SHAKE-heavy → large trace; RSS hit 14.8 GB). Needs the Succinct prover network or a >=32 GB machine. |
+| Groth16 wrap (for on-chain) | needs more memory than the core proof (gnark witness) → a GPU / >=32 GB box or the Succinct prover network. One command (`cargo run --bin evm -- --system groth16`). |
 
-The circuit and the real-order verification are proven correct end-to-end; only
-the final proof *generation* is hardware-bound here (SP1 itself prints
-"we recommend using the prover network" at this size).
+The circuit, the real-order verification, **and a real STARK proof** are all
+done locally. The only remaining step for on-chain use is the Groth16 wrap,
+which is heavier than the core proof and wants a bigger box.
+
+### The precompile optimization (`vendor/keccak`)
+
+ML-DSA's SHAKE runs through the `shake` → `keccak` crates. We vendored `keccak`
+v0.2.0 and patched `with_p1600` so the full Keccak-f[1600] permutation calls
+SP1's `syscall_keccak_permute` precompile inside the zkVM (`[patch.crates-io]`
+in the workspace `Cargo.toml`). That single change cut cycles 38% and brought
+core proving under the 15 GB ceiling.
 
 ## Reproduce the execute (no proving)
 
