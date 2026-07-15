@@ -36,8 +36,9 @@ style: |
   hr { border: none; border-top: 1px solid rgba(255,255,255,.08); margin: 24px 0; }
   ul { line-height: 1.55; }
   li::marker { color: var(--accent); }
-  table { width: 100%; border-collapse: collapse; font-size: 22px; }
-  th, td { border-bottom: 1px solid rgba(255,255,255,.08); padding: 10px 12px; text-align: left; }
+  table { width: 100%; border-collapse: collapse; font-size: 22px; background: transparent !important; border: none; }
+  thead, tbody, tr { background: transparent !important; border: none; }
+  th, td { border: none; border-bottom: 1px solid rgba(255,255,255,.10); padding: 12px 14px; text-align: left; background: transparent !important; color: var(--ink); }
   th { color: var(--accent); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; font-size: 18px; }
   footer, header { color: var(--muted); }
   section::after { color: var(--muted); }
