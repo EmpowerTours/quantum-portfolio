@@ -41,6 +41,12 @@ style: |
   thead, tbody, tr { background: transparent !important; border: none; }
   th, td { border: none; border-bottom: 1px solid rgba(255,255,255,.10); padding: 12px 14px; text-align: left; background: transparent !important; color: var(--ink); }
   th { color: var(--accent); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; font-size: 18px; }
+  a { color: #7fe3ff; text-decoration: underline; text-underline-offset: 3px; }
+  .addrs { background: #0d1526; border: 1px solid rgba(255,255,255,.12); border-radius: 12px; font-family: var(--mono); font-size: 19px; margin-top: 8px; }
+  .addrs td { border-bottom: 1px solid rgba(255,255,255,.07); padding: 12px 22px; }
+  .addrs tr:last-child td { border-bottom: none; }
+  .addrs .cn { color: var(--muted); }
+  .addrs a { color: #7fe3ff; }
   footer, header { color: var(--muted); }
   section::after { color: var(--muted); }
   .kicker { color: var(--accent); letter-spacing: 0.18em; text-transform: uppercase; font-size: 18px; font-weight: 600; margin-bottom: 16px; }
@@ -230,12 +236,12 @@ QAOA is **not** yet faster than SLSQP for this problem size. We measure the **ga
 
 <br>
 
-```
-AuditAnchor          0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c
-UniswapRoutingVault  0xe2fcada067227c817b8a47b850d727ba065e16dd
-MorphoSupplyAdapter  0xB1a4341403DA395760561B85C4C96696C0D15958
-MLDSAAttestation     0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839
-```
+<table class="addrs">
+<tr><td class="cn">AuditAnchor</td><td><a href="https://monadscan.com/address/0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c">0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c</a></td></tr>
+<tr><td class="cn">UniswapRoutingVault</td><td><a href="https://monadscan.com/address/0xe2fcada067227c817b8a47b850d727ba065e16dd">0xe2fcada067227c817b8a47b850d727ba065e16dd</a></td></tr>
+<tr><td class="cn">MorphoSupplyAdapter</td><td><a href="https://monadscan.com/address/0xB1a4341403DA395760561B85C4C96696C0D15958">0xB1a4341403DA395760561B85C4C96696C0D15958</a></td></tr>
+<tr><td class="cn">MLDSAAttestation</td><td><a href="https://monadscan.com/address/0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839">0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839</a></td></tr>
+</table>
 
 ---
 
@@ -246,10 +252,10 @@ MLDSAAttestation     0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839
 <table>
 
 <tr><th>Step</th><th>Contract</th><th>What happened (Monad mainnet)</th></tr>
-<tr><td>1. Attest</td><td><code>MLDSAAttestation</code></td><td>Order's <strong>ML-DSA-65 signature verified on-chain via ZK proof</strong> (~230k gas, not ~500M); <code>pqAttested = true</code></td></tr>
-<tr><td>2. Anchor</td><td><code>AuditAnchor</code></td><td>Hash <code>0xf9e798a1…d3c3</code> committed, immutable</td></tr>
-<tr><td>3. Swap</td><td><code>UniswapRoutingVault</code></td><td>0.1 MON → <strong>2,271 USDC</strong> via live Uniswap v3, anchor-gated</td></tr>
-<tr><td>4. Yield</td><td><code>MorphoSupplyAdapter</code></td><td>USDC supplied into a live <strong>Morpho</strong> market (~4.75% APY), non-custodial</td></tr>
+<tr><td>1. Attest</td><td><a href="https://monadscan.com/address/0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839"><code>MLDSAAttestation</code></a></td><td>Order's <strong>ML-DSA-65 signature verified on-chain via ZK proof</strong> (~230k gas, not ~500M); <code>pqAttested = true</code></td></tr>
+<tr><td>2. Anchor</td><td><a href="https://monadscan.com/address/0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c"><code>AuditAnchor</code></a></td><td>Hash <code>0xf9e798a1…d3c3</code> committed, immutable</td></tr>
+<tr><td>3. Swap</td><td><a href="https://monadscan.com/address/0xe2fcada067227c817b8a47b850d727ba065e16dd"><code>UniswapRoutingVault</code></a></td><td>0.1 MON → <strong>2,271 USDC</strong> via live Uniswap v3, anchor-gated</td></tr>
+<tr><td>4. Yield</td><td><a href="https://monadscan.com/address/0xB1a4341403DA395760561B85C4C96696C0D15958"><code>MorphoSupplyAdapter</code></a></td><td>USDC supplied into a live <strong>Morpho</strong> market (~4.75% APY), non-custodial</td></tr>
 
 </table>
 
