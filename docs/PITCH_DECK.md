@@ -213,11 +213,11 @@ QAOA is **not** yet faster than SLSQP for this problem size. We measure the **ga
 <div class="grid-3">
 
 <div>
-<div class="big">6<small>contracts<br>Monadscan-verified</small></div>
+<div class="big">4<small>contracts live<br>Monadscan-verified</small></div>
 </div>
 
 <div>
-<div class="big">84<small>tests passing<br>Python + Foundry</small></div>
+<div class="big">105<small>tests passing<br>Python + Foundry</small></div>
 </div>
 
 <div>
@@ -229,27 +229,31 @@ QAOA is **not** yet faster than SLSQP for this problem size. We measure the **ga
 <br>
 
 ```
-AuditAnchor   0x0e649C383CFA6be1998445D0A7a8E1cc7540D239
-RoutingVault  0x70580f77d7602f9a03fd34f17f3cc395bbce6938
+AuditAnchor          0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c
+UniswapRoutingVault  0xe2fcada067227c817b8a47b850d727ba065e16dd
+MorphoSupplyAdapter  0xB1a4341403DA395760561B85C4C96696C0D15958
+MLDSAAttestation     0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839
 ```
 
 ---
 
-<h3>The end-to-end demo</h3>
+<h3>The end-to-end demo — real value, one hash</h3>
 
-# One MON in. Two PQ-signed,<br>anchor-gated swaps out.
+# QPU decision → PQ signature<br>ZK-verified on-chain → yield.
 
 <table>
 
-<tr><th>Step</th><th>Contract</th><th>What happened</th></tr>
-<tr><td>1. Anchor seq 6</td><td><code>AuditAnchor</code></td><td>Order hash <code>0xca148bff…581b</code> committed; chains to seq 5</td></tr>
-<tr><td>2. Execute</td><td><code>RoutingVault</code></td><td>0.1 MON → <strong>117.52 mUSDC + 117.52 mUSDT</strong>, 50/50, single TX</td></tr>
+<tr><th>Step</th><th>Contract</th><th>What happened (Monad mainnet)</th></tr>
+<tr><td>1. Attest</td><td><code>MLDSAAttestation</code></td><td>Order's <strong>ML-DSA-65 signature verified on-chain via ZK proof</strong> (~230k gas, not ~500M); <code>pqAttested = true</code></td></tr>
+<tr><td>2. Anchor</td><td><code>AuditAnchor</code></td><td>Hash <code>0xf9e798a1…d3c3</code> committed, immutable</td></tr>
+<tr><td>3. Swap</td><td><code>UniswapRoutingVault</code></td><td>0.1 MON → <strong>2,271 USDC</strong> via live Uniswap v3, anchor-gated</td></tr>
+<tr><td>4. Yield</td><td><code>MorphoSupplyAdapter</code></td><td>USDC supplied into a live <strong>Morpho</strong> market (~4.75% APY), non-custodial</td></tr>
 
 </table>
 
 <br>
 
-> Sandwich-resistant by design: caller-supplied <code>amountOutMin</code> flows straight to the pair. No on-chain quote step to race.
+> One 32-byte <code>orderHash</code> threads all four. A reviewer replays the events and verifies the whole loop on-chain — without trusting us.
 
 ---
 
@@ -280,25 +284,25 @@ RoutingVault  0x70580f77d7602f9a03fd34f17f3cc395bbce6938
 
 <h3>What's next</h3>
 
-# From testnet rigor to<br>institutional pilot.
+# From live mainnet proof to<br>institutional pilot.
 
 <div class="grid">
 
 <div>
 
-**Q3 2026**
-- Schema-version address-binding
-- Capability registry (signature ≠ capability)
-- Monad mainnet deploy
+**Now → Q3 2026**
+- Independent third-party security audit (contracts + PQ/ZK)
+- Package as a B2B SDK (wallets, custodians, bridges)
+- HSM/KMS-backed key custody
 
 </div>
 
 <div>
 
 **Q4 2026**
+- First institutional design-partner pilot
 - Hot-path PQ cosigner service
-- Pilot: Q-Day-resistant treasury rail
-- Independent third-party audit
+- Paid bug bounty (Immunefi / Code4rena)
 
 </div>
 
@@ -316,4 +320,4 @@ RoutingVault  0x70580f77d7602f9a03fd34f17f3cc395bbce6938
 
 <br>
 
-<code>github.com/EmpowerTours/quantum-portfolio</code> · commit <code>b3d8166</code>
+<code>github.com/EmpowerTours/quantum-portfolio</code> · commit <code>33b69dd</code>
