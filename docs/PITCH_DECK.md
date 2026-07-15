@@ -30,8 +30,9 @@ style: |
   h3 { color: var(--accent); font-weight: 600; font-size: 22px; letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 8px; }
   strong { color: var(--accent); }
   em { color: var(--accent2); font-style: normal; }
-  code { font-family: var(--mono); color: var(--accent); background: rgba(108,240,255,.08); padding: 2px 8px; border-radius: 6px; }
-  pre code { background: rgba(255,255,255,.04); display: block; padding: 16px 20px; border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; }
+  code { font-family: var(--mono); color: #dcefff; background: rgba(255,255,255,.10) !important; padding: 2px 8px; border-radius: 6px; }
+  pre { background: #0d1526 !important; border: 1px solid rgba(255,255,255,.12); border-radius: 12px; padding: 6px; }
+  pre code { background: transparent !important; color: #e9edff; display: block; padding: 18px 24px; border-left: 3px solid var(--accent); border-radius: 0; font-size: 21px; line-height: 1.75; }
   blockquote { border-left: 3px solid var(--accent2); color: var(--muted); padding-left: 20px; font-style: italic; }
   hr { border: none; border-top: 1px solid rgba(255,255,255,.08); margin: 24px 0; }
   ul { line-height: 1.55; }
