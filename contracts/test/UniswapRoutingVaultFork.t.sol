@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import { Test }  from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { AuditAnchor }         from "../src/AuditAnchor.sol";
+import { AuditAnchorV2 }       from "../src/AuditAnchorV2.sol";
 import { UniswapRoutingVault } from "../src/UniswapRoutingVault.sol";
 
 /// @notice Opt-in integration test against the REAL Uniswap v3 SwapRouter02
@@ -24,7 +24,7 @@ contract UniswapRoutingVaultForkTest is Test {
     address constant WMON   = 0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A;
     address constant ROUTER = 0xfE31F71C1b106EAc32F1A19239c9a9A72ddfb900;
 
-    AuditAnchor anchor;
+    AuditAnchorV2 anchor;
     UniswapRoutingVault vault;
     address tokenOut;
     uint24 fee;
@@ -40,10 +40,12 @@ contract UniswapRoutingVaultForkTest is Test {
         tokenOut = vm.envAddress("FORK_TOKEN_OUT");
         fee = uint24(vm.envUint("FORK_FEE"));
 
-        anchor = new AuditAnchor();
+        anchor = new AuditAnchorV2();
         address[] memory approved = new address[](1);
         approved[0] = tokenOut;
-        vault = new UniswapRoutingVault(WMON, ROUTER, address(anchor), approved);
+        uint24[] memory fees = new uint24[](1);
+        fees[0] = fee;
+        vault = new UniswapRoutingVault(WMON, ROUTER, address(anchor), approved, fees);
 
         vm.deal(trader, 10 ether);
     }
@@ -55,13 +57,17 @@ contract UniswapRoutingVaultForkTest is Test {
         }
 
         bytes32 orderHash = keccak256("fork-live-swap");
-        vm.prank(trader);
-        anchor.anchor(orderHash);
 
         address[] memory t = new address[](1); t[0] = tokenOut;
         uint24[]  memory f = new uint24[](1);  f[0] = fee;
         uint16[]  memory w = new uint16[](1);  w[0] = 10_000;
         uint256[] memory m = new uint256[](1); m[0] = 1; // accept anything > 0 for the smoke test
+
+        // Anchor bound to exactly this execution.
+        bytes32 commitment = vault.routeCommitment(trader, t, f, w, 0.1 ether, m, block.timestamp + 300);
+        uint64  seq        = anchor.nextSequence(trader);
+        vm.prank(trader);
+        anchor.anchor(orderHash, commitment, seq);
 
         uint256 before = IERC20(tokenOut).balanceOf(trader);
         vm.prank(trader);

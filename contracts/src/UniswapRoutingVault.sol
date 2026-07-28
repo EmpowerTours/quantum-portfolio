@@ -6,7 +6,7 @@ import { SafeERC20 }      from "@openzeppelin/contracts/token/ERC20/utils/SafeER
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { IV3SwapRouter }  from "./interfaces/IV3SwapRouter.sol";
 import { IWrappedNative } from "./interfaces/IWrappedNative.sol";
-import { AuditAnchor }    from "./AuditAnchor.sol";
+import { AuditAnchorV2 }  from "./AuditAnchorV2.sol";
 
 /// @title  UniswapRoutingVault — agent-driven executor that routes native
 ///         MON into DeFi tokens through the REAL Uniswap v3 SwapRouter02.
@@ -16,9 +16,12 @@ import { AuditAnchor }    from "./AuditAnchor.sol";
 ///         pools on Monad mainnet.
 ///
 ///         Flow per call:
-///           1. caller must have most-recently anchored `orderHash` on
-///              AuditAnchor (provenance gate — links this trade to the
-///              off-chain QPU result + PQ signature)
+///           1. caller must have anchored `orderHash` on AuditAnchorV2 with an
+///              `execCommitment` equal to keccak256 over exactly these call
+///              parameters, and must not have executed it before. This binds
+///              the trade to the off-chain QPU result + PQ signature: the
+///              signed order contains the execution fields, so the ML-DSA
+///              signature covers what actually executes.
 ///           2. wrap msg.value MON -> WMON
 ///           3. for each pool: swap the weighted slice WMON -> tokenOut
 ///              via SwapRouter02.exactInputSingle, delivering the output
@@ -37,17 +40,34 @@ import { AuditAnchor }    from "./AuditAnchor.sol";
 ///             universe per deployment (mirrors the old pair allowlist).
 ///           * a `deadline` param gives explicit MEV / stale-tx protection,
 ///             which SwapRouter02's struct no longer carries.
+///           * fee tiers are allowlisted, zero-weight legs are rejected (they
+///             would hit SwapRouter02's CONTRACT_BALANCE sentinel), and a
+///             zero `amountOutMin` is rejected as fail-open slippage.
 contract UniswapRoutingVault is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     IWrappedNative public immutable WRAPPED_MON;
     IV3SwapRouter  public immutable ROUTER;
-    AuditAnchor    public immutable ANCHOR;
+    AuditAnchorV2  public immutable ANCHOR;
 
     /// @notice Output tokens this vault is permitted to route into. Frozen
     ///         at construction to keep the trust boundary immutable — to
     ///         add a token, deploy a new vault.
     mapping(address => bool) public isApprovedToken;
+
+    /// @notice Uniswap v3 fee tiers this vault may route through, frozen at
+    ///         deploy. The fee tier selects the POOL, and sibling pools on the
+    ///         same pair can be near-empty: on Monad mainnet the WMON/USDC
+    ///         0.05% pool held 2.93 USDC and the 0.01% pool 0.19 USDC against
+    ///         447k in the 0.3% pool. Routing into one of those is an 88-99%
+    ///         loss, and `amountOutMin` alone cannot defend it because that is
+    ///         caller-supplied too. (Audit H-3.)
+    mapping(uint24 => bool) public isApprovedFeeTier;
+
+    /// @notice (user, orderHash) => already executed. An anchor authorises
+    ///         exactly one execution; without this a single anchor authorised
+    ///         unlimited divergent trades. (Audit M-6.)
+    mapping(address => mapping(bytes32 => bool)) public consumed;
 
     event Routed(
         address indexed user,
@@ -66,29 +86,74 @@ contract UniswapRoutingVault is ReentrancyGuard {
     error DeadlinePassed(uint256 deadline, uint256 nowTs);
     error TokenNotApproved(uint256 idx, address token);
     error AnchorNotFound(bytes32 expected);
+    error ExecutionNotAnchored(bytes32 expected, bytes32 got);
+    error AnchorAlreadyConsumed(bytes32 orderHash);
+    error FeeTierNotApproved(uint256 idx, uint24 fee);
+    error ZeroWeightLeg(uint256 idx);
+    error ZeroSlippageFloor(uint256 idx);
     error WMonDustResidual(uint256 amount);
 
     constructor(
         address _wmon,
         address _router,
         address _anchor,
-        address[] memory _approvedTokens
+        address[] memory _approvedTokens,
+        uint24[]  memory _approvedFeeTiers
     ) {
         WRAPPED_MON = IWrappedNative(_wmon);
         ROUTER      = IV3SwapRouter(_router);
-        ANCHOR      = AuditAnchor(_anchor);
+        ANCHOR      = AuditAnchorV2(_anchor);
         for (uint256 i = 0; i < _approvedTokens.length; ++i) {
             isApprovedToken[_approvedTokens[i]] = true;
         }
+        for (uint256 i = 0; i < _approvedFeeTiers.length; ++i) {
+            isApprovedFeeTier[_approvedFeeTiers[i]] = true;
+        }
+    }
+
+    /// @notice The execution commitment for a routing call. The agent computes
+    ///         this over the same fields inside the PQ-signed order, so the
+    ///         ML-DSA signature covers exactly what executes on chain.
+    ///
+    /// @dev    `amountOutMin` and `deadline` are INSIDE the commitment on
+    ///         purpose. They are the two parameters that decide economic loss,
+    ///         and leaving them free let the broadcasting ECDSA key deviate
+    ///         from PQ-signed intent — submitting `amountOutMin = 1` against an
+    ///         order that specified a real floor, or replaying a long-expired
+    ///         order with a fresh deadline, while the chain still showed a
+    ///         correctly-anchored trade. That broke the two-key custody claim
+    ///         ("PQ key authorises intent, ECDSA key authorises execution").
+    ///         (Audit M-7.)
+    ///
+    /// @dev    Takes `memory` so off-chain builders, tests and the executor all
+    ///         go through ONE implementation — two parallel calldata/memory
+    ///         copies would be a place for the commitment to silently diverge.
+    ///         `abi.encode` (never `encodePacked`) is load-bearing: packed
+    ///         encoding drops array length prefixes, so feeTiers=[3000,500] with
+    ///         weights=[10000] collides with feeTiers=[3000], weights=[500,10000].
+    function routeCommitment(
+        address user,
+        address[] memory tokenOuts,
+        uint24[]  memory feeTiers,
+        uint16[]  memory weightsBps,
+        uint256   amountInWei,
+        uint256[] memory amountOutMin,
+        uint256   deadline
+    ) public pure returns (bytes32) {
+        return keccak256(
+            abi.encode(user, tokenOuts, feeTiers, weightsBps, amountInWei, amountOutMin, deadline)
+        );
     }
 
     /// @notice Execute the agent's allocation: wrap MON, then for each pool
     ///         swap its weighted slice into `tokenOuts[i]` via Uniswap v3.
-    /// @param  orderHash     SHA-256 of the canonical PQ-signed order. MUST
-    ///                       equal AuditAnchor.lastHash[msg.sender] — i.e.
-    ///                       the caller anchored this exact hash most
-    ///                       recently. Sequencing contract: anchor(order N)
-    ///                       then route(order N) with no intervening anchor.
+    /// @param  orderHash     SHA-256 of the canonical PQ-signed order. The
+    ///                       caller must have anchored it on AuditAnchorV2
+    ///                       with `execCommitment == routeCommitment(...)`
+    ///                       over these exact arguments, and must not have
+    ///                       executed it already. Anchors are keyed per
+    ///                       (anchorer, orderHash), so orders may be
+    ///                       pipelined without stranding each other.
     /// @param  tokenOuts     output ERC20 per pool; each must be approved.
     /// @param  feeTiers      Uniswap v3 fee tier per pool (500 / 3000 / 10000).
     /// @param  weightsBps    basis-points weight per pool (sum == 10_000).
@@ -117,12 +182,30 @@ contract UniswapRoutingVault is ReentrancyGuard {
         ) {
             revert LengthMismatch(n);
         }
-        if (ANCHOR.lastHash(msg.sender) != orderHash) {
-            revert AnchorNotFound(orderHash);
-        }
+        // Provenance: the caller must have anchored this exact order AND the
+        // anchor must commit to exactly these execution parameters.
+        bytes32 anchored = ANCHOR.execCommitmentOf(msg.sender, orderHash);
+        if (anchored == bytes32(0)) revert AnchorNotFound(orderHash);
+        bytes32 expected = routeCommitment(
+            msg.sender, tokenOuts, feeTiers, weightsBps, msg.value, amountOutMin, deadline
+        );
+        if (anchored != expected) revert ExecutionNotAnchored(expected, anchored);
+
+        // One anchor authorises exactly one execution.
+        if (consumed[msg.sender][orderHash]) revert AnchorAlreadyConsumed(orderHash);
+        consumed[msg.sender][orderHash] = true;
+
         uint256 sum;
         for (uint256 i = 0; i < n; ++i) sum += weightsBps[i];
         if (sum != 10_000) revert WeightsDoNotSumTo10000(sum);
+
+        // Snapshot our WMON balance BEFORE wrapping. The dust invariant below
+        // is asserted relative to this, not against zero: WMON transfers are
+        // push-based, so anyone can donate dust to this contract unsolicited.
+        // An absolute `balanceOf(this) == 0` check would let a 1-wei donation
+        // brick every future call permanently (no owner, no rescue path).
+        // Donated dust is now inert — it simply sits here, untouched.
+        uint256 balBefore = IERC20(address(WRAPPED_MON)).balanceOf(address(this));
 
         // Wrap the whole deposit, then approve the router for exactly it.
         WRAPPED_MON.deposit{value: msg.value}();
@@ -134,6 +217,18 @@ contract UniswapRoutingVault is ReentrancyGuard {
             if (!isApprovedToken[tokenOuts[i]]) {
                 revert TokenNotApproved(i, tokenOuts[i]);
             }
+            if (!isApprovedFeeTier[feeTiers[i]]) {
+                revert FeeTierNotApproved(i, feeTiers[i]);
+            }
+            // A zero-weight leg floors `amountIn` to 0, which SwapRouter02
+            // reads as the CONTRACT_BALANCE sentinel: it swaps its OWN token
+            // balance and pays from itself. That laundered output would be
+            // recorded against an allocation slice the user never funded.
+            // (Audit M-5.)
+            if (weightsBps[i] == 0) revert ZeroWeightLeg(i);
+            // An unbounded slippage floor is a fail-open on a thin pool.
+            // (Audit L-2.)
+            if (amountOutMin[i] == 0) revert ZeroSlippageFloor(i);
             // Last leg absorbs the rounding remainder so the full deposit
             // is deployed and no WMON dust is stranded.
             uint256 amountIn = i == n - 1
@@ -154,11 +249,16 @@ contract UniswapRoutingVault is ReentrancyGuard {
             );
         }
 
-        // Clear the standing approval and assert we hold no WMON. If the
-        // router ever pulled less than we approved, this catches it.
+        // Clear the standing approval and assert the full deposit was routed:
+        // our balance must be exactly what it was on entry. If the router ever
+        // pulled less than we approved, this catches it.
         IERC20(address(WRAPPED_MON)).forceApprove(address(ROUTER), 0);
-        uint256 residual = IERC20(address(WRAPPED_MON)).balanceOf(address(this));
-        if (residual != 0) revert WMonDustResidual(residual);
+        uint256 balAfter = IERC20(address(WRAPPED_MON)).balanceOf(address(this));
+        if (balAfter != balBefore) {
+            revert WMonDustResidual(
+                balAfter > balBefore ? balAfter - balBefore : balBefore - balAfter
+            );
+        }
 
         emit Routed(
             msg.sender, orderHash, msg.value, tokenOuts, feeTiers, amountsOut, weightsBps

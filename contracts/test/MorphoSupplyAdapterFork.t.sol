@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import { Test }   from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { AuditAnchor }        from "../src/AuditAnchor.sol";
+import { AuditAnchorV2 }      from "../src/AuditAnchorV2.sol";
 import { MorphoSupplyAdapter } from "../src/MorphoSupplyAdapter.sol";
 import { IMorpho, MarketParams } from "../src/interfaces/IMorpho.sol";
 
@@ -23,7 +23,7 @@ contract MorphoSupplyAdapterForkTest is Test {
     address constant IRM       = 0x09475a3D6eA8c314c592b1a3799bDE044E2F400F;
     uint256 constant LLTV      = 860000000000000000;
 
-    AuditAnchor anchor;
+    AuditAnchorV2 anchor;
     MorphoSupplyAdapter adapter;
     address trader = address(0xBEEF);
     bool forked;
@@ -36,10 +36,12 @@ contract MorphoSupplyAdapterForkTest is Test {
         require(block.chainid == 143, "fork is not Monad mainnet");
         forked = true;
 
-        anchor = new AuditAnchor();
+        anchor = new AuditAnchorV2();
         address[] memory approved = new address[](1);
         approved[0] = USDC;
-        adapter = new MorphoSupplyAdapter(MORPHO, address(anchor), approved);
+        bytes32[] memory markets = new bytes32[](1);
+        markets[0] = keccak256(abi.encode(_market()));   // live USDC/WBTC market
+        adapter = new MorphoSupplyAdapter(MORPHO, address(anchor), approved, markets);
     }
 
     function _market() internal pure returns (MarketParams memory) {
@@ -65,13 +67,15 @@ contract MorphoSupplyAdapterForkTest is Test {
 
         // Provenance: the trader anchors the order, then supplies.
         vm.startPrank(trader);
-        anchor.anchor(orderHash);
+        anchor.anchor(
+            orderHash, adapter.supplyCommitment(trader, m, amount), anchor.nextSequence(trader)
+        );
 
         deal(USDC, trader, amount);
         IERC20(USDC).approve(address(adapter), amount);
 
         (uint256 supplySharesBefore,,) = IMorpho(MORPHO).position(id, trader);
-        uint256 shares = adapter.supply(orderHash, m, amount);
+        uint256 shares = adapter.supply(orderHash, m, amount, amount);
         (uint256 supplySharesAfter,,) = IMorpho(MORPHO).position(id, trader);
         vm.stopPrank();
 
@@ -81,6 +85,38 @@ contract MorphoSupplyAdapterForkTest is Test {
         assertEq(IERC20(USDC).balanceOf(address(adapter)), 0, "adapter retained USDC dust");
     }
 
+    /// M-4: a market the adapter was not deployed against must be rejected,
+    /// even when the loan token is approved and the order is anchored.
+    function test_RevertsOnUnapprovedMarket() public {
+        if (!forked) return;
+
+        // Same loan token, attacker-chosen oracle -> different market id.
+        MarketParams memory hostile = MarketParams({
+            loanToken: USDC,
+            collateralToken: WBTC,
+            oracle: address(0xDEADBEEF),
+            irm: IRM,
+            lltv: LLTV
+        });
+
+        vm.startPrank(trader);
+        anchor.anchor(
+            keccak256("hostile-market"),
+            adapter.supplyCommitment(trader, hostile, 1_000_000),
+            anchor.nextSequence(trader)
+        );
+        deal(USDC, trader, 1_000_000);
+        IERC20(USDC).approve(address(adapter), 1_000_000);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MorphoSupplyAdapter.MarketNotApproved.selector,
+                keccak256(abi.encode(hostile))
+            )
+        );
+        adapter.supply(keccak256("hostile-market"), hostile, 1_000_000, 1_000_000);
+        vm.stopPrank();
+    }
+
     function test_RevertsWithoutAnchor() public {
         if (!forked) return;
         MarketParams memory m = _market();
@@ -88,7 +124,7 @@ contract MorphoSupplyAdapterForkTest is Test {
         deal(USDC, trader, 1_000_000);
         IERC20(USDC).approve(address(adapter), 1_000_000);
         vm.expectRevert(); // AnchorNotFound — trader never anchored
-        adapter.supply(keccak256("never-anchored"), m, 1_000_000);
+        adapter.supply(keccak256("never-anchored"), m, 1_000_000, 1_000_000);
         vm.stopPrank();
     }
 }
