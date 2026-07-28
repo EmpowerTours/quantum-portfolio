@@ -30,11 +30,57 @@ Run:
 """
 from __future__ import annotations
 
+import importlib
 import json
+import os
+import time
 from dataclasses import replace
 from pathlib import Path
 
 from src import orders, pq_signing as pq
+
+# --- Monad mainnet (chainId 143) constants, on-chain verified 2026-07-28 ---
+MONAD_MAINNET_CHAIN_ID = 143
+USDC_MAINNET = "0x754704Bc059F8C67012fEd69BC8A327a5aafb603"
+USDC_FEE_TIER = 3000          # the only genuinely liquid WMON/USDC pool
+
+# Reference rate from the live WMON/USDC 0.3% pool (fork-measured 2026-07-28):
+# 0.1 MON -> 2118 USDC micro-units. This is a REFERENCE for the demo only; a
+# production order must derive amountOutMin from a live quote at signing time,
+# because the floor is now the entire MEV defence (contract RT04c).
+REFERENCE_USDC_PER_MON_MICRO = 21180
+
+
+def _build_route_execution(amount_in_wei: int,
+                           slippage_bps: int,
+                           valid_for_s: int) -> orders.RouteExecution:
+    """Construct the schema-v2 execution block the order will authorise.
+
+    Single leg into USDC because that is the only token with real depth on
+    Monad mainnet — the sibling WMON/USDC pools hold 0.19 and 2.93 USDC
+    against 447k in the 0.3% pool, which is why fee tiers are allowlisted
+    on-chain rather than trusted from calldata (contract H-3).
+    """
+    vault = os.environ.get("UNISWAP_ROUTING_VAULT", "0x" + "0" * 40)
+    user = os.environ.get("AGENT_ADDRESS", "0x" + "0" * 40)
+    if vault == "0x" + "0" * 40 or user == "0x" + "0" * 40:
+        print("NOTE: UNISWAP_ROUTING_VAULT / AGENT_ADDRESS unset — the execution")
+        print("      block is structurally valid but points at the zero address.")
+        print("      Set both once AuditAnchorV2 + the V2 vault are deployed.")
+
+    expected_out = amount_in_wei * REFERENCE_USDC_PER_MON_MICRO // 10**18
+    floor = expected_out * (10_000 - slippage_bps) // 10_000
+    return orders.RouteExecution(
+        chain_id=MONAD_MAINNET_CHAIN_ID,
+        vault=vault,
+        user=user,
+        token_outs=[USDC_MAINNET],
+        fee_tiers=[USDC_FEE_TIER],
+        weights_bps=[10_000],
+        amount_in_wei=amount_in_wei,
+        amount_out_min=[max(floor, 1)],
+        deadline=int(time.time()) + valid_for_s,
+    )
 
 HARDWARE_RUN_DEFI   = Path("outputs/hardware_run_defi.json")
 HARDWARE_RUN_STOCKS = Path("outputs/hardware_run.json")
@@ -150,6 +196,19 @@ def main() -> None:
     print(f"  Ed25519      pk={len(ed_kp.pk)}      sk={len(ed_kp.sk)}      (sk chmod 600)")
     print()
 
+    # ---- schema v2: bind the order to the execution it authorises ----
+    #
+    # The vault recomputes this commitment from its own calldata and reverts
+    # on a mismatch, so the ML-DSA signature now covers WHAT executes, not
+    # merely that an order existed. amount_out_min and deadline are inside the
+    # commitment because they decide economic loss; leaving them out let the
+    # broadcasting ECDSA key deviate from PQ-signed intent (contract M-7).
+    exec_block = _build_route_execution(
+        amount_in_wei=int(os.environ.get("DEMO_AMOUNT_IN_WEI", 10**17)),  # 0.1 MON
+        slippage_bps=int(os.environ.get("DEMO_SLIPPAGE_BPS", 50)),
+        valid_for_s=int(os.environ.get("DEMO_VALID_FOR_S", 300)),
+    )
+
     order = orders.RebalanceOrder(
         pools=selected,
         weights=[weight] * len(selected),
@@ -157,10 +216,14 @@ def main() -> None:
         expected_vol=float(metrics["volatility"]),
         qpu_job_id=qpu_job_id,
         qaoa_p_optimal=qaoa_p_opt,
+        execution=exec_block,
     )
     signed = orders.sign_order_hedged(order, ml_kp, slh_kp, ed_kp)
+
+    # M-1: verify against the keys we hold, not the ones in the artefact.
+    trusted = orders.TrustedKeys(ml_dsa=ml_kp.pk, slh_dsa=slh_kp.pk, ed25519=ed_kp.pk)
     components = orders.verify_signed_order_components(signed)
-    all_ok = orders.verify_signed_order(signed)
+    all_ok = orders.verify_signed_order(signed, trusted=trusted)
     print(f"Order ID:    {order.order_id}")
     print(f"Nonce:       {order.nonce}")
     print(f"Issued at:   {order.issued_at}")
@@ -171,22 +234,44 @@ def main() -> None:
     ed_sig_bytes  = len(signed.ed25519_signature_b64 or "") * 3 // 4
     print(f"Signatures:  ML-DSA={ml_sig_bytes}B  SLH-DSA={slh_sig_bytes}B  Ed25519={ed_sig_bytes}B")
     print(f"Components:  {components}")
-    print(f"Verified:    {all_ok}  (must be True)")
+    print(f"Verified:    {all_ok}  (must be True, pinned to keys/*.pub)")
+    print()
+
+    monad_tx_mod = importlib.import_module("src.monad_tx")
+    monad_tx_mod.validate_route_execution(exec_block)
+    commitment = monad_tx_mod.route_commitment(exec_block)
+    print("Execution binding (schema v2):")
+    print(f"  user:          {exec_block.user}")
+    print(f"  vault:         {exec_block.vault}")
+    print(f"  tokenOuts:     {exec_block.token_outs}")
+    print(f"  feeTiers:      {exec_block.fee_tiers}")
+    print(f"  weightsBps:    {exec_block.weights_bps}")
+    print(f"  amountIn:      {exec_block.amount_in_wei} wei")
+    print(f"  amountOutMin:  {exec_block.amount_out_min}")
+    print(f"  deadline:      {exec_block.deadline}")
+    print(f"  execCommitment 0x{commitment.hex()}")
+    print("  -> anchor(orderHash, execCommitment, seq) on AuditAnchorV2;")
+    print("     the vault recomputes this and reverts on any divergence.")
     print()
 
     # Tamper test — uses a separate order COPY so the signed object is
     # not mutated (float round-trip via += / -= would invalidate the
     # signature against the fail-closed verify in append_audit).
-    tampered_weights = [signed.order.weights[0] + 0.01] + signed.order.weights[1:]
+    # Shift allocation BETWEEN legs so the sum stays 1.0 — otherwise the new
+    # RebalanceOrder invariant rejects the tampered order at construction and
+    # we would never reach the signature check we are trying to demonstrate.
+    tampered_weights = list(signed.order.weights)
+    tampered_weights[0] += 0.01
+    tampered_weights[-1] -= 0.01
     tampered_signed = replace(signed, order=replace(signed.order, weights=tampered_weights))
     tampered_components = orders.verify_signed_order_components(tampered_signed)
-    tampered_ok = orders.verify_signed_order(tampered_signed)
-    print(f"Tamper test (1 bit on weights[0]):")
+    tampered_ok = orders.verify_signed_order(tampered_signed, trusted=trusted)
+    print(f"Tamper test (0.01 shifted from the last leg to weights[0]):")
     print(f"  Components:  {tampered_components}")
     print(f"  Verified:    {tampered_ok}  (must be False)")
     print()
 
-    orders.append_audit(signed)
+    orders.append_audit(signed, trusted=trusted)
     orders.save_signed_orders([signed])
     print(f"Wrote {orders.SIGNED_ORDERS_PATH} and appended to "
           f"{orders.AUDIT_LOG_PATH}")
