@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import shutil
 import sys
+
+import pytest
 import tempfile
 from pathlib import Path
 
@@ -70,10 +72,10 @@ def test_signed_order_roundtrip(tmp_path: Path | None = None):
             qpu_job_id="d88f7sdg7okc73enff00", qaoa_p_optimal=0.0066,
         )
         signed = orders.sign_order(order, kp, seen_nonces=set())
-        assert orders.verify_signed_order(signed)
+        assert orders.verify_signed_order(signed, require_hedged=False)
         # mutate a field and re-verify
         signed.order.weights[0] = 0.99
-        assert not orders.verify_signed_order(signed)
+        assert not orders.verify_signed_order(signed, require_hedged=False)
     finally:
         shutil.rmtree(tmp_path, ignore_errors=True)
 
@@ -104,25 +106,48 @@ def test_schema_version_is_signed():
     )
     signed = orders.sign_order(order, kp, seen_nonces=set())
     assert signed.order.schema_version == orders.SCHEMA_VERSION
-    assert orders.verify_signed_order(signed)
+    assert orders.verify_signed_order(signed, require_hedged=False)
     signed.order.schema_version = orders.SCHEMA_VERSION + 99
-    assert not orders.verify_signed_order(signed)
+    assert not orders.verify_signed_order(signed, require_hedged=False)
 
 
-def test_canonical_bytes_nfc_normalises_unicode():
-    """A pool label "café" in NFC vs NFD must produce IDENTICAL canonical
-    bytes. Pre-fix the two were byte-different — a Unicode malleability
-    surface where an attacker controlling the label channel could rerender
-    the same agent decision under a different orderHash."""
-    nfc = "café"          # 5 bytes: c-a-f-é (composed)
-    nfd = "café"          # 6 bytes: c-a-f-e-COMBINING-ACUTE
-    assert nfc != nfd, "test setup: NFC and NFD should differ before normalisation"
-    a = pq.canonical_bytes({"label": nfc})
-    b = pq.canonical_bytes({"label": nfd})
-    assert a == b, (
-        f"NFC and NFD inputs produced different canonical bytes - Unicode "
-        f"malleability is NOT closed. a={a!r} b={b!r}"
-    )
+def test_canonical_bytes_rejects_non_nfc_instead_of_rewriting():
+    """Non-NFC input must be REJECTED, not silently normalised.
+
+    The old behaviour normalised every string before hashing, which made
+    canonical_bytes non-injective: NFC and NFD "cafe\u0301" hashed to the
+    same bytes, so two different logical orders shared one signature and one
+    anchored orderHash. The asymmetry was the exploitable part — the signer
+    normalised but `monad_tx.pool_label_hash` keccaks the RAW label, so an
+    order signed with a non-NFC pool name could be rewritten after signing
+    to route to a DIFFERENT on-chain pool under the same valid signature.
+    (Audit Z-1.)
+    """
+    nfc = "caf\u00e9"          # composed
+    nfd = "cafe\u0301"         # decomposed
+    assert nfc != nfd, "test setup: NFC and NFD should differ"
+
+    # NFC is fine and its bytes are unchanged from before the fix.
+    assert pq.canonical_bytes({"label": nfc}) == b'{"label":"caf\xc3\xa9"}'
+
+    # NFD is refused rather than rewritten into the NFC form.
+    with pytest.raises(ValueError, match="non-NFC"):
+        pq.canonical_bytes({"label": nfd})
+
+    # The compatibility-form trick that changed the on-chain pool is refused too.
+    with pytest.raises(ValueError, match="non-NFC"):
+        pq.canonical_bytes({"pools": ["\u212aUSDC"]})   # KELVIN SIGN
+
+
+def test_normalize_for_signing_is_available_at_construction_time():
+    """The safe half of the old behaviour still exists, but only OUTSIDE the
+    signing path: callers normalise untrusted input when building an order,
+    so the order is already NFC by the time anything hashes it."""
+    assert pq.normalize_for_signing({"pools": ["\u212aUSDC"]}) == {"pools": ["KUSDC"]}
+
+    # And it refuses to silently drop a value when two keys share one NFC form.
+    with pytest.raises(ValueError, match="key collision"):
+        pq.normalize_for_signing({"\u212aey": "attacker-value", "Key": "honest-value"})
 
 
 def test_canonical_bytes_rejects_nan_and_inf():
@@ -182,7 +207,7 @@ def test_audit_chain_intact(tmp_path: Path | None = None):
             o = orders.RebalanceOrder(
                 pools=[f"P{i}"], weights=[1.0], expected_return=0.0, expected_vol=0.0,
             )
-            orders.append_audit(orders.sign_order(o, kp, seen_nonces=set()), log)
+            orders.append_audit(orders.sign_order(o, kp, seen_nonces=set()), log, require_hedged=False)
         ok, n, reason = orders.verify_audit_chain(log)
         assert ok, f"chain broken on clean append: {reason}"
         assert n == 3, f"expected 3 entries, got {n}"
@@ -201,7 +226,7 @@ def test_audit_chain_detects_deletion(tmp_path: Path | None = None):
             o = orders.RebalanceOrder(
                 pools=[f"P{i}"], weights=[1.0], expected_return=0.0, expected_vol=0.0,
             )
-            orders.append_audit(orders.sign_order(o, kp, seen_nonces=set()), log)
+            orders.append_audit(orders.sign_order(o, kp, seen_nonces=set()), log, require_hedged=False)
         # Delete the middle line.
         lines = log.read_text().strip().splitlines()
         log.write_text(lines[0] + "\n" + lines[2] + "\n")
@@ -286,7 +311,7 @@ def test_hedged_order_roundtrip(tmp_path: Path | None = None):
         )
         signed = orders.sign_order_hedged(order, ml, slh, ed, seen_nonces=set())
         assert signed.is_hedged
-        assert orders.verify_signed_order(signed)
+        assert orders.verify_signed_order(signed, require_hedged=False)
         comp = orders.verify_signed_order_components(signed)
         assert comp == {"ml_dsa": True, "slh_dsa": True, "ed25519": True}
     finally:
@@ -306,7 +331,7 @@ def test_hedged_tamper_breaks_all_signatures(tmp_path: Path | None = None):
         )
         signed = orders.sign_order_hedged(order, ml, slh, ed, seen_nonces=set())
         signed.order.weights[0] = 0.99   # tamper
-        assert not orders.verify_signed_order(signed)
+        assert not orders.verify_signed_order(signed, require_hedged=False)
         comp = orders.verify_signed_order_components(signed)
         assert comp == {"ml_dsa": False, "slh_dsa": False, "ed25519": False}
     finally:
@@ -322,7 +347,7 @@ def test_legacy_ml_dsa_only_order_still_verifies():
     )
     signed = orders.sign_order(order, kp, seen_nonces=set())
     assert not signed.is_hedged
-    assert orders.verify_signed_order(signed)
+    assert orders.verify_signed_order(signed, require_hedged=False)
 
 
 # --- Schema-version policy ------------------------------------------------
@@ -347,7 +372,7 @@ def test_future_schema_version_rejected():
         schema_version=orders.SCHEMA_VERSION + 99,
     )
     signed = orders.sign_order(order, kp, seen_nonces=set())
-    assert not orders.verify_signed_order(signed), (
+    assert not orders.verify_signed_order(signed, require_hedged=False), (
         "verify_signed_order accepted a future schema_version - the "
         "documented policy in src/orders.py:23 is now unenforced"
     )
@@ -360,7 +385,7 @@ def test_future_schema_version_rejected():
     # different bytes (schema=1), so it MUST fail — proving the
     # signature path was active before and is reactive to field
     # changes.
-    assert not orders.verify_signed_order(signed), (
+    assert not orders.verify_signed_order(signed, require_hedged=False), (
         "tampering schema_version back to current value should have "
         "produced a signature mismatch; the verify path may be broken"
     )
@@ -376,7 +401,7 @@ def test_current_schema_version_accepted():
         schema_version=orders.SCHEMA_VERSION,
     )
     signed = orders.sign_order(order, kp, seen_nonces=set())
-    assert orders.verify_signed_order(signed)
+    assert orders.verify_signed_order(signed, require_hedged=False)
 
 
 # --- B3: append_audit concurrency under flock -----------------------------
@@ -423,7 +448,7 @@ def test_concurrent_append_audit_preserves_chain(tmp_path: Path | None = None):
                 barrier.wait()
                 start = worker_id * APPENDS_PER_WORKER
                 for s in signed_orders_list[start:start + APPENDS_PER_WORKER]:
-                    orders.append_audit(s, log_path=log)
+                    orders.append_audit(s, log_path=log, require_hedged=False)
             except Exception as exc:  # noqa: BLE001
                 errors.append(exc)
 
@@ -481,7 +506,7 @@ def test_append_audit_refuses_unverifiable_order(tmp_path: Path | None = None):
         # Tamper after-the-fact so the verify call inside append_audit fails.
         signed.order.weights = [0.5]
         try:
-            orders.append_audit(signed, log_path=log)
+            orders.append_audit(signed, log_path=log, require_hedged=False)
         except orders.AuditVerifyFailed:
             pass
         else:

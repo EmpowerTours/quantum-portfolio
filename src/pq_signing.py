@@ -104,27 +104,73 @@ def _strict_default(obj: Any) -> Any:
     )
 
 
-def _nfc_normalize(obj: Any) -> Any:
-    """Recursively NFC-normalise every string in a JSON-able structure.
+def _assert_nfc(obj: Any, _path: str = "") -> None:
+    """Reject any string that is not already in Unicode NFC form.
 
-    Unicode malleability hardening: the same human-visible label can have
-    multiple byte representations under different normalisation forms
-    (NFC, NFD, NFKC, NFKD). A pool label "café" produced from a macOS
-    source (NFD-prone) hashes differently than the same label typed on
-    Linux (NFC). Without normalisation, an attacker controlling the
-    label channel can re-render the "same" agent decision under a new
-    `orderHash`, defeating dedup against `AuditAnchor.lastHash`.
-    We pin NFC (Composition Form C) as the canonical form before any
-    serialisation. This is a no-op for pure ASCII (our shipped pool
-    labels), so it does not change historic hashes.
+    **Validate, never rewrite.** The previous implementation normalised
+    every string *before* hashing. NFC is a many-to-one map, so that made
+    `canonical_bytes` non-injective: two different logical orders produced
+    identical canonical bytes, identical signatures, and an identical
+    anchored `orderHash`. Worse, the asymmetry was exploitable — the signer
+    normalised but every consumer did not. `monad_tx.pool_label_hash`
+    keccaks the RAW label, so an order signed with pool "\u212aUSDC"
+    (KELVIN SIGN) could be rewritten to "KUSDC" after signing: same
+    signature, same orderHash, DIFFERENT on-chain pool. The same trick
+    laundered `qpu_job_id` and `agent_id`. (Audit Z-1.)
+
+    Normalising also silently merged dict keys that share an NFC form,
+    dropping a value: {"\u212aey": "attacker", "Key": "honest"} collapsed
+    to {"Key": "honest"}.
+
+    Rejecting instead of rewriting makes the signature bind the order's
+    actual bytes. This is a no-op for pure-ASCII payloads — every shipped
+    artefact canonicalises to exactly the same bytes as before.
+    """
+    if isinstance(obj, str):
+        if obj != unicodedata.normalize("NFC", obj):
+            raise ValueError(
+                f"non-NFC string at {_path or '<root>'}: {obj!r}. Order fields must "
+                "be supplied already NFC-normalised; canonical_bytes refuses to "
+                "rewrite them, because rewriting before hashing lets two different "
+                "orders share one signature."
+            )
+        return
+    if isinstance(obj, list):
+        for i, x in enumerate(obj):
+            _assert_nfc(x, f"{_path}[{i}]")
+        return
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(k, str):
+                _assert_nfc(k, f"{_path}.{k}")
+            _assert_nfc(v, f"{_path}.{k}")
+        return
+
+
+def normalize_for_signing(obj: Any) -> Any:
+    """Recursively NFC-normalise a payload BEFORE it becomes an order.
+
+    This is the safe half of the old behaviour, moved to where it belongs:
+    call it at order-construction time on untrusted input, so the order is
+    NFC by the time anything hashes it. Never call it inside the signing
+    path — that is precisely the bug Z-1 describes.
     """
     if isinstance(obj, str):
         return unicodedata.normalize("NFC", obj)
     if isinstance(obj, list):
-        return [_nfc_normalize(x) for x in obj]
+        return [normalize_for_signing(x) for x in obj]
     if isinstance(obj, dict):
-        return {_nfc_normalize(k) if isinstance(k, str) else k: _nfc_normalize(v)
-                for k, v in obj.items()}
+        out: dict[Any, Any] = {}
+        for k, v in obj.items():
+            nk = unicodedata.normalize("NFC", k) if isinstance(k, str) else k
+            if nk in out:
+                raise ValueError(
+                    f"key collision after NFC normalisation: {k!r} -> {nk!r}. "
+                    "Two distinct keys share one normalised form; refusing to "
+                    "silently drop a value."
+                )
+            out[nk] = normalize_for_signing(v)
+        return out
     return obj
 
 
@@ -132,7 +178,9 @@ def canonical_bytes(obj: Any) -> bytes:
     """Deterministic JSON encoding so signatures verify across machines.
 
     Three hardening rules baked in:
-      1. **NFC-normalise every string** (Unicode malleability hardening).
+      1. **Reject any non-NFC string** (Unicode malleability hardening).
+         Validation, not rewriting — see `_assert_nfc` for why the
+         difference is load-bearing.
       2. **Sorted keys + compact separators** (stable subset of RFC 8785 JCS).
       3. **Reject NaN / Infinity** (`allow_nan=False`) — Python's `json`
          emits non-RFC-8259 tokens by default, which strict parsers in
@@ -148,7 +196,8 @@ def canonical_bytes(obj: Any) -> bytes:
     unchanged by introducing these hardenings; only future malicious
     or accidentally-non-normalised input is now rejected.
     """
-    return json.dumps(_nfc_normalize(obj),
+    _assert_nfc(obj)
+    return json.dumps(obj,
                       sort_keys=True, separators=(",", ":"),
                       ensure_ascii=False, allow_nan=False,
                       default=_strict_default).encode("utf-8")

@@ -25,7 +25,7 @@ def _make_signed_order() -> orders.SignedOrder:
 
 def test_calldata_roundtrip():
     signed = _make_signed_order()
-    blob = mtx.encode_order_calldata(signed)
+    blob = mtx.encode_order_calldata(signed, require_hedged=False)
     assert blob.startswith("0x")
     order_d, sig, pk = mtx.decode_order_calldata(blob)
     assert order_d["pools"] == signed.order.pools
@@ -39,7 +39,7 @@ def test_calldata_roundtrip():
 
 def test_unsigned_tx_fields():
     signed = _make_signed_order()
-    tx = mtx.build_unsigned_tx(signed, to_address=SELF_ADDR, nonce=7)
+    tx = mtx.build_unsigned_tx(signed, to_address=SELF_ADDR, nonce=7, require_hedged=False)
     assert tx.chainId == mtx.MONAD_CHAIN_ID
     assert tx.type == 2
     assert tx.nonce == 7
@@ -56,7 +56,7 @@ def test_unsigned_tx_fields():
 def test_unsigned_tx_rejects_bad_address():
     signed = _make_signed_order()
     try:
-        mtx.build_unsigned_tx(signed, to_address="not-a-hex-address", nonce=0)
+        mtx.build_unsigned_tx(signed, to_address="not-a-hex-address", nonce=0, require_hedged=False)
     except ValueError:
         return
     raise AssertionError("expected ValueError on malformed to_address")
@@ -71,7 +71,7 @@ def test_calldata_detects_corruption():
     differ from the signed order — corruption that round-trips bit-for-
     bit is the actual bug we want to catch."""
     signed = _make_signed_order()
-    blob = mtx.encode_order_calldata(signed)
+    blob = mtx.encode_order_calldata(signed, require_hedged=False)
     original_dict = signed.order.to_dict()
     raw = bytearray.fromhex(blob[2:])
     raw[20] ^= 0xFF
@@ -148,8 +148,7 @@ def test_anchor_calldata_rejects_overflow_sequence():
 def test_build_anchor_tx_field_shape():
     signed = _make_signed_order()
     tx = mtx.build_anchor_tx(
-        signed, anchor_contract=ANCHOR_ADDR, nonce=3, expected_sequence=0,
-    )
+        signed, anchor_contract=ANCHOR_ADDR, nonce=3, expected_sequence=0, require_hedged=False)
     assert tx.chainId == 143         # Monad mainnet
     assert tx.type == 2              # EIP-1559
     assert tx.to == ANCHOR_ADDR
@@ -163,7 +162,7 @@ def test_build_anchor_tx_field_shape():
 def test_build_anchor_tx_rejects_bad_contract_address():
     signed = _make_signed_order()
     try:
-        mtx.build_anchor_tx(signed, anchor_contract="0xnotanaddress", nonce=0)
+        mtx.build_anchor_tx(signed, anchor_contract="0xnotanaddress", nonce=0, require_hedged=False)
     except ValueError:
         return
     raise AssertionError("expected ValueError on malformed anchor_contract")
@@ -182,21 +181,21 @@ def test_builders_refuse_tampered_signed_order():
     from dataclasses import replace
     signed = _make_signed_order()
     # Sanity: untampered signed order builds fine.
-    mtx.encode_order_calldata(signed)
-    mtx.build_alloc_tx(signed, vault_contract=VAULT_ADDR, nonce=0, amount_wei=1)
-    mtx.build_anchor_tx(signed, anchor_contract=VAULT_ADDR, nonce=0)
+    mtx.encode_order_calldata(signed, require_hedged=False)
+    mtx.build_alloc_tx(signed, vault_contract=VAULT_ADDR, nonce=0, amount_wei=1, require_hedged=False)
+    mtx.build_anchor_tx(signed, anchor_contract=VAULT_ADDR, nonce=0, require_hedged=False)
 
     # Tamper: produce a SignedOrder whose order content no longer
     # matches the signature (pools list mutated).
     tampered_order = replace(signed.order, pools=["AAPL", "TSLA", "BTC"])
     tampered = replace(signed, order=tampered_order)
-    assert not orders.verify_signed_order(tampered), "test setup failed: tamper should invalidate"
+    assert not orders.verify_signed_order(tampered, require_hedged=False), "test setup failed: tamper should invalidate"
 
     for fn_name, fn in [
-        ("encode_order_calldata", lambda: mtx.encode_order_calldata(tampered)),
-        ("build_alloc_tx",        lambda: mtx.build_alloc_tx(tampered, vault_contract=VAULT_ADDR, nonce=0, amount_wei=1)),
-        ("build_anchor_tx",       lambda: mtx.build_anchor_tx(tampered, anchor_contract=VAULT_ADDR, nonce=0)),
-        ("build_unsigned_tx",     lambda: mtx.build_unsigned_tx(tampered, to_address=SELF_ADDR, nonce=0)),
+        ("encode_order_calldata", lambda: mtx.encode_order_calldata(tampered, require_hedged=False)),
+        ("build_alloc_tx",        lambda: mtx.build_alloc_tx(tampered, vault_contract=VAULT_ADDR, nonce=0, amount_wei=1, require_hedged=False)),
+        ("build_anchor_tx",       lambda: mtx.build_anchor_tx(tampered, anchor_contract=VAULT_ADDR, nonce=0, require_hedged=False)),
+        ("build_unsigned_tx",     lambda: mtx.build_unsigned_tx(tampered, to_address=SELF_ADDR, nonce=0, require_hedged=False)),
     ]:
         try:
             fn()
@@ -303,8 +302,7 @@ def test_build_alloc_tx_field_shape():
         vault_contract=VAULT_ADDR,
         nonce=0,
         amount_wei=10**16,
-        chain_id=mtx.MONAD_TESTNET_CHAIN_ID,
-    )
+        chain_id=mtx.MONAD_TESTNET_CHAIN_ID, require_hedged=False)
     assert tx.chainId == 10143
     assert tx.to == VAULT_ADDR
     assert tx.value == 10**16
@@ -316,8 +314,7 @@ def test_build_alloc_tx_rejects_zero_value():
     signed = _make_signed_order()
     try:
         mtx.build_alloc_tx(
-            signed, vault_contract=VAULT_ADDR, nonce=0, amount_wei=0,
-        )
+            signed, vault_contract=VAULT_ADDR, nonce=0, amount_wei=0, require_hedged=False)
     except ValueError:
         return
     raise AssertionError("expected ValueError on zero amount_wei")
@@ -407,8 +404,7 @@ def test_build_route_tx_wires_selector_and_value():
         fee_tiers=[3000, 3000, 500],
         amount_out_min=[1, 1, 1],
         deadline=1893456000,
-        chain_id=mtx.MONAD_CHAIN_ID,
-    )
+        chain_id=mtx.MONAD_CHAIN_ID, require_hedged=False)
     assert tx.chainId == 143
     assert tx.to == VAULT_ADDR
     assert tx.value == 10**17
@@ -424,8 +420,7 @@ def test_build_route_tx_rejects_arity_mismatch():
         mtx.build_route_tx(
             signed, vault_contract=VAULT_ADDR, nonce=0, amount_wei=10**16,
             token_outs=["0x000000000000000000000000000000000000aaAA"],  # only 1
-            fee_tiers=[3000], amount_out_min=[1], deadline=1,
-        )
+            fee_tiers=[3000], amount_out_min=[1], deadline=1, require_hedged=False)
     except ValueError:
         return
     raise AssertionError("expected ValueError when token_outs arity != order pools")

@@ -33,6 +33,7 @@ import base64
 import datetime as dt
 import fcntl
 import hashlib
+import hmac
 import json
 import os
 import uuid
@@ -133,6 +134,36 @@ class SignedOrder:
         return d
 
 
+# --- trusted signer identity --------------------------------------------
+
+DEFAULT_KEYS_PATH = Path("keys")
+
+
+@dataclass(frozen=True)
+class TrustedKeys:
+    """The agent public keys a verifier will accept, loaded from OUTSIDE the
+    artefact being verified.
+
+    Verifying a signature against a key carried *inside* the same file proves
+    only that the file is internally consistent — an attacker who can write
+    the file ships their own keypair and every check goes green, including
+    all three "hedged" legs. Forging required breaking zero schemes, only
+    obtaining write access. (Audit M-1.)
+    """
+    ml_dsa: bytes
+    slh_dsa: bytes
+    ed25519: bytes
+
+    @classmethod
+    def load(cls, path: Path | str = DEFAULT_KEYS_PATH) -> "TrustedKeys":
+        path = Path(path)
+        return cls(
+            ml_dsa=(path / "pq.pub").read_bytes(),
+            slh_dsa=(path / "slh.pub").read_bytes(),
+            ed25519=(path / "ed25519.pub").read_bytes(),
+        )
+
+
 # --- replay protection --------------------------------------------------
 
 class NonceSeenError(ValueError):
@@ -221,48 +252,69 @@ def sign_order_hedged(order: RebalanceOrder,
 
 
 def verify_signed_order(signed: SignedOrder,
-                        seen_nonces: set[str] | None = None) -> bool:
-    """Verify every signature attached to the order.
+                        seen_nonces: set[str] | None = None,
+                        trusted: TrustedKeys | None = None,
+                        require_hedged: bool = True) -> bool:
+    """Verify an order against a POLICY, not against whatever the file claims.
 
-    Always verifies the ML-DSA primary signature. If hedge signatures are
-    present (SLH-DSA, Ed25519), verifies those too. Returns True only if
-    EVERY present signature verifies — an attacker who breaks one scheme
-    still cannot pass this check on a hedged order.
+    Two properties the previous implementation did not have:
 
-    Schema-version policy: orders with a schema_version GREATER than the
-    current code's SCHEMA_VERSION are rejected (we cannot reason about
-    fields we do not know how to canonicalise). Older schema versions
-    still verify — adding fields is the only way schemas evolve, and an
-    older order's canonical bytes are a strict prefix of what a current
-    signer would produce when re-signed.
+    **Required-leg enforcement (Z-2).** It verified the signatures that were
+    *present*, so deleting the four hedge fields left a single-signature order
+    that still returned True while `algorithm` went on advertising "(hedged)".
+    `is_hedged` existed and was never consulted; `algorithm` is never read by
+    any verification path. Now the caller states which legs are required and a
+    missing leg is a failure, not a skipped branch.
 
-    Replay policy: pass `seen_nonces` (typically the set returned by
-    `_load_seen_nonces`) to reject orders whose nonce has already been
-    consumed. With the default `seen_nonces=None`, replay-protection is
-    OFF — appropriate for a fresh verifier inspecting a single artefact,
-    but a receiver consuming a live stream MUST pass the set so that a
-    bit-identical replay of a previously valid signed order is rejected
-    even when the signature itself is cryptographically valid.
+    **Signer pinning (M-1).** Pass `trusted` to require that each public key
+    equals the expected agent key. Without it, all three keys come from the
+    artefact itself and an attacker with write access simply ships their own.
+    Note that pinning ONLY the ML-DSA key is not enough — an attacker holding
+    one leg supplies fresh keys for the other two — so all three are pinned
+    together or not at all.
+
+    `trusted=None` is for the genuine third-party case: inspecting an artefact
+    whose signer you have not yet established. It answers "is this file
+    internally consistent", never "did the agent authorise this". Any code
+    path that acts on an order MUST pass `trusted`.
+
+    Schema policy: orders newer than this code are rejected.
+    Replay policy: pass `seen_nonces` to reject an already-consumed nonce.
     """
     if signed.order.schema_version > SCHEMA_VERSION:
         return False
     if seen_nonces is not None and signed.order.nonce in seen_nonces:
         return False
+
+    # Z-2: the required leg set comes from policy, never from the artefact.
+    if require_hedged and not signed.is_hedged:
+        return False
+
     payload = signed.order.to_dict()
+
     pk  = base64.b64decode(signed.public_key_b64)
     sig = base64.b64decode(signed.signature_b64)
+    if trusted is not None and not hmac.compare_digest(pk, trusted.ml_dsa):
+        return False
     if not pq.verify(payload, sig, pk):
         return False
+
     if signed.slh_dsa_signature_b64 is not None:
         slh_pk  = base64.b64decode(signed.slh_dsa_public_key_b64 or "")
         slh_sig = base64.b64decode(signed.slh_dsa_signature_b64)
+        if trusted is not None and not hmac.compare_digest(slh_pk, trusted.slh_dsa):
+            return False
         if not pq.slh_dsa_verify(payload, slh_sig, slh_pk):
             return False
+
     if signed.ed25519_signature_b64 is not None:
         ed_pk  = base64.b64decode(signed.ed25519_public_key_b64 or "")
         ed_sig = base64.b64decode(signed.ed25519_signature_b64)
+        if trusted is not None and not hmac.compare_digest(ed_pk, trusted.ed25519):
+            return False
         if not pq.ed25519_verify(payload, ed_sig, ed_pk):
             return False
+
     return True
 
 
@@ -347,7 +399,9 @@ class AuditVerifyFailed(ValueError):
 
 def append_audit(signed: SignedOrder,
                  log_path: Path = AUDIT_LOG_PATH,
-                 verified: bool | None = None) -> None:
+                 verified: bool | None = None,
+                 trusted: TrustedKeys | None = None,
+                 require_hedged: bool = True) -> None:
     """Append the signed order to the audit log, hash-chained to the
     previous entry. Creates the file if needed.
 
@@ -366,7 +420,10 @@ def append_audit(signed: SignedOrder,
     """
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    ok = bool(verified) if verified is not None else verify_signed_order(signed)
+    ok = (
+        bool(verified) if verified is not None
+        else verify_signed_order(signed, trusted=trusted, require_hedged=require_hedged)
+    )
     if not ok:
         raise AuditVerifyFailed(
             f"refusing to append unverifiable order {signed.order.order_id}"

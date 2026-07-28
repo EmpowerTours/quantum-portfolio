@@ -33,13 +33,33 @@ wallet's ECDSA key authorises the EXECUTION. Two-key custody.
 """
 from __future__ import annotations
 
+import re
+
 import base64
 import json
 from dataclasses import dataclass
 from typing import Any
 
 from . import pq_signing as pq
-from .orders import SignedOrder, verify_signed_order
+from .orders import SignedOrder, TrustedKeys, verify_signed_order
+
+
+_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
+
+
+def _require_address(a: str, what: str) -> None:
+    """Reject anything that is not exactly 20 hex bytes.
+
+    The previous checks were `startswith("0x") and len(...) == 42`, which
+    accepted arbitrary non-hex garbage — `0xZZZZ...`, SQL fragments, and
+    whitespace-padded strings all passed and were copied verbatim into the
+    serialised transaction. `cast` rejects the same inputs, so the
+    hand-rolled encoder was strictly weaker than the reference tooling.
+    """
+    if not isinstance(a, str) or not _ADDRESS_RE.match(a):
+        raise ValueError(f"{what} must be a 0x-prefixed 20-byte hex address: {a!r}")
+    if len(bytes.fromhex(a[2:])) != 20:
+        raise ValueError(f"{what} decoded to the wrong length: {a!r}")
 
 
 class UnverifiableOrder(ValueError):
@@ -55,8 +75,25 @@ class UnverifiableOrder(ValueError):
     """
 
 
-def _verify_or_raise(signed: SignedOrder) -> None:
-    if not verify_signed_order(signed):
+def _verify_or_raise(
+    signed: SignedOrder,
+    *,
+    trusted: TrustedKeys | None = None,
+    require_hedged: bool = True,
+) -> None:
+    """Gate every builder on an explicit verification POLICY.
+
+    `trusted` pins the agent public keys, so a tampered artefact carrying an
+    attacker's own keypair is rejected rather than verified against itself
+    (audit M-1). Pass it from any caller that will act on the result — the
+    docstring on `UnverifiableOrder` claims to defend against exactly that
+    attacker, and without pinning it does not.
+
+    `require_hedged` defaults to True because every production artefact is
+    triple-signed; single-leg ML-DSA orders are a legacy path and must opt
+    out explicitly rather than being silently accepted (audit Z-2).
+    """
+    if not verify_signed_order(signed, trusted=trusted, require_hedged=require_hedged):
         raise UnverifiableOrder(
             f"signed order {signed.order.order_id} fails PQ signature "
             "verification — refusing to build calldata that would "
@@ -112,7 +149,11 @@ class UnsignedMonadTx:
         }
 
 
-def encode_order_calldata(signed: SignedOrder) -> str:
+def encode_order_calldata(signed: SignedOrder,
+    *,
+    trusted: TrustedKeys | None = None,
+    require_hedged: bool = True,
+) -> str:
     """Pack a signed order into a single 0x-hex calldata blob.
 
     Fail-closed: verifies the embedded PQ signature before serialising.
@@ -130,7 +171,7 @@ def encode_order_calldata(signed: SignedOrder) -> str:
 
     The reverse parser lives in decode_order_calldata().
     """
-    _verify_or_raise(signed)
+    _verify_or_raise(signed, trusted=trusted, require_hedged=require_hedged)
     # Use the SAME canonicalisation as pq_signing.canonical_bytes (H5):
     # signature verification depends on byte-identical canonical form, so
     # a Solidity / non-Python verifier that hashes the on-chain calldata
@@ -285,7 +326,16 @@ def fractional_weights_to_bps(weights: list[float]) -> list[int]:
             "weights sum to 0 — would silently inflate first pool to 100% "
             "and misrepresent the agent's allocation. Refusing to encode."
         )
-    raw = [int(w * 10_000) for w in weights]
+    # NORMALISE by the actual sum. Previously `s` was computed and used only
+    # for the `s <= 0` guard, so the values were scaled as if they already
+    # summed to 1.0. They frequently do not, and the remainder-to-largest
+    # fixup below then forced sum == 10_000, hiding the error from every
+    # downstream guard including the on-chain WeightsDoNotSumTo10000 check.
+    # An honest 50/50 order given as [1.0, 1.0] encoded as [0, 10000] — the
+    # whole deposit into one pool, and a ZERO-WEIGHT LEG, which the vault
+    # used to hand to SwapRouter02 as its CONTRACT_BALANCE sentinel.
+    # (Audit: weights normalisation + contract M-5.)
+    raw = [int(w / s * 10_000) for w in weights]
     remainder = 10_000 - sum(raw)
     if remainder != 0:
         idx = max(range(len(raw)), key=lambda i: weights[i])
@@ -305,6 +355,8 @@ def build_alloc_tx(
     max_fee_gwei: int = DEFAULT_MAX_FEE_GWEI,
     priority_gwei: int = DEFAULT_PRIORITY_GWEI,
     chain_id: int = MONAD_CHAIN_ID,
+    trusted: TrustedKeys | None = None,
+    require_hedged: bool = True,
 ) -> UnsignedMonadTx:
     """Build an unsigned EIP-1559 TX that deposits `amount_wei` of native
     MON into the MonadAllocationVault under the agent's signed-order hash.
@@ -319,11 +371,10 @@ def build_alloc_tx(
     weights)`. The user can later call `withdraw(orderHash, amount)` to
     pull their MON back.
     """
-    if not (vault_contract.startswith("0x") and len(vault_contract) == 42):
-        raise ValueError(f"vault_contract must be 0x-prefixed 20-byte hex: {vault_contract}")
+    _require_address(vault_contract, "vault_contract")
     if amount_wei <= 0:
         raise ValueError(f"amount_wei must be positive, got {amount_wei}")
-    _verify_or_raise(signed)
+    _verify_or_raise(signed, trusted=trusted, require_hedged=require_hedged)
 
     order_hash  = order_sha256(signed)
     pool_hashes = [pool_label_hash(p) for p in signed.order.pools]
@@ -399,14 +450,17 @@ def encode_route_calldata(
         raise ValueError("each weight must fit in uint16")
     if any(f < 0 or f > 0xFFFFFF for f in fee_tiers):
         raise ValueError("each fee tier must fit in uint24")
-    if any(a < 0 for a in amount_out_min):
-        raise ValueError("amountOutMin must be non-negative")
+    if any(a < 0 or a >= 2 ** 256 for a in amount_out_min):
+        raise ValueError("amountOutMin must fit in uint256")
     if deadline < 0 or deadline >= 2 ** 256:
         raise ValueError("deadline must fit in uint256")
 
     def addr_word(a: str) -> bytes:
-        if not (a.startswith("0x") and len(a) == 42):
-            raise ValueError(f"tokenOut must be a 0x-prefixed 20-byte hex: {a}")
+        # Validate the DECODED length, not the string length. `bytes.fromhex`
+        # skips ASCII whitespace, so a 42-char string containing spaces
+        # decoded to 19 bytes and shifted every subsequent ABI word — the
+        # array length prefixes then read as 256 and the calldata was garbage.
+        _require_address(a, "tokenOut")
         return bytes(12) + bytes.fromhex(a[2:])
 
     def uint_array(vals: list[int]) -> bytes:
@@ -461,6 +515,8 @@ def build_route_tx(
     max_fee_gwei: int = DEFAULT_MAX_FEE_GWEI,
     priority_gwei: int = DEFAULT_PRIORITY_GWEI,
     chain_id: int = MONAD_CHAIN_ID,
+    trusted: TrustedKeys | None = None,
+    require_hedged: bool = True,
 ) -> UnsignedMonadTx:
     """Build an unsigned EIP-1559 TX that routes `amount_wei` of native MON
     through the UniswapRoutingVault into `token_outs` on Uniswap v3.
@@ -473,11 +529,10 @@ def build_route_tx(
     `deadline`. The order's SHA-256 must already be the caller's most
     recent AuditAnchor entry or the vault reverts with AnchorNotFound.
     """
-    if not (vault_contract.startswith("0x") and len(vault_contract) == 42):
-        raise ValueError(f"vault_contract must be 0x-prefixed 20-byte hex: {vault_contract}")
+    _require_address(vault_contract, "vault_contract")
     if amount_wei <= 0:
         raise ValueError(f"amount_wei must be positive, got {amount_wei}")
-    _verify_or_raise(signed)
+    _verify_or_raise(signed, trusted=trusted, require_hedged=require_hedged)
 
     order_hash  = order_sha256(signed)
     weights_bps = fractional_weights_to_bps(signed.order.weights)
@@ -553,6 +608,8 @@ def build_anchor_tx(
     max_fee_gwei: int = DEFAULT_MAX_FEE_GWEI,
     priority_gwei: int = DEFAULT_PRIORITY_GWEI,
     chain_id: int = MONAD_CHAIN_ID,
+    trusted: TrustedKeys | None = None,
+    require_hedged: bool = True,
 ) -> UnsignedMonadTx:
     """Produce an unsigned Monad TX that anchors `signed`'s SHA-256 on-chain.
 
@@ -561,9 +618,8 @@ def build_anchor_tx(
     to a block height. Reviewers reconstruct the agent's on-chain audit
     chain by filtering this event by the agent's address.
     """
-    if not (anchor_contract.startswith("0x") and len(anchor_contract) == 42):
-        raise ValueError(f"anchor_contract must be a 0x-prefixed 20-byte hex: {anchor_contract}")
-    _verify_or_raise(signed)
+    _require_address(anchor_contract, "anchor_contract")
+    _verify_or_raise(signed, trusted=trusted, require_hedged=require_hedged)
     order_hash = order_sha256(signed)
     return UnsignedMonadTx(
         chainId=chain_id,
@@ -589,6 +645,8 @@ def build_unsigned_tx(
     priority_gwei: int = DEFAULT_PRIORITY_GWEI,
     value_wei: int = 0,
     chain_id: int = MONAD_CHAIN_ID,
+    trusted: TrustedKeys | None = None,
+    require_hedged: bool = True,
 ) -> UnsignedMonadTx:
     """Produce an unsigned EIP-1559 TX carrying the signed order.
 
@@ -596,8 +654,7 @@ def build_unsigned_tx(
     or the agent's own address for a self-transfer-with-payload) and the
     current account nonce. A wallet finalises the ECDSA signature.
     """
-    if not (to_address.startswith("0x") and len(to_address) == 42):
-        raise ValueError(f"to_address must be a 0x-prefixed 20-byte hex: {to_address}")
+    _require_address(to_address, "to_address")
     return UnsignedMonadTx(
         chainId=chain_id,
         type=2,
@@ -607,6 +664,8 @@ def build_unsigned_tx(
         gas=gas_limit,
         to=to_address,
         value=value_wei,
-        data=encode_order_calldata(signed),
+        data=encode_order_calldata(
+            signed, trusted=trusted, require_hedged=require_hedged
+        ),
         accessList=[],
     )
