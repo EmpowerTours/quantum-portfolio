@@ -43,7 +43,7 @@ from typing import Any, Iterable
 
 from . import pq_signing as pq
 
-SCHEMA_VERSION    = 1
+SCHEMA_VERSION    = 2
 DEFAULT_AGENT_ID  = "empowertours-quantum-portfolio-v0.1"
 SIGNED_ORDERS_PATH = Path("outputs/signed_orders.json")
 AUDIT_LOG_PATH     = Path("outputs/audit_log.jsonl")
@@ -52,6 +52,54 @@ GENESIS_PREV_HASH  = "0" * 64  # the first entry's prev_hash sentinel
 
 def _utcnow_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+
+
+@dataclass
+class RouteExecution:
+    """The EXACT on-chain swap this order authorises.
+
+    Schema v2 exists so `AuditAnchorV2.execCommitment` derives from PQ-signed
+    data. Before it, the anchor recorded only SHA-256 of an order whose
+    contents the chain never inspected, so a correctly-anchored trade could
+    deploy any allocation at any slippage — the on-chain provenance gate
+    proved that *an* order existed, not that *this* execution matched it.
+
+    Field order and types mirror `UniswapRoutingVault.routeCommitment`
+    exactly. `amount_out_min` and `deadline` are included because they are the
+    parameters that decide economic loss; leaving them out let the
+    broadcasting ECDSA key deviate from PQ-signed intent (contract M-7).
+    """
+    chain_id: int
+    vault: str
+    user: str
+    token_outs: list[str]
+    fee_tiers: list[int]
+    weights_bps: list[int]
+    amount_in_wei: int
+    amount_out_min: list[int]
+    deadline: int
+    kind: str = "route"
+
+
+@dataclass
+class SupplyExecution:
+    """The EXACT Morpho supply this order authorises.
+
+    Mirrors `MorphoSupplyAdapter.supplyCommitment`. `max_assets` is a CEILING,
+    not an exact amount: the yield leg chains off a swap whose output is not
+    known at signing time, so the authorisation bounds the range (0, max]
+    rather than pinning a point.
+    """
+    chain_id: int
+    adapter: str
+    user: str
+    loan_token: str
+    collateral_token: str
+    oracle: str
+    irm: str
+    lltv: int
+    max_assets: int
+    kind: str = "supply"
 
 
 @dataclass
@@ -67,6 +115,7 @@ class RebalanceOrder:
     nonce: str = field(default_factory=lambda: str(uuid.uuid4()))
     issued_at: str = field(default_factory=_utcnow_iso)
     schema_version: int = SCHEMA_VERSION
+    execution: RouteExecution | SupplyExecution | None = None
 
     def __post_init__(self) -> None:
         """Coerce numeric fields to float so canonical_bytes is stable.
@@ -82,6 +131,28 @@ class RebalanceOrder:
         self.expected_vol = float(self.expected_vol)
         if self.qaoa_p_optimal is not None:
             self.qaoa_p_optimal = float(self.qaoa_p_optimal)
+
+        # schema_version was never coerced, so a string value made
+        # verify_signed_order raise TypeError on the `>` comparison instead of
+        # returning False — fail-open for any caller wrapping it in try/except.
+        if not isinstance(self.schema_version, int) or isinstance(self.schema_version, bool):
+            raise TypeError(f"schema_version must be an int, got {type(self.schema_version).__name__}")
+        if self.schema_version < 1:
+            raise ValueError(f"schema_version must be >= 1, got {self.schema_version}")
+
+        # Weights must actually describe an allocation. Nothing downstream
+        # checked this, so a caller could hand in values summing to anything
+        # and fractional_weights_to_bps would rescale them silently.
+        if self.weights:
+            total = sum(self.weights)
+            if any(w < 0 for w in self.weights):
+                raise ValueError(f"weights must be non-negative: {self.weights}")
+            if abs(total - 1.0) > 1e-9:
+                raise ValueError(
+                    f"weights must sum to 1.0 (got {total}). Normalise before "
+                    "constructing the order so the signed payload and the "
+                    "on-chain basis points describe the same allocation."
+                )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -491,7 +562,17 @@ def load_signed_orders(path: Path = SIGNED_ORDERS_PATH) -> list[SignedOrder]:
     raw = json.loads(path.read_text())
     out: list[SignedOrder] = []
     for item in raw:
-        order = RebalanceOrder(**item["order"])
+        od = dict(item["order"])
+        ex = od.pop("execution", None)
+        if ex is not None:
+            kind = ex.get("kind")
+            if kind == "route":
+                od["execution"] = RouteExecution(**ex)
+            elif kind == "supply":
+                od["execution"] = SupplyExecution(**ex)
+            else:
+                raise ValueError(f"unknown execution kind: {kind!r}")
+        order = RebalanceOrder(**od)
         out.append(SignedOrder(
             order=order,
             algorithm=item["algorithm"],

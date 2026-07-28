@@ -41,7 +41,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import pq_signing as pq
-from .orders import SignedOrder, TrustedKeys, verify_signed_order
+from .orders import (
+    RouteExecution, SignedOrder, SupplyExecution, TrustedKeys, verify_signed_order,
+)
 
 
 _ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
@@ -668,4 +670,123 @@ def build_unsigned_tx(
             signed, trusted=trusted, require_hedged=require_hedged
         ),
         accessList=[],
+    )
+
+
+# --- AuditAnchorV2 execution commitments --------------------------------
+#
+# These MUST reproduce the Solidity helpers byte-for-byte:
+#   UniswapRoutingVault.routeCommitment(address,address[],uint24[],uint16[],
+#                                       uint256,uint256[],uint256)
+#   MorphoSupplyAdapter.supplyCommitment(address,MarketParams,uint256)
+#
+# `abi.encode` semantics, never `encodePacked`: packed encoding drops array
+# length prefixes, which makes distinct orders collide. With this 7-field
+# preimage a single element can migrate across two boundaries at once —
+# w=[3000,7000] amountIn=1e18 min=[1,2] packs identically to w=[3000]
+# amountIn=7000 min=[1e18,1,2], i.e. the same authorisation for a different
+# trade. Verified against `cast abi-encode` and the contract itself.
+
+
+def _word(v: int) -> bytes:
+    if v < 0 or v >= 2 ** 256:
+        raise ValueError(f"value does not fit in uint256: {v}")
+    return v.to_bytes(32, "big")
+
+
+def _addr_word(a: str) -> bytes:
+    _require_address(a, "address")
+    return bytes(12) + bytes.fromhex(a[2:])
+
+
+def _dyn_uint_array(vals: list[int]) -> bytes:
+    return _word(len(vals)) + b"".join(_word(v) for v in vals)
+
+
+def _dyn_addr_array(vals: list[str]) -> bytes:
+    return _word(len(vals)) + b"".join(_addr_word(a) for a in vals)
+
+
+def route_commitment(ex: RouteExecution) -> bytes:
+    """keccak256 of the ABI encoding UniswapRoutingVault.routeCommitment builds.
+
+    A FAITHFUL MIRROR of the Solidity helper, deliberately including its
+    permissiveness: the on-chain function is a pure hash and does not require
+    the four arrays to be the same length (`executeAndRoute` rejects that
+    separately with LengthMismatch). Adding a stricter check here would make
+    the two implementations disagree about which inputs are even hashable,
+    which is precisely the class of divergence this function must not have.
+
+    Call `validate_route_execution` before anchoring — an unexecutable
+    commitment cannot be corrected once anchored (contract L-3).
+    """
+    tails = [
+        _dyn_addr_array(ex.token_outs),
+        _dyn_uint_array(ex.fee_tiers),
+        _dyn_uint_array(ex.weights_bps),
+        _dyn_uint_array(ex.amount_out_min),
+    ]
+    head_size = 7 * 32
+    offs, running = [], head_size
+    for t in tails:
+        offs.append(running)
+        running += len(t)
+
+    head = (
+        _addr_word(ex.user)
+        + _word(offs[0])
+        + _word(offs[1])
+        + _word(offs[2])
+        + _word(ex.amount_in_wei)
+        + _word(offs[3])
+        + _word(ex.deadline)
+    )
+    return _keccak256(head + b"".join(tails))
+
+
+def validate_route_execution(ex: RouteExecution) -> None:
+    """Reject an execution that could never run, BEFORE its commitment is
+    anchored. AuditAnchorV2 refuses to re-anchor an orderHash, so anchoring a
+    commitment that `executeAndRoute` would reject bricks that order
+    permanently — the only recovery is re-signing off-chain."""
+    n = len(ex.token_outs)
+    if n == 0 or not (n == len(ex.fee_tiers) == len(ex.weights_bps)
+                      == len(ex.amount_out_min)):
+        raise ValueError(
+            "token_outs / fee_tiers / weights_bps / amount_out_min must be "
+            f"non-empty and the same length (got {n}, {len(ex.fee_tiers)}, "
+            f"{len(ex.weights_bps)}, {len(ex.amount_out_min)})"
+        )
+    if any(f < 0 or f > 0xFFFFFF for f in ex.fee_tiers):
+        raise ValueError("each fee tier must fit in uint24")
+    if any(w < 0 or w > 0xFFFF for w in ex.weights_bps):
+        raise ValueError("each weight must fit in uint16")
+    if sum(ex.weights_bps) != 10_000:
+        raise ValueError(f"weights_bps must sum to 10000, got {sum(ex.weights_bps)}")
+    if any(w == 0 for w in ex.weights_bps):
+        raise ValueError(
+            "zero-weight leg: SwapRouter02 reads amountIn == 0 as its "
+            "CONTRACT_BALANCE sentinel, and the vault rejects it"
+        )
+    if any(a == 0 for a in ex.amount_out_min):
+        raise ValueError("amountOutMin of 0 is a fail-open slippage floor")
+    if ex.amount_in_wei == 0:
+        raise ValueError("amount_in_wei must be non-zero")
+
+
+def supply_commitment(ex: SupplyExecution) -> bytes:
+    """keccak256 of the ABI encoding MorphoSupplyAdapter.supplyCommitment builds.
+
+    MarketParams is a 5-field all-static struct, so it inlines as five words
+    with no offset — the same reason Morpho's own market id is
+    keccak256(abi.encode(params)).
+    """
+    return _keccak256(
+        _addr_word(ex.user)
+        + _addr_word(ex.loan_token)
+        + _addr_word(ex.collateral_token)
+        + _addr_word(ex.oracle)
+        + _addr_word(ex.irm)
+        + _word(ex.lltv)
+        + _word(ex.max_assets)
     )

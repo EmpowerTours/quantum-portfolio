@@ -1,6 +1,7 @@
 """Round-trip tests for the Monad unsigned-TX builder."""
 from __future__ import annotations
 
+import pytest
 import sys
 from pathlib import Path
 
@@ -441,3 +442,105 @@ if __name__ == "__main__":
             print(f"  ERROR {t.__name__}  {type(e).__name__}: {e}")
     print(f"\n{'OK' if failures == 0 else f'{failures} failures'}")
     sys.exit(failures)
+
+
+# --- AuditAnchorV2 commitment parity -----------------------------------
+#
+# These goldens are asserted IDENTICALLY in Solidity
+# (contracts/test/CommitmentParity.t.sol). The agent computes the commitment
+# here and anchors it; the executor recomputes it on-chain and refuses to
+# proceed on a mismatch. A silent divergence between the two implementations
+# would not revert — it would permanently brick every order the agent signs,
+# because a mis-committed anchor can never be re-anchored.
+#
+# If one of these fails: do NOT update the golden. One implementation drifted.
+
+GOLDEN_ROUTE = "1550425afc1bd6e48461c9d548abc3ee4de631f1109ac4feb5b971781f6efbb6"
+GOLDEN_SUPPLY = "bf3bd84489e1c4039990ab28cee4eb56baffe9065d7258a5ae534f7b5928a6db"
+
+_AGENT = "0x8dF64bACf6b70F7787f8d14429b258B3fF958ec1"
+_USDC = "0x754704Bc059F8C67012fEd69BC8A327a5aafb603"
+_WETH = "0xEE8c0E9f1BFFb4Eb878d8f15f368A02a35481242"
+_WBTC = "0x0555E30da8f98308EdB960aa94C0Db47230d2B9c"
+_ORACLE = "0xff07261c87763cc5693ab78746d0b6735Ec626F5"
+_IRM = "0x09475a3D6eA8c314c592b1a3799bDE044E2F400F"
+_ZERO = "0x" + "0" * 40
+
+
+def test_route_commitment_matches_solidity_golden():
+    ex = orders.RouteExecution(
+        chain_id=143, vault=_ZERO, user=_AGENT,
+        token_outs=[_USDC, _WETH], fee_tiers=[3000, 500], weights_bps=[6000, 4000],
+        amount_in_wei=10**18, amount_out_min=[211166, 5000], deadline=1893456000,
+    )
+    assert mtx.route_commitment(ex).hex() == GOLDEN_ROUTE
+
+
+def test_supply_commitment_matches_solidity_golden():
+    ex = orders.SupplyExecution(
+        chain_id=143, adapter=_ZERO, user=_AGENT,
+        loan_token=_USDC, collateral_token=_WBTC, oracle=_ORACLE, irm=_IRM,
+        lltv=860000000000000000, max_assets=2271,
+    )
+    assert mtx.supply_commitment(ex).hex() == GOLDEN_SUPPLY
+
+
+def test_route_commitment_is_order_sensitive():
+    """A sum- or set-based commitment would pass this; abi.encode must not.
+    Permuting the floors across legs is a different authorisation."""
+    base = dict(
+        chain_id=143, vault=_ZERO, user=_AGENT,
+        token_outs=[_USDC, _WETH], fee_tiers=[3000, 500], weights_bps=[6000, 4000],
+        amount_in_wei=10**18, deadline=1893456000,
+    )
+    a = mtx.route_commitment(orders.RouteExecution(amount_out_min=[211166, 5000], **base))
+    b = mtx.route_commitment(orders.RouteExecution(amount_out_min=[5000, 211166], **base))
+    assert a != b
+
+
+def test_route_commitment_resists_array_boundary_migration():
+    """The preimage runs weightsBps | amountInWei | amountOutMin, so one
+    element can migrate across two boundaries at once. abi.encodePacked would
+    make these identical; abi.encode must keep them distinct."""
+    a = mtx.route_commitment(orders.RouteExecution(
+        chain_id=143, vault=_ZERO, user=_AGENT,
+        token_outs=[_USDC, _WETH], fee_tiers=[3000, 500], weights_bps=[3000, 7000],
+        amount_in_wei=10**18, amount_out_min=[1, 2], deadline=1,
+    ))
+    b = mtx.route_commitment(orders.RouteExecution(
+        chain_id=143, vault=_ZERO, user=_AGENT,
+        token_outs=[_USDC], fee_tiers=[3000], weights_bps=[3000],
+        amount_in_wei=7000, amount_out_min=[10**18, 1, 2], deadline=1,
+    ))
+    assert a != b
+
+
+def test_validate_route_execution_catches_unanchorable_orders():
+    """Anchoring a commitment the vault would reject bricks that orderHash
+    permanently — AuditAnchorV2 refuses to re-anchor. These must be caught
+    off-chain, before the anchor transaction is built."""
+    def ex(**over):
+        base = dict(
+            chain_id=143, vault=_ZERO, user=_AGENT,
+            token_outs=[_USDC, _WETH], fee_tiers=[3000, 500],
+            weights_bps=[6000, 4000], amount_in_wei=10**18,
+            amount_out_min=[1, 1], deadline=1893456000,
+        )
+        base.update(over)
+        return orders.RouteExecution(**base)
+
+    mtx.validate_route_execution(ex())                       # baseline is fine
+
+    for bad, why in [
+        (dict(weights_bps=[10_000, 0]), "zero-weight leg"),
+        (dict(weights_bps=[6000, 3000]), "weights_bps must sum"),
+        (dict(amount_out_min=[0, 1]), "fail-open slippage"),
+        (dict(amount_in_wei=0), "amount_in_wei"),
+        (dict(fee_tiers=[3000]), "same length"),
+        (dict(token_outs=[], fee_tiers=[], weights_bps=[], amount_out_min=[]), "non-empty"),
+    ]:
+        with pytest.raises(ValueError):
+            mtx.validate_route_execution(ex(**bad))
+
+    # ...but the commitment itself still mirrors Solidity's permissiveness.
+    assert len(mtx.route_commitment(ex(fee_tiers=[3000]))) == 32
