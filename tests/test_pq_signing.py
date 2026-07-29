@@ -4,6 +4,7 @@ Run with:  python tests/test_pq_signing.py
 """
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 
@@ -49,7 +50,7 @@ def test_keypair_persistence(tmp_path: Path | None = None):
     if tmp_path is None:
         tmp_path = Path(tempfile.mkdtemp())
     try:
-        kp = pq.ensure_keypair(tmp_path)
+        kp = pq.ensure_keypair(tmp_path, allow_create=True)
         reloaded = pq.load_keypair(tmp_path)
         assert kp.pk == reloaded.pk
         assert kp.sk == reloaded.sk
@@ -65,7 +66,7 @@ def test_signed_order_roundtrip(tmp_path: Path | None = None):
     if tmp_path is None:
         tmp_path = Path(tempfile.mkdtemp())
     try:
-        kp = pq.ensure_keypair(tmp_path)
+        kp = pq.ensure_keypair(tmp_path, allow_create=True)
         order = orders.RebalanceOrder(
             pools=["GLD", "SLV", "NVDA"], weights=[1/3, 1/3, 1/3],
             expected_return=0.05, expected_vol=0.15,
@@ -84,7 +85,7 @@ def test_nonce_replay_rejected(tmp_path: Path | None = None):
     if tmp_path is None:
         tmp_path = Path(tempfile.mkdtemp())
     try:
-        kp = pq.ensure_keypair(tmp_path)
+        kp = pq.ensure_keypair(tmp_path, allow_create=True)
         order = orders.RebalanceOrder(
             pools=["AAPL"], weights=[1.0], expected_return=0.1, expected_vol=0.2,
         )
@@ -202,7 +203,7 @@ def test_audit_chain_intact(tmp_path: Path | None = None):
         tmp_path = Path(tempfile.mkdtemp())
     log = tmp_path / "audit.jsonl"
     try:
-        kp = pq.ensure_keypair(tmp_path)
+        kp = pq.ensure_keypair(tmp_path, allow_create=True)
         for i in range(3):
             o = orders.RebalanceOrder(
                 pools=[f"P{i}"], weights=[1.0], expected_return=0.0, expected_vol=0.0,
@@ -221,7 +222,7 @@ def test_audit_chain_detects_deletion(tmp_path: Path | None = None):
         tmp_path = Path(tempfile.mkdtemp())
     log = tmp_path / "audit.jsonl"
     try:
-        kp = pq.ensure_keypair(tmp_path)
+        kp = pq.ensure_keypair(tmp_path, allow_create=True)
         for i in range(3):
             o = orders.RebalanceOrder(
                 pools=[f"P{i}"], weights=[1.0], expected_return=0.0, expected_vol=0.0,
@@ -301,9 +302,9 @@ def test_hedged_order_roundtrip(tmp_path: Path | None = None):
     if tmp_path is None:
         tmp_path = Path(tempfile.mkdtemp())
     try:
-        ml = pq.ensure_keypair(tmp_path)
-        slh = pq.slh_dsa_ensure_keypair(tmp_path)
-        ed = pq.ed25519_ensure_keypair(tmp_path)
+        ml = pq.ensure_keypair(tmp_path, allow_create=True)
+        slh = pq.slh_dsa_ensure_keypair(tmp_path, allow_create=True)
+        ed = pq.ed25519_ensure_keypair(tmp_path, allow_create=True)
         order = orders.RebalanceOrder(
             pools=["GLD", "SLV", "NVDA"], weights=[1/3, 1/3, 1/3],
             expected_return=0.05, expected_vol=0.15,
@@ -323,9 +324,9 @@ def test_hedged_tamper_breaks_all_signatures(tmp_path: Path | None = None):
     if tmp_path is None:
         tmp_path = Path(tempfile.mkdtemp())
     try:
-        ml = pq.ensure_keypair(tmp_path)
-        slh = pq.slh_dsa_ensure_keypair(tmp_path)
-        ed = pq.ed25519_ensure_keypair(tmp_path)
+        ml = pq.ensure_keypair(tmp_path, allow_create=True)
+        slh = pq.slh_dsa_ensure_keypair(tmp_path, allow_create=True)
+        ed = pq.ed25519_ensure_keypair(tmp_path, allow_create=True)
         order = orders.RebalanceOrder(
             pools=["GLD"], weights=[1.0], expected_return=0.05, expected_vol=0.1,
         )
@@ -422,9 +423,9 @@ def test_concurrent_append_audit_preserves_chain(tmp_path: Path | None = None):
         tmp_path = Path(tempfile.mkdtemp())
     log = tmp_path / "audit_race.jsonl"
     try:
-        ml_kp = pq.ensure_keypair(tmp_path)
-        slh_kp = pq.slh_dsa_ensure_keypair(tmp_path)
-        ed_kp = pq.ed25519_ensure_keypair(tmp_path)
+        ml_kp = pq.ensure_keypair(tmp_path, allow_create=True)
+        slh_kp = pq.slh_dsa_ensure_keypair(tmp_path, allow_create=True)
+        ed_kp = pq.ed25519_ensure_keypair(tmp_path, allow_create=True)
 
         # Pre-sign 32 distinct orders to avoid contention on sign().
         N_WORKERS = 8
@@ -497,7 +498,7 @@ def test_append_audit_refuses_unverifiable_order(tmp_path: Path | None = None):
         tmp_path = Path(tempfile.mkdtemp())
     log = tmp_path / "audit.jsonl"
     try:
-        kp = pq.ensure_keypair(tmp_path)
+        kp = pq.ensure_keypair(tmp_path, allow_create=True)
         order = orders.RebalanceOrder(
             pools=["GLD"], weights=[1.0],
             expected_return=0.05, expected_vol=0.10,
@@ -602,3 +603,70 @@ if __name__ == "__main__":
             print(f"  ERROR {name}  {type(e).__name__}: {e}")
     print(f"\n{'OK' if failures == 0 else f'{failures} failures'}")
     sys.exit(failures)
+
+
+def test_ensure_keypair_refuses_to_silently_create_a_new_identity():
+    """Regression for the lost 2026-07-12 signing key.
+
+    `keys/` is gitignored and KEYS_DIR is relative to the working directory,
+    so running the pipeline from a fresh clone or a different cwd used to make
+    ensure_keypair mint a brand-new identity and sign as somebody else. No
+    warning was emitted; the run simply became a different agent, and when
+    that host was decommissioned the identity went with it.
+
+    Creating an identity must now be an explicit act.
+    """
+    with tempfile.TemporaryDirectory() as d:
+        empty = Path(d) / "no-keys"
+        empty.mkdir()
+
+        for fn in (pq.ensure_keypair, pq.slh_dsa_ensure_keypair,
+                   pq.ed25519_ensure_keypair):
+            with pytest.raises(pq.MissingKeypair):
+                fn(empty)
+
+        assert not any(empty.iterdir()), "a refused call must not leave key material"
+
+        # Explicit opt-in still works, and is then idempotent.
+        created = pq.ensure_keypair(empty, allow_create=True)
+        assert pq.ensure_keypair(empty).pk == created.pk
+
+
+def test_keystore_roundtrip_and_tamper_detection():
+    """The sealed keystore must round-trip exactly, expose the identity
+    WITHOUT the passphrase, and reject an edited public header."""
+    from src import keystore as ks
+
+    with tempfile.TemporaryDirectory() as d:
+        src_dir = Path(d) / "src-keys"
+        src_dir.mkdir()
+        ml = pq.ensure_keypair(src_dir, allow_create=True)
+        pq.slh_dsa_ensure_keypair(src_dir, allow_create=True)
+        pq.ed25519_ensure_keypair(src_dir, allow_create=True)
+
+        sealed = Path(d) / "identity.json"
+        pw = "a-test-passphrase"
+        fprs = ks.seal(src_dir, sealed, pw)
+        assert fprs["ml_dsa_fpr"] == ks.fingerprint(ml.pk)
+
+        # Identity is readable with no passphrase — the check missing in July.
+        assert ks.read_identity(sealed)["ml_dsa_fpr"] == ks.fingerprint(ml.pk)
+
+        with pytest.raises(ks.KeystoreError):
+            ks.unseal(sealed, "wrong-passphrase")
+
+        # The cleartext header is AEAD-authenticated.
+        doc = json.loads(sealed.read_text())
+        doc["identity"]["ml_dsa_fpr"] = "0" * 64
+        bad = Path(d) / "tampered.json"
+        bad.write_text(json.dumps(doc))
+        with pytest.raises(ks.KeystoreError):
+            ks.unseal(bad, pw)
+
+        # Restore is exact, and refuses to clobber an existing identity.
+        dest = Path(d) / "restored"
+        ks.restore(sealed, dest, pw)
+        assert (dest / "pq.sec").read_bytes() == (src_dir / "pq.sec").read_bytes()
+        assert (dest / "pq.pub").read_bytes() == ml.pk
+        with pytest.raises(ks.KeystoreError):
+            ks.restore(sealed, dest, pw)

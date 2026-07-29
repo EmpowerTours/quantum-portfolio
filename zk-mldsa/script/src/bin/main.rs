@@ -9,6 +9,7 @@
 
 use alloy_sol_types::SolType;
 use clap::Parser;
+use sha2::{Digest, Sha256};
 use fibonacci_lib::PublicValuesStruct;
 use serde::Deserialize;
 use sp1_sdk::{
@@ -71,10 +72,18 @@ fn main() {
         let (output, report) = client.execute(MLDSA_ELF, stdin).run().unwrap();
         let decoded = PublicValuesStruct::abi_decode(output.as_slice()).unwrap();
         let committed = hex::encode(decoded.orderHash);
+        let committed_pk = hex::encode(decoded.pkHash);
+        let expected_pk = hex::encode(Sha256::digest(&pk));
         println!("Guest verified the ML-DSA-65 signature in the zkVM.");
         println!("committed orderHash: 0x{}", committed);
+        println!("committed pkHash:    0x{}", committed_pk);
         assert_eq!(committed, input.digest, "committed orderHash != expected");
         println!("orderHash matches the on-chain anchored order.");
+        // The guest must fingerprint the key it actually verified against;
+        // MLDSAAttestation pins this value, so a mismatch here would mean any
+        // keypair could mint an attestation. (Audit H-3.)
+        assert_eq!(committed_pk, expected_pk, "committed pkHash != SHA-256(pk)");
+        println!("pkHash matches SHA-256 of the supplied public key.");
         println!("zkVM cycles: {}", report.total_instruction_count());
     } else {
         let pk_setup = client.setup(MLDSA_ELF).expect("setup");

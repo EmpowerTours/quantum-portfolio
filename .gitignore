@@ -32,3 +32,7 @@ contracts/lib/
 contracts/broadcast/
 # Mini-repo init for `forge install` — not the actual repo
 contracts/.git/
+
+# Sealed keystores — encrypted, but keep them out of the repo anyway.
+*.keystore.json
+agent-identity*.json

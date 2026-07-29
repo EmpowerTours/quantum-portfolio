@@ -219,6 +219,25 @@ class KeyPair:
     sk: bytes
 
 
+class MissingKeypair(FileNotFoundError):
+    """Raised when a keys directory has no keypair and creation was not
+    explicitly requested.
+
+    On 2026-07-12 the mainnet order behind the shipped provenance trail was
+    signed by an ML-DSA key that is not the one in `keys/` — SHA-256
+    8a1b08d1... versus ac0b2aea... The keys directory is gitignored and
+    KEYS_DIR is relative to the working directory, so running the pipeline
+    from a fresh clone, a different cwd, or a tree copied without ignored
+    files made `ensure_keypair` silently mint a NEW identity and sign as
+    somebody else. Nothing warned; the run simply became a different agent,
+    and when that host was decommissioned the identity went with it.
+
+    Creating a signing identity is now an explicit act. Pass
+    `allow_create=True` exactly once, when you genuinely intend to bring a
+    new agent into existence.
+    """
+
+
 def generate_keypair() -> KeyPair:
     pk, sk = _mldsa.keygen()
     return KeyPair(pk=bytes(pk), sk=bytes(sk))
@@ -248,12 +267,20 @@ def load_keypair(path: Path | str) -> KeyPair:
     return KeyPair(pk=pk, sk=sk)
 
 
-def ensure_keypair(path: Path | str) -> KeyPair:
+def ensure_keypair(path: Path | str, *, allow_create: bool = False) -> KeyPair:
     """Load the keypair from `path`, or generate a new one and persist it
     if no keys are present. Idempotent."""
     path = Path(path)
     if (path / "pq.sec").exists() and (path / "pq.pub").exists():
         return load_keypair(path)
+    if not allow_create:
+        raise MissingKeypair(
+            f"no ML-DSA-65 keypair in {path.resolve()} and allow_create=False. "
+            "Refusing to silently generate a NEW signing identity — that is "
+            "how the 2026-07-12 mainnet signing key was lost. If you meant to "
+            "restore an existing identity, decrypt it with src.keystore; if "
+            "you genuinely intend to create a new agent, pass allow_create=True."
+        )
     kp = generate_keypair()
     save_keypair(kp, path)
     return kp
@@ -330,11 +357,19 @@ def slh_dsa_load_keypair(path: Path | str) -> SLHDSAKeyPair:
     return SLHDSAKeyPair(pk=pk, sk=sk)
 
 
-def slh_dsa_ensure_keypair(path: Path | str) -> SLHDSAKeyPair:
+def slh_dsa_ensure_keypair(path: Path | str, *, allow_create: bool = False) -> SLHDSAKeyPair:
     """Load SLH-DSA keypair from `path`, or generate and persist if absent."""
     path = Path(path)
     if (path / "slh.sec").exists() and (path / "slh.pub").exists():
         return slh_dsa_load_keypair(path)
+    if not allow_create:
+        raise MissingKeypair(
+            f"no SLH-DSA keypair in {path.resolve()} and allow_create=False. "
+            "Refusing to silently generate a NEW signing identity — that is "
+            "how the 2026-07-12 mainnet signing key was lost. If you meant to "
+            "restore an existing identity, decrypt it with src.keystore; if "
+            "you genuinely intend to create a new agent, pass allow_create=True."
+        )
     kp = slh_dsa_generate_keypair()
     slh_dsa_save_keypair(kp, path)
     return kp
@@ -408,10 +443,18 @@ def ed25519_load_keypair(path: Path | str) -> Ed25519KeyPair:
     return Ed25519KeyPair(pk=pk, sk=sk)
 
 
-def ed25519_ensure_keypair(path: Path | str) -> Ed25519KeyPair:
+def ed25519_ensure_keypair(path: Path | str, *, allow_create: bool = False) -> Ed25519KeyPair:
     path = Path(path)
     if (path / "ed25519.sec").exists() and (path / "ed25519.pub").exists():
         return ed25519_load_keypair(path)
+    if not allow_create:
+        raise MissingKeypair(
+            f"no Ed25519 keypair in {path.resolve()} and allow_create=False. "
+            "Refusing to silently generate a NEW signing identity — that is "
+            "how the 2026-07-12 mainnet signing key was lost. If you meant to "
+            "restore an existing identity, decrypt it with src.keystore; if "
+            "you genuinely intend to create a new agent, pass allow_create=True."
+        )
     kp = ed25519_generate_keypair()
     ed25519_save_keypair(kp, path)
     return kp

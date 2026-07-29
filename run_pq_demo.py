@@ -187,9 +187,13 @@ def main() -> None:
     print(f"  sharpe:          {float(metrics['sharpe']):.3f}")
     print()
 
-    ml_kp  = pq.ensure_keypair(KEYS_DIR)
-    slh_kp = pq.slh_dsa_ensure_keypair(KEYS_DIR)
-    ed_kp  = pq.ed25519_ensure_keypair(KEYS_DIR)
+    # Creating an identity is opt-in: set QUANTUM_ALLOW_NEW_IDENTITY=1 for a
+    # genuine first run. Without it a missing keys/ raises instead of silently
+    # minting a new agent — the failure mode that lost the 2026-07-12 key.
+    _new_ok = os.environ.get("QUANTUM_ALLOW_NEW_IDENTITY") == "1"
+    ml_kp  = pq.ensure_keypair(KEYS_DIR, allow_create=_new_ok)
+    slh_kp = pq.slh_dsa_ensure_keypair(KEYS_DIR, allow_create=_new_ok)
+    ed_kp  = pq.ed25519_ensure_keypair(KEYS_DIR, allow_create=_new_ok)
     print(f"Hedged keypairs loaded from {KEYS_DIR}/")
     print(f"  ML-DSA-65    pk={len(ml_kp.pk)}  sk={len(ml_kp.sk)}  (sk chmod 600)")
     print(f"  SLH-DSA-256s pk={len(slh_kp.pk)}    sk={len(slh_kp.sk)}    (sk chmod 600)")
