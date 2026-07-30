@@ -40,7 +40,8 @@ contract DeployAuditAnchorV2 is Script {
 
         // Self-check: the executors identify a V2 anchor by this selector
         // responding. Prove it does before anyone wires an immutable to it.
-        require(a.execCommitmentOf(address(this), bytes32(0)) == bytes32(0), "probe failed");
+        // Keyed on `address(0)` — forge rejects `address(this)` in a script.
+        require(a.execCommitmentOf(address(0), bytes32(0)) == bytes32(0), "probe failed");
 
         console2.log("AuditAnchorV2:", address(a));
         console2.log("  -> set AUDIT_ANCHOR_ADDR to this for the vault + adapter");

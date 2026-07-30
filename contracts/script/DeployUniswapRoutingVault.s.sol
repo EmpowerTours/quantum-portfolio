@@ -71,9 +71,15 @@ contract DeployUniswapRoutingVault is Script {
         // V1. `execCommitmentOf` does not exist on V1 and V1 has no fallback,
         // so a staticcall that returns 32 bytes is a positive proof of V2.
         // (Audit RT09.)
+        //
+        // The probe key is `address(0)`, not `address(this)`: forge refuses to
+        // evaluate `address(this)` inside a script contract ("Script contracts
+        // are ephemeral and their addresses should not be relied upon"), which
+        // reverted the simulation before this guard could run at all. The key
+        // is only a mapping slot for a read that must return zero anyway.
         (bool probeOk, bytes memory probeRet) = anchor.staticcall(
             abi.encodeWithSignature(
-                "execCommitmentOf(address,bytes32)", address(this), bytes32(0)
+                "execCommitmentOf(address,bytes32)", address(0), bytes32(0)
             )
         );
         require(

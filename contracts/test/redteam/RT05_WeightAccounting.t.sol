@@ -52,7 +52,7 @@ contract RT05_WeightAccounting is Test {
         uint256 amountInWei,
         uint256[] memory m
     ) internal {
-        bytes32 c = vault.routeCommitment(who, t, f, w, amountInWei, m, FUTURE);
+        bytes32 c = vault.routeCommitment(h, who, t, f, w, amountInWei, m, FUTURE);
         uint64 _seq = anchor.nextSequence(who);
         vm.prank(who);
         anchor.anchor(h, c, _seq);

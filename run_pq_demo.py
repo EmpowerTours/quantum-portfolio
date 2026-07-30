@@ -37,18 +37,14 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
-from src import orders, pq_signing as pq
+from src import orders, pq_signing as pq, quoter
 
 # --- Monad mainnet (chainId 143) constants, on-chain verified 2026-07-28 ---
 MONAD_MAINNET_CHAIN_ID = 143
 USDC_MAINNET = "0x754704Bc059F8C67012fEd69BC8A327a5aafb603"
 USDC_FEE_TIER = 3000          # the only genuinely liquid WMON/USDC pool
 
-# Reference rate from the live WMON/USDC 0.3% pool (fork-measured 2026-07-28):
-# 0.1 MON -> 2118 USDC micro-units. This is a REFERENCE for the demo only; a
-# production order must derive amountOutMin from a live quote at signing time,
-# because the floor is now the entire MEV defence (contract RT04c).
-REFERENCE_USDC_PER_MON_MICRO = 21180
+WMON_MAINNET = "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A"
 
 
 def _build_route_execution(amount_in_wei: int,
@@ -71,18 +67,29 @@ def _build_route_execution(amount_in_wei: int,
             "that orderHash permanently — AuditAnchorV2 refuses to re-anchor."
         )
 
-    # A live quote is what should set this. REFERENCE_USDC_PER_MON_MICRO is a
-    # point estimate from one fork block, and the same measurement moved 6.7%
-    # in the weeks before it was taken. Since the signed floor is now the whole
-    # MEV defence, a stale rate either under-protects (a sandwich extracting up
-    # to the drift lands and looks correctly anchored) or over-shoots and
-    # reverts every order until the deadline burns the anchor.
+    # The floor MUST come from a live quote. This used to fall back to a
+    # hardcoded reference rate with a printed warning, which is the failure
+    # mode it was warning about: the constant was accurate to +0.004% when
+    # captured and had drifted -1.17% six hours later — enough to push a 50 bps
+    # floor below the live quote and revert every order until the deadline
+    # burned the anchor. Drift the other way silently under-protects. Since the
+    # signed floor is the entire MEV defence (contract RT04c), there is no safe
+    # default here, so failure to quote refuses to sign rather than guessing.
     expected_micro = int(os.environ.get("DEMO_EXPECTED_OUT_MICRO", 0)) or None
     if expected_micro is None:
-        expected_out = amount_in_wei * REFERENCE_USDC_PER_MON_MICRO // 10**18
-        print("WARNING: amountOutMin derived from a HARDCODED reference rate, not a")
-        print("         live quote. Set DEMO_EXPECTED_OUT_MICRO from QuoterV2 before")
-        print("         anchoring anything with real value.")
+        try:
+            expected_out = quoter.quote_exact_input_single(
+                WMON_MAINNET, USDC_MAINNET, amount_in_wei, USDC_FEE_TIER
+            )
+        except quoter.QuoteError as exc:
+            raise SystemExit(
+                f"could not obtain a live quote: {exc}\n"
+                "Refusing to sign an order whose slippage floor would be based "
+                "on a stale hardcoded rate. Set DEMO_EXPECTED_OUT_MICRO "
+                "explicitly if you have a quote from another source."
+            ) from exc
+        print(f"live quote (QuoterV2): {amount_in_wei} wei MON -> "
+              f"{expected_out} micro-USDC @ tier {USDC_FEE_TIER}")
     else:
         expected_out = expected_micro
 

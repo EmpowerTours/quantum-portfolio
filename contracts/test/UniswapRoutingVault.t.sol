@@ -237,7 +237,9 @@ contract UniswapRoutingVaultTest is Test {
     // --- new per-leg guards ----------------------------------------------
 
     /// M-5: a zero-weight leg would floor amountIn to 0, which SwapRouter02
-    /// reads as its CONTRACT_BALANCE sentinel. Rejected outright.
+    /// reads as its CONTRACT_BALANCE sentinel. Rejected outright — by the
+    /// semantic weight check (`ZeroWeightBps`), which now runs BEFORE the
+    /// quantity check. See RT07h for why both are required.
     function test_M5_RevertsOnZeroWeightLeg() public {
         bytes32 orderHash = keccak256("zero-weight");
         address[] memory t = new address[](2);
@@ -248,7 +250,7 @@ contract UniswapRoutingVaultTest is Test {
 
         _anchorFor(alice, orderHash, t, f, w, 1 ether, m, FUTURE);
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(UniswapRoutingVault.ZeroWeightLeg.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(UniswapRoutingVault.ZeroWeightBps.selector, 0));
         vault.executeAndRoute{value: 1 ether}(orderHash, t, f, w, m, FUTURE);
     }
 

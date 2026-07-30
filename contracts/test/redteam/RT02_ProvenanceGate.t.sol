@@ -117,7 +117,7 @@ contract RT02_ProvenanceGate is Test {
         uint256 amountInWei,
         uint256[] memory m
     ) internal {
-        bytes32 c = vault.routeCommitment(agent, t, f, w, amountInWei, m, FUTURE);
+        bytes32 c = vault.routeCommitment(h, agent, t, f, w, amountInWei, m, FUTURE);
         uint64 _seq = anchor.nextSequence(agent);
         vm.prank(agent);
         anchor.anchor(h, c, _seq);
@@ -143,7 +143,7 @@ contract RT02_ProvenanceGate is Test {
         (address[] memory t2, uint24[] memory f2, uint16[] memory w2, uint256[] memory m2) =
             _one(address(usdt));
         bytes32 anchored = anchor.execCommitmentOf(agent, orderHash);
-        bytes32 divergent = vault.routeCommitment(agent, t2, f2, w2, 5 ether, m2, FUTURE);
+        bytes32 divergent = vault.routeCommitment(orderHash, agent, t2, f2, w2, 5 ether, m2, FUTURE);
         vm.prank(agent);
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -183,7 +183,7 @@ contract RT02_ProvenanceGate is Test {
         vm.startPrank(agent);
         usdc.approve(address(adapter), type(uint256).max);
         bytes32 anchored = anchor.execCommitmentOf(agent, orderHash);
-        bytes32 supplyC  = adapter.supplyCommitment(agent, _market(), 1000 ether);
+        bytes32 supplyC  = adapter.supplyCommitment(orderHash, agent, _market(), 1000 ether);
         vm.expectRevert(
             abi.encodeWithSelector(
                 MorphoSupplyAdapter.ExecutionNotAnchored.selector, supplyC, anchored

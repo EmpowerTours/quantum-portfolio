@@ -97,7 +97,7 @@ contract RT04_ForkEconomics is Test {
         uint256 deadline
     ) internal {
         (address[] memory t, uint24[] memory f, uint16[] memory w, ) = _legs();
-        bytes32 c = vault.routeCommitment(who, t, f, w, amountInWei, m, deadline);
+        bytes32 c = vault.routeCommitment(h, who, t, f, w, amountInWei, m, deadline);
         uint64 seq = anchor.nextSequence(who);
         vm.prank(who);
         anchor.anchor(h, c, seq);

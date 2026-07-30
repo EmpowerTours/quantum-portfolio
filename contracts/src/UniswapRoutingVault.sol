@@ -90,6 +90,7 @@ contract UniswapRoutingVault is ReentrancyGuard {
     error AnchorAlreadyConsumed(bytes32 orderHash);
     error FeeTierNotApproved(uint256 idx, uint24 fee);
     error ZeroWeightLeg(uint256 idx);
+    error ZeroWeightBps(uint256 idx);
     error ZeroSlippageFloor(uint256 idx);
     error WMonDustResidual(uint256 amount);
 
@@ -235,6 +236,19 @@ contract UniswapRoutingVault is ReentrancyGuard {
             // An unbounded slippage floor is a fail-open on a thin pool.
             // (Audit L-2.)
             if (amountOutMin[i] == 0) revert ZeroSlippageFloor(i);
+
+            // A zero-weight leg is a contradiction in the ORDER: the signed
+            // allocation says "route none of the deposit here", yet names a
+            // token, a fee tier and a slippage floor for it. Rejecting it is a
+            // semantic assertion about intent, and it is NOT subsumed by the
+            // quantity guard below: on the last leg `amountIn` is the rounding
+            // remainder, so `weights = [5000, 5000, 0]` on a 3-wei deposit
+            // gives the zero-weight leg 1 wei of dust, clears `amountIn != 0`,
+            // and executes a real swap against a slice the order weighted at
+            // zero — recording output in `Routed` that the order never
+            // authorised. Value at risk is under n wei, but the on-chain
+            // record IS the product here. (Audit RT07h.)
+            if (weightsBps[i] == 0) revert ZeroWeightBps(i);
 
             // Last leg absorbs the rounding remainder so the full deposit
             // is deployed and no WMON dust is stranded.

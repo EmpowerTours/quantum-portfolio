@@ -33,7 +33,10 @@ import { IV3SwapRouter }       from "../../src/interfaces/IV3SwapRouter.sol";
 ///   router's 3 WMON went to 0. The balance-delta dust invariant never fired,
 ///   because the vault's own WMON balance was untouched.
 ///
-/// FIX: `if (weightsBps[i] == 0) revert ZeroWeightLeg(i);`
+/// FIX: `if (weightsBps[i] == 0) revert ZeroWeightBps(i);` — plus the separate
+///      post-arithmetic quantity check `if (amountIn == 0) revert
+///      ZeroWeightLeg(i);`. Both are required; see RT07 and RT07h for why
+///      neither subsumes the other.
 ///      (src/UniswapRoutingVault.sol, inside the routing loop).
 ///
 /// Fork test — needs MONAD_RPC_URL / FORK_TOKEN_OUT / FORK_FEE, self-skips
@@ -93,7 +96,7 @@ contract RT01_ZeroAmountRouterSentinel is Test {
         uint256[] memory m,
         uint256 deadline
     ) internal {
-        bytes32 c = vault.routeCommitment(who, t, f, w, amountInWei, m, deadline);
+        bytes32 c = vault.routeCommitment(h, who, t, f, w, amountInWei, m, deadline);
         uint64 _seq = anchor.nextSequence(who);
         vm.prank(who);
         anchor.anchor(h, c, _seq);
@@ -156,7 +159,7 @@ contract RT01_ZeroAmountRouterSentinel is Test {
         _anchorRoute(attacker, h, t, f, w, 1 ether, m, dl);
 
         vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSelector(UniswapRoutingVault.ZeroWeightLeg.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(UniswapRoutingVault.ZeroWeightBps.selector, 0));
         vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, dl);
 
         assertEq(IERC20(WMON).balanceOf(ROUTER), routerBefore, "router's WMON NOT swept");
@@ -219,7 +222,7 @@ contract RT01_ZeroAmountRouterSentinel is Test {
         _anchorRoute(attacker, h, t, f, w, 1 ether, m, dl);
 
         vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSelector(UniswapRoutingVault.ZeroWeightLeg.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(UniswapRoutingVault.ZeroWeightBps.selector, 0));
         vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, dl);
     }
 }

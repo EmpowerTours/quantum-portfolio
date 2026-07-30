@@ -38,6 +38,9 @@ contract RT06_V2BindingSurface is Test {
     address attacker = address(0xBAD);
 
     uint24 constant FEE = 3000;
+    /// A fixed orderHash for the pure hash-shape probes, which are about the
+    /// preimage layout rather than about any particular order.
+    bytes32 constant H0 = bytes32(uint256(0x11));
     uint256 constant FUTURE = 1e18;
 
     function setUp() public {
@@ -100,7 +103,7 @@ contract RT06_V2BindingSurface is Test {
         uint256 amountInWei,
         uint256[] memory m
     ) internal {
-        bytes32 c = vault.routeCommitment(who, t, f, w, amountInWei, m, FUTURE);
+        bytes32 c = vault.routeCommitment(h, who, t, f, w, amountInWei, m, FUTURE);
         uint64 _seq = anchor.nextSequence(who);
         vm.prank(who);
         anchor.anchor(h, c, _seq);
@@ -119,7 +122,7 @@ contract RT06_V2BindingSurface is Test {
 
         // Attacker front-runs, anchoring the SAME orderHash first, with a
         // commitment designed to authorise a different trade.
-        bytes32 poison = vault.routeCommitment(attacker, t, f, w, 999 ether, m, FUTURE);
+        bytes32 poison = vault.routeCommitment(h, attacker, t, f, w, 999 ether, m, FUTURE);
         vm.prank(attacker);
         anchor.anchor(h, poison, 0);
 
@@ -161,7 +164,7 @@ contract RT06_V2BindingSurface is Test {
     /// them to be equal, so mismatched shapes are reachable at anchor time.
     function _rc(uint256 n, uint256 nMin, uint256 seed) internal view returns (bytes32) {
         (address[] memory t, uint24[] memory f, uint16[] memory w) = _mk(n, seed);
-        return vault.routeCommitment(agent, t, f, w, 1 ether, _mkMin(nMin), FUTURE);
+        return vault.routeCommitment(H0, agent, t, f, w, 1 ether, _mkMin(nMin), FUTURE);
     }
 
     function testFuzz_RT06c_RouteCommitmentIsInjectiveAcrossArrayBoundaries(
@@ -204,8 +207,10 @@ contract RT06_V2BindingSurface is Test {
         uint24[]  memory f = new uint24[](1);  f[0] = FEE;
         uint16[]  memory w = new uint16[](2);  w[0] = 3000; w[1] = 7000;
         uint256[] memory m = new uint256[](2); m[0] = 1; m[1] = 2;
-        packed = keccak256(abi.encodePacked(agent, t, f, w, uint256(1e18), m, uint256(99)));
-        enc = vault.routeCommitment(agent, t, f, w, 1e18, m, 99);
+        packed = keccak256(
+            abi.encodePacked(block.chainid, address(vault), H0, agent, t, f, w, uint256(1e18), m, uint256(99))
+        );
+        enc = vault.routeCommitment(H0, agent, t, f, w, 1e18, m, 99);
     }
 
     /// Shape B: one element migrated across the amountInWei boundary —
@@ -215,8 +220,10 @@ contract RT06_V2BindingSurface is Test {
         uint24[]  memory f = new uint24[](1);  f[0] = FEE;
         uint16[]  memory w = new uint16[](1);  w[0] = 3000;
         uint256[] memory m = new uint256[](3); m[0] = 1e18; m[1] = 1; m[2] = 2;
-        packed = keccak256(abi.encodePacked(agent, t, f, w, uint256(7000), m, uint256(99)));
-        enc = vault.routeCommitment(agent, t, f, w, 7000, m, 99);
+        packed = keccak256(
+            abi.encodePacked(block.chainid, address(vault), H0, agent, t, f, w, uint256(7000), m, uint256(99))
+        );
+        enc = vault.routeCommitment(H0, agent, t, f, w, 7000, m, 99);
     }
 
     function test_RT06d_EncodePackedWouldCollideAcrossTheNewAmountOutMinBoundary()
@@ -243,8 +250,8 @@ contract RT06_V2BindingSurface is Test {
         uint256 len = bound(n, 1, 6);
         (address[] memory t, uint24[] memory f, uint16[] memory w) = _mk(len, amt);
         assertTrue(
-            vault.routeCommitment(agent, t, f, w, amt, _mkMin(len), FUTURE)
-                != adapter.supplyCommitment(agent, _market(), amt),
+            vault.routeCommitment(H0, agent, t, f, w, amt, _mkMin(len), FUTURE)
+                != adapter.supplyCommitment(H0, agent, _market(), amt),
             "cross-executor commitment collision"
         );
     }
@@ -322,7 +329,7 @@ contract RT06_V2BindingSurface is Test {
         vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
 
         // Cannot repair the anchor.
-        bytes32 corrected = vault.routeCommitment(agent, t, f, w, 1 ether, m, FUTURE);
+        bytes32 corrected = vault.routeCommitment(h, agent, t, f, w, 1 ether, m, FUTURE);
         uint64 seq = anchor.nextSequence(agent);
         vm.prank(agent);
         vm.expectRevert(abi.encodeWithSelector(AuditAnchorV2.AlreadyAnchored.selector, h));
@@ -368,7 +375,7 @@ contract RT06_V2BindingSurface is Test {
     /// under the limit.
     function _expectDivergent(bytes32 h, uint256[] memory m, uint256 deadline) internal {
         bytes32 anchored = anchor.execCommitmentOf(agent, h);
-        bytes32 got = vault.routeCommitment(agent, _t3, _f3, _w3, 1 ether, m, deadline);
+        bytes32 got = vault.routeCommitment(h, agent, _t3, _f3, _w3, 1 ether, m, deadline);
         vm.prank(agent);
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -388,7 +395,7 @@ contract RT06_V2BindingSurface is Test {
 
         // PQ-signed intent: a real floor on every leg.
         uint256[] memory intended = _mins(570 ether, 570 ether, 760 ether);
-        bytes32 c = vault.routeCommitment(agent, _t3, _f3, _w3, 1 ether, intended, FUTURE);
+        bytes32 c = vault.routeCommitment(h, agent, _t3, _f3, _w3, 1 ether, intended, FUTURE);
         uint64 seq = anchor.nextSequence(agent);
         vm.prank(agent);
         anchor.anchor(h, c, seq);
@@ -430,7 +437,7 @@ contract RT06_V2BindingSurface is Test {
     }
 
     function _anchorSupply(address who, bytes32 h, uint256 maxAssets) internal {
-        bytes32 c = adapter.supplyCommitment(who, _market(), maxAssets);
+        bytes32 c = adapter.supplyCommitment(h, who, _market(), maxAssets);
         uint64 _seq = anchor.nextSequence(who);
         vm.prank(who);
         anchor.anchor(h, c, _seq);

@@ -93,13 +93,13 @@ contract ReenterVault {
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) = _legs();
         anchor.anchor(
             hOuter,
-            vault.routeCommitment(address(this), t, f, w, vOuter, m, type(uint256).max),
+            vault.routeCommitment(hOuter, address(this), t, f, w, vOuter, m, type(uint256).max),
             anchor.nextSequence(address(this))
         );
         if (hInner != bytes32(0)) {
             anchor.anchor(
                 hInner,
-                vault.routeCommitment(address(this), t, f, w, vInner, m, type(uint256).max),
+                vault.routeCommitment(hInner, address(this), t, f, w, vInner, m, type(uint256).max),
                 anchor.nextSequence(address(this))
             );
         }
@@ -255,14 +255,14 @@ contract RT03_DustInvariantAttacks is Test {
     function _anchorRoute(address who, bytes32 h, address tok, uint256 amountInWei) internal {
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _legs(tok);
-        bytes32 c = vault.routeCommitment(who, t, f, w, amountInWei, m, FUTURE);
+        bytes32 c = vault.routeCommitment(h, who, t, f, w, amountInWei, m, FUTURE);
         uint64 _seq = anchor.nextSequence(who);
         vm.prank(who);
         anchor.anchor(h, c, _seq);
     }
 
     function _anchorSupply(address who, bytes32 h, address irm, uint256 maxAssets) internal {
-        bytes32 c = adapter.supplyCommitment(who, _params(irm), maxAssets);
+        bytes32 c = adapter.supplyCommitment(h, who, _params(irm), maxAssets);
         uint64 _seq = anchor.nextSequence(who);
         vm.prank(who);
         anchor.anchor(h, c, _seq);
@@ -413,7 +413,7 @@ contract RT03_DustInvariantAttacks is Test {
         bytes32 id = keccak256(abi.encode(hostile));
 
         bytes32 h = keccak256("m-hostile");
-        bytes32 c = adapter.supplyCommitment(alice, hostile, 1000 ether);
+        bytes32 c = adapter.supplyCommitment(h, alice, hostile, 1000 ether);
         uint64 _seq = anchor.nextSequence(alice);
         vm.prank(alice);
         anchor.anchor(h, c, _seq);

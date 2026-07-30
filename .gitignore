@@ -36,3 +36,7 @@ contracts/.git/
 # Sealed keystores — encrypted, but keep them out of the repo anyway.
 *.keystore.json
 agent-identity*.json
+
+# SP1 guest build output. Reproducible from zk-mldsa/program/, and the
+# committed vkey is what pins the program identity, not this binary.
+zk-mldsa/elf/

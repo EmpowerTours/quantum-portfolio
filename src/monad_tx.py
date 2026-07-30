@@ -906,10 +906,23 @@ def validate_route_execution(
         raise ValueError("each weight must fit in uint16")
     if sum(ex.weights_bps) != 10_000:
         raise ValueError(f"weights_bps must sum to 10000, got {sum(ex.weights_bps)}")
-    # Guard the QUANTITY, not the weight. Integer division floors a perfectly
-    # legal 1-bp weight to zero whenever amount_in_wei * w < 10_000, and
-    # SwapRouter02 reads amountIn == 0 as its CONTRACT_BALANCE sentinel.
-    # Checking `w == 0` did not implement the invariant it claimed.
+    # A zero-weight leg is a contradiction in the ORDER: it allocates none of
+    # the deposit yet names a token, fee tier and slippage floor. This is NOT
+    # subsumed by the quantity check below — on the last leg amountIn is the
+    # rounding remainder, so weights [5000, 5000, 0] on a 3-wei deposit hands
+    # the zero-weight leg 1 wei, clears amountIn != 0, and swaps against a
+    # slice the order weighted at zero. (Audit RT07h, mirrored from the vault.)
+    for i, w in enumerate(ex.weights_bps):
+        if w == 0:
+            raise ValueError(
+                f"leg {i}: weight is 0 bps. The order allocates nothing to this "
+                "leg, so it must not name a token, fee tier or slippage floor"
+            )
+    # Guard the QUANTITY as well as the weight. Integer division floors a
+    # perfectly legal 1-bp weight to zero whenever amount_in_wei * w < 10_000,
+    # and SwapRouter02 reads amountIn == 0 as its CONTRACT_BALANCE sentinel.
+    # Checking `w == 0` alone did not implement the invariant it claimed, and
+    # checking amountIn alone lets the case above through: both are required.
     # (Audit RT07, mirrored from the vault.)
     # Replicate the vault's arithmetic EXACTLY, including the last leg taking
     # the remainder. A weight of 10_000 on a non-final leg drains the deposit
@@ -959,6 +972,19 @@ def validate_route_execution(
     if ex.amount_in_wei <= 0:
         raise ValueError("amount_in_wei must be positive")
 
+    # The margin must cover BOTH hops of the pipeline — the anchor tx and the
+    # execution tx behind it — plus reorg depth, not just one inclusion. It is
+    # also the only place this is checked: AuditAnchorV2 deliberately treats
+    # the commitment as opaque bytes and cannot parse the deadline out of it,
+    # and adding a separate deadline argument to `anchor()` would be strictly
+    # worse than no check, because the anchor cannot verify that argument
+    # matches the deadline sealed inside the commitment. So: all anchoring must
+    # go through this builder. That is an operational invariant, not an
+    # assumption — `cast send` straight to the anchor bypasses it entirely.
+    #
+    # Sizing: Monad mainnet mean block time measured at 0.302s over blocks
+    # 91669512..91670512 (2026-07-29), so the 60s default is ~199 blocks
+    # against a two-transaction pipeline. Re-measure if block time changes.
     now = int(_time.time()) if now is None else now
     if ex.deadline <= now + min_deadline_margin_s:
         raise ValueError(
