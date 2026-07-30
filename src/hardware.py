@@ -27,12 +27,26 @@ def get_token() -> str:
     return token
 
 
+def get_instance() -> str | None:
+    """The IBM Cloud service-instance CRN, if one is configured.
+
+    The current platform scopes an API key to a service instance, so a key
+    alone may authenticate and still resolve no backends. Optional: when unset
+    the SDK attempts discovery, which works for some account shapes.
+    """
+    return os.getenv("IBM_QUANTUM_INSTANCE") or None
+
+
 def get_service() -> QiskitRuntimeService:
     token = get_token()
+    instance = get_instance()
     last_err: Exception | None = None
     for channel in _CHANNELS:
         try:
-            return QiskitRuntimeService(channel=channel, token=token)
+            kwargs = {"channel": channel, "token": token}
+            if instance:
+                kwargs["instance"] = instance
+            return QiskitRuntimeService(**kwargs)
         except Exception as exc:  # try next channel
             last_err = exc
     raise RuntimeError(
