@@ -163,7 +163,7 @@ contract AuditPoCDustDoSTest is Test {
         address[] memory t, uint24[] memory f, uint16[] memory w, uint256 amt,
         uint256[] memory m
     ) internal {
-        bytes32 c = v.routeCommitment(who, t, f, w, amt, m, FUTURE);
+        bytes32 c = v.routeCommitment(oh, who, t, f, w, amt, m, FUTURE);
         uint64  q = anchor.nextSequence(who);
         vm.prank(who);
         anchor.anchor(oh, c, q);
@@ -172,7 +172,7 @@ contract AuditPoCDustDoSTest is Test {
     function _anchorSupply(
         MorphoSupplyAdapter a, address who, bytes32 oh, address loan, uint256 maxA
     ) internal {
-        bytes32 c = a.supplyCommitment(who, _params(loan), maxA);
+        bytes32 c = a.supplyCommitment(oh, who, _params(loan), maxA);
         uint64  q = anchor.nextSequence(who);
         vm.prank(who);
         anchor.anchor(oh, c, q);

@@ -445,7 +445,7 @@ with tab_pq:
         try:
             signed = _orders.sign_order_hedged(order, kp, slh_kp, ed_kp)
             components = _orders.verify_signed_order_components(signed)
-            ok = _orders.verify_signed_order(signed)
+            ok = _orders.verify_signed_order(signed, trusted=_orders.TrustedKeys.load())
             st.json({
                 "order_id":  order.order_id,
                 "nonce":     order.nonce,
@@ -550,11 +550,17 @@ with tab_pq:
         latest_signed = (_orders.load_signed_orders() or [None])[-1]
         if latest_signed is not None:
             _DEMO_ANCHOR = "0x0e649C383CFA6be1998445D0A7a8E1cc7540D239"   # AuditAnchor deployed on Monad testnet (chainId 10143)
+            # M-1: pin the signer. Without `trusted` the artefact is verified
+            # against the public key it carries, so anyone who can write
+            # outputs/signed_orders.json ships their own keypair and this UI
+            # renders mainnet-shaped calldata for THEIR order. The defence
+            # existed as an API parameter and was simply not engaged here.
             anchor_tx = _mtx.build_anchor_tx(
                 latest_signed,
                 anchor_contract=_DEMO_ANCHOR,
                 nonce=0,
                 expected_sequence=0,
+                trusted=_orders.TrustedKeys.load(),
             )
             order_hash_hex = _mtx.order_sha256(latest_signed).hex()
             st.caption(

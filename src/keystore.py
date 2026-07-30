@@ -77,6 +77,21 @@ class KeystoreError(Exception):
     """Sealing or unsealing failed."""
 
 
+def _write_secret(path: Path, data: bytes) -> None:
+    """Create a file that is 0600 from the instant it exists.
+
+    `write_bytes` then `chmod` leaves the file world-readable under the
+    default umask for the window in between — a race on any multi-user or
+    container host. O_CREAT|O_EXCL|O_WRONLY with mode 0600 closes it, and
+    O_EXCL also refuses to follow a pre-planted symlink.
+    """
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
+
+
 def _b64(b: bytes) -> str:
     return base64.b64encode(b).decode("ascii")
 
@@ -90,10 +105,35 @@ def _canonical(obj: Any) -> bytes:
     return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+MAX_SCRYPT_N = 2 ** 22   # ~4 GiB ceiling; anything larger is a DoS, not a keystore
+
+
 def _derive(passphrase: str, salt: bytes, n: int, r: int, p: int) -> bytes:
-    return Scrypt(salt=salt, length=KEY_LEN, n=n, r=r, p=p).derive(
-        passphrase.encode("utf-8")
-    )
+    """Stretch the passphrase, with the KDF parameters treated as UNTRUSTED.
+
+    n/r/p are read from the file, so a hostile or corrupt keystore could
+    otherwise demand terabytes of RAM (n=2**31) or raise a bare ValueError on
+    a non-power-of-two. Bound them, and turn the resource failure into a
+    KeystoreError the caller can actually act on — scrypt raises a bare
+    MemoryError *after* the user has typed their passphrase.
+    """
+    if n < 2 or (n & (n - 1)) != 0:
+        raise KeystoreError(f"scrypt n must be a power of two >= 2, got {n}")
+    if n > MAX_SCRYPT_N:
+        raise KeystoreError(f"scrypt n={n} exceeds the {MAX_SCRYPT_N} ceiling")
+    if not (1 <= r <= 32) or not (1 <= p <= 16):
+        raise KeystoreError(f"scrypt r={r} p={p} out of range")
+    try:
+        return Scrypt(salt=salt, length=KEY_LEN, n=n, r=r, p=p).derive(
+            passphrase.encode("utf-8")
+        )
+    except MemoryError as exc:
+        need_mb = (128 * n * r) // (1024 * 1024)
+        raise KeystoreError(
+            f"not enough memory to derive the key: these parameters need about "
+            f"{need_mb} MB. Run the unseal on a machine with more RAM — the "
+            f"sealed file is fine, only this host is too small."
+        ) from exc
 
 
 def read_passphrase(confirm: bool = False) -> str:
@@ -104,6 +144,16 @@ def read_passphrase(confirm: bool = False) -> str:
     """
     env = os.environ.get(PASSPHRASE_ENV)
     if env:
+        # `VAR=$(cat file)` keeps the trailing newline, so the passphrase used
+        # to seal and the one typed later silently differ and the file can
+        # never be opened. Refuse rather than guess — stripping would be just
+        # as silent in the other direction.
+        if env != env.strip():
+            raise KeystoreError(
+                f"{PASSPHRASE_ENV} has leading/trailing whitespace. This is "
+                "almost always an accidental newline from $(cat ...) and would "
+                "produce a keystore you cannot reopen. Set it exactly."
+            )
         return env
     if not sys.stdin.isatty():
         raise KeystoreError(
@@ -161,6 +211,20 @@ def seal(keys_dir: Path | str, out_path: Path | str, passphrase: str) -> dict[st
     doc["ciphertext"] = _b64(ct)
     out_path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
     os.chmod(out_path, stat.S_IRUSR | stat.S_IWUSR)   # 0600
+
+    # Prove the file we just wrote can actually be opened with the passphrase
+    # we were given, and that it returns the same secrets. A keystore that
+    # reports success but cannot be reopened is worse than no keystore at all:
+    # it is discovered only when the original is already gone.
+    try:
+        recovered = unseal(out_path, passphrase)
+    except KeystoreError as exc:
+        out_path.unlink(missing_ok=True)
+        raise KeystoreError(f"seal self-check failed, file removed: {exc}") from exc
+    if recovered != {k: _unb64(v) for k, v in secrets.items()}:
+        out_path.unlink(missing_ok=True)
+        raise KeystoreError("seal self-check failed: round-trip mismatch, file removed")
+
     return {k: v for k, v in identity.items() if k.endswith("_fpr")}
 
 
@@ -218,17 +282,12 @@ def restore(path: Path | str, keys_dir: Path | str, passphrase: str) -> dict[str
 
     from . import pq_signing as pq  # local import: keystore must stay importable alone
 
-    for name, sec, pub in _SECRETS:
-        sk = secrets[name]
-        pk = _unb64(identity[f"{name}_pk"])
-        (keys_dir / pub).write_bytes(pk)
-        (keys_dir / sec).write_bytes(sk)
-        os.chmod(keys_dir / sec, stat.S_IRUSR | stat.S_IWUSR)
-        os.chmod(keys_dir / pub,
-                 stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
-
-    # Prove the restored secret actually corresponds to the advertised public
-    # key, rather than trusting the file's own claim about itself.
+    # VERIFY BEFORE WRITING. Doing this after the write loop meant a file whose
+    # advertised public key did not match its encrypted secret left a MISMATCHED
+    # keypair on disk — pq.pub from one identity, pq.sec from another — which
+    # load_keypair accepts because it only length-checks. The clobber guard
+    # above then permanently blocked the correct restore. That is precisely the
+    # identity-loss failure this module exists to prevent.
     probe = {"keystore-selftest": True}
     checks = {
         "ml_dsa": pq.verify(probe, pq.sign(probe, secrets["ml_dsa"]),
@@ -239,7 +298,17 @@ def restore(path: Path | str, keys_dir: Path | str, passphrase: str) -> dict[str
                                      _unb64(identity["ed25519_pk"])),
     }
     if not all(checks.values()):
-        raise KeystoreError(f"restored keypair self-test failed: {checks}")
+        raise KeystoreError(
+            f"refusing to restore: the sealed secrets do not match the public "
+            f"identity the file advertises ({checks}). Nothing was written."
+        )
+
+    for name, sec, pub in _SECRETS:
+        (keys_dir / pub).write_bytes(_unb64(identity[f"{name}_pk"]))
+        _write_secret(keys_dir / sec, secrets[name])
+        os.chmod(keys_dir / pub,
+                 stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+
     return {k: v for k, v in identity.items() if k.endswith("_fpr")}
 
 

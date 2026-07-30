@@ -1,6 +1,8 @@
 """Round-trip tests for the Monad unsigned-TX builder."""
 from __future__ import annotations
 
+import time as _time
+
 import pytest
 import sys
 from pathlib import Path
@@ -14,8 +16,19 @@ from src import orders, pq_signing as pq
 SELF_ADDR = "0x1111111111111111111111111111111111111111"
 
 
+_TEST_TRUSTED: orders.TrustedKeys | None = None
+
+
 def _make_signed_order() -> orders.SignedOrder:
+    """Sign with a throwaway keypair and record it as the trusted signer, so
+    the builders' mandatory `trusted=` pin has something real to check."""
+    global _TEST_TRUSTED
     kp = pq.generate_keypair()
+    _TEST_TRUSTED = orders.TrustedKeys(
+        ml_dsa=kp.pk,
+        slh_dsa=b"\x00" * 64,
+        ed25519=b"\x00" * 32,
+    )
     order = orders.RebalanceOrder(
         pools=["GLD", "SLV", "NVDA"], weights=[1/3, 1/3, 1/3],
         expected_return=0.05, expected_vol=0.15,
@@ -26,7 +39,7 @@ def _make_signed_order() -> orders.SignedOrder:
 
 def test_calldata_roundtrip():
     signed = _make_signed_order()
-    blob = mtx.encode_order_calldata(signed, require_hedged=False)
+    blob = mtx.encode_order_calldata(signed, require_hedged=False, trusted=_TEST_TRUSTED, require_execution=False)
     assert blob.startswith("0x")
     order_d, sig, pk = mtx.decode_order_calldata(blob)
     assert order_d["pools"] == signed.order.pools
@@ -40,7 +53,7 @@ def test_calldata_roundtrip():
 
 def test_unsigned_tx_fields():
     signed = _make_signed_order()
-    tx = mtx.build_unsigned_tx(signed, to_address=SELF_ADDR, nonce=7, require_hedged=False)
+    tx = mtx.build_unsigned_tx(signed, to_address=SELF_ADDR, nonce=7, require_hedged=False, trusted=_TEST_TRUSTED, require_execution=False)
     assert tx.chainId == mtx.MONAD_CHAIN_ID
     assert tx.type == 2
     assert tx.nonce == 7
@@ -57,7 +70,7 @@ def test_unsigned_tx_fields():
 def test_unsigned_tx_rejects_bad_address():
     signed = _make_signed_order()
     try:
-        mtx.build_unsigned_tx(signed, to_address="not-a-hex-address", nonce=0, require_hedged=False)
+        mtx.build_unsigned_tx(signed, to_address="not-a-hex-address", nonce=0, require_hedged=False, trusted=_TEST_TRUSTED, require_execution=False)
     except ValueError:
         return
     raise AssertionError("expected ValueError on malformed to_address")
@@ -72,7 +85,7 @@ def test_calldata_detects_corruption():
     differ from the signed order — corruption that round-trips bit-for-
     bit is the actual bug we want to catch."""
     signed = _make_signed_order()
-    blob = mtx.encode_order_calldata(signed, require_hedged=False)
+    blob = mtx.encode_order_calldata(signed, require_hedged=False, trusted=_TEST_TRUSTED, require_execution=False)
     original_dict = signed.order.to_dict()
     raw = bytearray.fromhex(blob[2:])
     raw[20] ^= 0xFF
@@ -149,7 +162,7 @@ def test_anchor_calldata_rejects_overflow_sequence():
 def test_build_anchor_tx_field_shape():
     signed = _make_signed_order()
     tx = mtx.build_anchor_tx(
-        signed, anchor_contract=ANCHOR_ADDR, nonce=3, expected_sequence=0, require_hedged=False)
+        signed, anchor_contract=ANCHOR_ADDR, nonce=3, expected_sequence=0, require_hedged=False, trusted=_TEST_TRUSTED, require_execution=False)
     assert tx.chainId == 143         # Monad mainnet
     assert tx.type == 2              # EIP-1559
     assert tx.to == ANCHOR_ADDR
@@ -163,7 +176,7 @@ def test_build_anchor_tx_field_shape():
 def test_build_anchor_tx_rejects_bad_contract_address():
     signed = _make_signed_order()
     try:
-        mtx.build_anchor_tx(signed, anchor_contract="0xnotanaddress", nonce=0, require_hedged=False)
+        mtx.build_anchor_tx(signed, anchor_contract="0xnotanaddress", nonce=0, require_hedged=False, trusted=_TEST_TRUSTED, require_execution=False)
     except ValueError:
         return
     raise AssertionError("expected ValueError on malformed anchor_contract")
@@ -182,21 +195,21 @@ def test_builders_refuse_tampered_signed_order():
     from dataclasses import replace
     signed = _make_signed_order()
     # Sanity: untampered signed order builds fine.
-    mtx.encode_order_calldata(signed, require_hedged=False)
-    mtx.build_alloc_tx(signed, vault_contract=VAULT_ADDR, nonce=0, amount_wei=1, require_hedged=False)
-    mtx.build_anchor_tx(signed, anchor_contract=VAULT_ADDR, nonce=0, require_hedged=False)
+    mtx.encode_order_calldata(signed, require_hedged=False, trusted=_TEST_TRUSTED, require_execution=False)
+    mtx.build_alloc_tx(signed, vault_contract=VAULT_ADDR, nonce=0, amount_wei=1, require_hedged=False, trusted=_TEST_TRUSTED, require_execution=False)
+    mtx.build_anchor_tx(signed, anchor_contract=VAULT_ADDR, nonce=0, require_hedged=False, trusted=_TEST_TRUSTED, require_execution=False)
 
     # Tamper: produce a SignedOrder whose order content no longer
     # matches the signature (pools list mutated).
     tampered_order = replace(signed.order, pools=["AAPL", "TSLA", "BTC"])
     tampered = replace(signed, order=tampered_order)
-    assert not orders.verify_signed_order(tampered, require_hedged=False), "test setup failed: tamper should invalidate"
+    assert not orders.verify_signed_order(tampered, require_hedged=False, require_execution=False), "test setup failed: tamper should invalidate"
 
     for fn_name, fn in [
-        ("encode_order_calldata", lambda: mtx.encode_order_calldata(tampered, require_hedged=False)),
-        ("build_alloc_tx",        lambda: mtx.build_alloc_tx(tampered, vault_contract=VAULT_ADDR, nonce=0, amount_wei=1, require_hedged=False)),
-        ("build_anchor_tx",       lambda: mtx.build_anchor_tx(tampered, anchor_contract=VAULT_ADDR, nonce=0, require_hedged=False)),
-        ("build_unsigned_tx",     lambda: mtx.build_unsigned_tx(tampered, to_address=SELF_ADDR, nonce=0, require_hedged=False)),
+        ("encode_order_calldata", lambda: mtx.encode_order_calldata(tampered, require_hedged=False, trusted=_TEST_TRUSTED, require_execution=False)),
+        ("build_alloc_tx",        lambda: mtx.build_alloc_tx(tampered, vault_contract=VAULT_ADDR, nonce=0, amount_wei=1, require_hedged=False, trusted=_TEST_TRUSTED, require_execution=False)),
+        ("build_anchor_tx",       lambda: mtx.build_anchor_tx(tampered, anchor_contract=VAULT_ADDR, nonce=0, require_hedged=False, trusted=_TEST_TRUSTED, require_execution=False)),
+        ("build_unsigned_tx",     lambda: mtx.build_unsigned_tx(tampered, to_address=SELF_ADDR, nonce=0, require_hedged=False, trusted=_TEST_TRUSTED, require_execution=False)),
     ]:
         try:
             fn()
@@ -303,7 +316,7 @@ def test_build_alloc_tx_field_shape():
         vault_contract=VAULT_ADDR,
         nonce=0,
         amount_wei=10**16,
-        chain_id=mtx.MONAD_TESTNET_CHAIN_ID, require_hedged=False)
+        chain_id=mtx.MONAD_TESTNET_CHAIN_ID, require_hedged=False, trusted=_TEST_TRUSTED, require_execution=False)
     assert tx.chainId == 10143
     assert tx.to == VAULT_ADDR
     assert tx.value == 10**16
@@ -315,7 +328,7 @@ def test_build_alloc_tx_rejects_zero_value():
     signed = _make_signed_order()
     try:
         mtx.build_alloc_tx(
-            signed, vault_contract=VAULT_ADDR, nonce=0, amount_wei=0, require_hedged=False)
+            signed, vault_contract=VAULT_ADDR, nonce=0, amount_wei=0, require_hedged=False, trusted=_TEST_TRUSTED, require_execution=False)
     except ValueError:
         return
     raise AssertionError("expected ValueError on zero amount_wei")
@@ -390,41 +403,73 @@ def test_route_calldata_rejects_length_mismatch():
     raise AssertionError("expected ValueError on mismatched array lengths")
 
 
-def test_build_route_tx_wires_selector_and_value():
-    signed = _make_signed_order()  # 3 equal-weight pools
-    tx = mtx.build_route_tx(
-        signed,
-        vault_contract=VAULT_ADDR,
-        nonce=3,
-        amount_wei=10**17,
-        token_outs=[
-            "0x000000000000000000000000000000000000aaAA",
-            "0x000000000000000000000000000000000000bBbB",
-            "0x000000000000000000000000000000000000cCcC",
-        ],
-        fee_tiers=[3000, 3000, 500],
-        amount_out_min=[1, 1, 1],
-        deadline=1893456000,
-        chain_id=mtx.MONAD_CHAIN_ID, require_hedged=False)
-    assert tx.chainId == 143
-    assert tx.to == VAULT_ADDR
-    assert tx.value == 10**17
-    assert tx.data.startswith("0x5caf7a40")
-    # weights derived from the order (1/3 each -> 3334/3333/3333) sum to 10000
-    weights = mtx.fractional_weights_to_bps(signed.order.weights)
-    assert sum(weights) == 10_000
+def _route_signed_order():
+    """A schema-v2 order whose execution block IS the authorisation."""
+    global _TEST_TRUSTED
+    kp = pq.generate_keypair()
+    _TEST_TRUSTED = orders.TrustedKeys(
+        ml_dsa=kp.pk, slh_dsa=b"\x00" * 64, ed25519=b"\x00" * 32
+    )
+    ex = orders.RouteExecution(
+        chain_id=mtx.MONAD_CHAIN_ID, vault=VAULT_ADDR, user=_AGENT,
+        token_outs=[_USDC], fee_tiers=[3000], weights_bps=[10_000],
+        amount_in_wei=10**17, amount_out_min=[2107],
+        deadline=int(_time.time()) + 3600,
+    )
+    order = orders.RebalanceOrder(
+        pools=["USDC"], weights=[1.0], expected_return=0.05, expected_vol=0.15,
+        execution=ex,
+    )
+    return orders.sign_order(order, kp, seen_nonces=set()), ex
 
 
-def test_build_route_tx_rejects_arity_mismatch():
-    signed = _make_signed_order()  # 3 pools
+def test_build_route_tx_derives_everything_from_the_signed_execution():
+    """Every route parameter must come from the PQ-signed execution block.
+
+    This used to accept token_outs / fee_tiers / amount_out_min / deadline /
+    amount_wei / vault as free caller kwargs and never read order.execution,
+    so a verified order could be paired with a completely different trade.
+    """
+    signed, ex = _route_signed_order()
+    tx = mtx.build_route_tx(signed, nonce=3, trusted=_TEST_TRUSTED, require_hedged=False)
+
+    assert tx.chainId == ex.chain_id
+    assert tx.to == ex.vault
+    assert tx.value == ex.amount_in_wei
+    assert tx.data.startswith("0x5caf7a40"), tx.data[:12]
+
+    # The builder takes no route parameters at all any more.
+    import inspect
+    params = set(inspect.signature(mtx.build_route_tx).parameters)
+    for leaked in ("token_outs", "fee_tiers", "amount_out_min", "deadline",
+                   "amount_wei", "vault_contract"):
+        assert leaked not in params, f"{leaked} must come from the signed order"
+
+
+def test_build_route_tx_rejects_an_order_with_no_execution_block():
+    signed = _make_signed_order()          # schema v2, execution=None
     try:
-        mtx.build_route_tx(
-            signed, vault_contract=VAULT_ADDR, nonce=0, amount_wei=10**16,
-            token_outs=["0x000000000000000000000000000000000000aaAA"],  # only 1
-            fee_tiers=[3000], amount_out_min=[1], deadline=1, require_hedged=False)
-    except ValueError:
+        mtx.build_route_tx(signed, nonce=0, trusted=_TEST_TRUSTED, require_hedged=False)
+    except (ValueError, mtx.UnverifiableOrder):
         return
-    raise AssertionError("expected ValueError when token_outs arity != order pools")
+    raise AssertionError("expected refusal for an order carrying no execution block")
+
+
+def test_anchor_v2_tx_carries_the_commitment_derived_from_the_signed_order():
+    """Without this builder the whole execution binding was decorative: the
+    commitment was computed, printed, and discarded, while the only anchor
+    builders emitted V1 selectors carrying no commitment at all."""
+    signed, ex = _route_signed_order()
+    tx = mtx.build_anchor_v2_tx(
+        signed, anchor_contract=VAULT_ADDR, nonce=0, expected_sequence=0,
+        trusted=_TEST_TRUSTED, require_hedged=False,
+    )
+    assert tx.data.startswith("0x15954b2c"), "must call anchor(bytes32,bytes32,uint64)"
+    body = tx.data[10:]
+    assert body[0:64] == mtx.order_sha256(signed).hex()
+    assert body[64:128] == mtx.route_commitment(ex, mtx.order_sha256(signed)).hex()
+    assert int(body[128:192], 16) == 0
+    assert tx.value == 0
 
 
 if __name__ == "__main__":
@@ -455,8 +500,8 @@ if __name__ == "__main__":
 #
 # If one of these fails: do NOT update the golden. One implementation drifted.
 
-GOLDEN_ROUTE = "1550425afc1bd6e48461c9d548abc3ee4de631f1109ac4feb5b971781f6efbb6"
-GOLDEN_SUPPLY = "bf3bd84489e1c4039990ab28cee4eb56baffe9065d7258a5ae534f7b5928a6db"
+GOLDEN_ROUTE = "40fb62c19118b6aa2413dbbd0721005b61847a02bd7a7c7e4c5bb862ffb183ba"
+GOLDEN_SUPPLY = "c51ff91d917e16305fef7efe869fc222ba736e34ae0608730ad96d217f268a6e"
 
 _AGENT = "0x8dF64bACf6b70F7787f8d14429b258B3fF958ec1"
 _USDC = "0x754704Bc059F8C67012fEd69BC8A327a5aafb603"
@@ -465,24 +510,43 @@ _WBTC = "0x0555E30da8f98308EdB960aa94C0Db47230d2B9c"
 _ORACLE = "0xff07261c87763cc5693ab78746d0b6735Ec626F5"
 _IRM = "0x09475a3D6eA8c314c592b1a3799bDE044E2F400F"
 _ZERO = "0x" + "0" * 40
+# Commitments are domain-separated by (chain_id, executor), so the goldens are
+# only meaningful for a pinned pair. These match contracts/test/CommitmentParity.
+_GOLDEN_VAULT = "0x00000000000000000000000000000000000000AA"
+_GOLDEN_ADAPTER = "0x00000000000000000000000000000000000000bb"
+_GOLDEN_ORDER_HASH = bytes.fromhex("11" * 32)
 
 
 def test_route_commitment_matches_solidity_golden():
     ex = orders.RouteExecution(
-        chain_id=143, vault=_ZERO, user=_AGENT,
+        chain_id=143, vault=_GOLDEN_VAULT, user=_AGENT,
         token_outs=[_USDC, _WETH], fee_tiers=[3000, 500], weights_bps=[6000, 4000],
         amount_in_wei=10**18, amount_out_min=[211166, 5000], deadline=1893456000,
     )
-    assert mtx.route_commitment(ex).hex() == GOLDEN_ROUTE
+    assert mtx.route_commitment(ex, _GOLDEN_ORDER_HASH).hex() == GOLDEN_ROUTE
 
 
 def test_supply_commitment_matches_solidity_golden():
     ex = orders.SupplyExecution(
-        chain_id=143, adapter=_ZERO, user=_AGENT,
+        chain_id=143, adapter=_GOLDEN_ADAPTER, user=_AGENT,
         loan_token=_USDC, collateral_token=_WBTC, oracle=_ORACLE, irm=_IRM,
         lltv=860000000000000000, max_assets=2271,
     )
-    assert mtx.supply_commitment(ex).hex() == GOLDEN_SUPPLY
+    assert mtx.supply_commitment(ex, _GOLDEN_ORDER_HASH).hex() == GOLDEN_SUPPLY
+
+
+def test_route_commitment_is_bound_to_its_order_hash():
+    """`consumed` is keyed by orderHash, so a commitment that did not name its
+    own order could be filed under unlimited distinct orderHashes and executed
+    once under each — N executions from one authorisation."""
+    ex = orders.RouteExecution(
+        chain_id=143, vault=_GOLDEN_VAULT, user=_AGENT,
+        token_outs=[_USDC], fee_tiers=[3000], weights_bps=[10_000],
+        amount_in_wei=10**18, amount_out_min=[1], deadline=1893456000,
+    )
+    a = mtx.route_commitment(ex, bytes.fromhex("11" * 32))
+    b = mtx.route_commitment(ex, bytes.fromhex("22" * 32))
+    assert a != b, "same trade under a different order must not share a commitment"
 
 
 def test_route_commitment_is_order_sensitive():
@@ -493,8 +557,8 @@ def test_route_commitment_is_order_sensitive():
         token_outs=[_USDC, _WETH], fee_tiers=[3000, 500], weights_bps=[6000, 4000],
         amount_in_wei=10**18, deadline=1893456000,
     )
-    a = mtx.route_commitment(orders.RouteExecution(amount_out_min=[211166, 5000], **base))
-    b = mtx.route_commitment(orders.RouteExecution(amount_out_min=[5000, 211166], **base))
+    a = mtx.route_commitment(orders.RouteExecution(amount_out_min=[211166, 5000], **base), _GOLDEN_ORDER_HASH)
+    b = mtx.route_commitment(orders.RouteExecution(amount_out_min=[5000, 211166], **base), _GOLDEN_ORDER_HASH)
     assert a != b
 
 
@@ -506,12 +570,12 @@ def test_route_commitment_resists_array_boundary_migration():
         chain_id=143, vault=_ZERO, user=_AGENT,
         token_outs=[_USDC, _WETH], fee_tiers=[3000, 500], weights_bps=[3000, 7000],
         amount_in_wei=10**18, amount_out_min=[1, 2], deadline=1,
-    ))
+    ), _GOLDEN_ORDER_HASH)
     b = mtx.route_commitment(orders.RouteExecution(
         chain_id=143, vault=_ZERO, user=_AGENT,
         token_outs=[_USDC], fee_tiers=[3000], weights_bps=[3000],
         amount_in_wei=7000, amount_out_min=[10**18, 1, 2], deadline=1,
-    ))
+    ), _GOLDEN_ORDER_HASH)
     assert a != b
 
 
@@ -521,10 +585,10 @@ def test_validate_route_execution_catches_unanchorable_orders():
     off-chain, before the anchor transaction is built."""
     def ex(**over):
         base = dict(
-            chain_id=143, vault=_ZERO, user=_AGENT,
+            chain_id=143, vault=_GOLDEN_VAULT, user=_AGENT,
             token_outs=[_USDC, _WETH], fee_tiers=[3000, 500],
             weights_bps=[6000, 4000], amount_in_wei=10**18,
-            amount_out_min=[1, 1], deadline=1893456000,
+            amount_out_min=[1000, 1000], deadline=int(_time.time()) + 3600,
         )
         base.update(over)
         return orders.RouteExecution(**base)
@@ -535,6 +599,9 @@ def test_validate_route_execution_catches_unanchorable_orders():
         (dict(weights_bps=[10_000, 0]), "zero-weight leg"),
         (dict(weights_bps=[6000, 3000]), "weights_bps must sum"),
         (dict(amount_out_min=[0, 1]), "fail-open slippage"),
+        (dict(deadline=1), "expired deadline"),
+        (dict(user=_ZERO), "zero user"),
+        (dict(vault=_ZERO), "zero vault"),
         (dict(amount_in_wei=0), "amount_in_wei"),
         (dict(fee_tiers=[3000]), "same length"),
         (dict(token_outs=[], fee_tiers=[], weights_bps=[], amount_out_min=[]), "non-empty"),
@@ -543,4 +610,4 @@ def test_validate_route_execution_catches_unanchorable_orders():
             mtx.validate_route_execution(ex(**bad))
 
     # ...but the commitment itself still mirrors Solidity's permissiveness.
-    assert len(mtx.route_commitment(ex(fee_tiers=[3000]))) == 32
+    assert len(mtx.route_commitment(ex(fee_tiers=[3000]), _GOLDEN_ORDER_HASH)) == 32

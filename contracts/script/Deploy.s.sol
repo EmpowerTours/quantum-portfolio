@@ -17,6 +17,16 @@ import { AuditAnchor } from "../src/AuditAnchor.sol";
 ///         but only after a Santander prize event funds production deploy.
 contract DeployAuditAnchor is Script {
     function run() external returns (AuditAnchor anchor) {
+        // SUPERSEDED. The V2 executors call `execCommitmentOf`, which V1 does
+        // not implement, so a vault wired to a V1 anchor is immutably bricked.
+        // This script stayed reachable and unguarded, which made it the most
+        // likely thing to actually go wrong on deploy day. Use
+        // script/DeployAuditAnchorV2.s.sol. (Audit RT09.)
+        require(
+            vm.envOr("DEPLOY_LEGACY_V1_ANCHOR", false),
+            "AuditAnchor V1 is superseded - use DeployAuditAnchorV2.s.sol "
+            "(set DEPLOY_LEGACY_V1_ANCHOR=true only to reproduce history)"
+        );
         uint256 pk = vm.envUint("DEPLOYER_PRIVATE_KEY");
         vm.startBroadcast(pk);
         anchor = new AuditAnchor();

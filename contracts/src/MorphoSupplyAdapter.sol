@@ -91,12 +91,19 @@ contract MorphoSupplyAdapter is ReentrancyGuard {
     ///         precise swap output at signing time. Binding the ceiling keeps
     ///         the authorisation bounded while allowing the realised amount to
     ///         float below it.
-    function supplyCommitment(address user, MarketParams memory params, uint256 maxAssets)
-        public
-        pure
-        returns (bytes32)
-    {
-        return keccak256(abi.encode(user, params, maxAssets));
+    /// @dev    Domain-separated by `block.chainid` and `address(this)` for the
+    ///         same reason as the vault: `consumed` is per-adapter storage, so
+    ///         without it one anchor authorised a supply on every adapter
+    ///         sharing this anchor, and on every chain. (Audit RT08.)
+    function supplyCommitment(
+        bytes32 orderHash,
+        address user,
+        MarketParams memory params,
+        uint256 maxAssets
+    ) public view returns (bytes32) {
+        return keccak256(
+            abi.encode(block.chainid, address(this), orderHash, user, params, maxAssets)
+        );
     }
 
     /// @notice Supply `assets` of `params.loanToken` into the Morpho market
@@ -126,7 +133,7 @@ contract MorphoSupplyAdapter is ReentrancyGuard {
         // Provenance: the anchor must commit to exactly this market and ceiling.
         bytes32 anchored = ANCHOR.execCommitmentOf(msg.sender, orderHash);
         if (anchored == bytes32(0)) revert AnchorNotFound(orderHash);
-        bytes32 expected = supplyCommitment(msg.sender, params, maxAssets);
+        bytes32 expected = supplyCommitment(orderHash, msg.sender, params, maxAssets);
         if (anchored != expected) revert ExecutionNotAnchored(expected, anchored);
 
         // One anchor authorises exactly one supply.

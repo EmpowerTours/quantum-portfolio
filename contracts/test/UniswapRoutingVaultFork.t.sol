@@ -64,7 +64,7 @@ contract UniswapRoutingVaultForkTest is Test {
         uint256[] memory m = new uint256[](1); m[0] = 1; // accept anything > 0 for the smoke test
 
         // Anchor bound to exactly this execution.
-        bytes32 commitment = vault.routeCommitment(trader, t, f, w, 0.1 ether, m, block.timestamp + 300);
+        bytes32 commitment = vault.routeCommitment(orderHash, trader, t, f, w, 0.1 ether, m, block.timestamp + 300);
         uint64  seq        = anchor.nextSequence(trader);
         vm.prank(trader);
         anchor.anchor(orderHash, commitment, seq);

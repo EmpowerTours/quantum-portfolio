@@ -46,22 +46,49 @@ contract DeployUniswapRoutingVault is Script {
         require(approved.length > 0, "APPROVED_TOKENS empty");
         require(feeRaw.length > 0, "APPROVED_FEE_TIERS empty");
 
+        // A uint24 RANGE check is a type check, not a safety check: it accepts
+        // every value in [1, 16777215], including tier 100 — the dust pool this
+        // vault's own NatSpec calls a near-total loss. H-3's entire mitigation
+        // is this immutable allowlist, so validate membership in the tiers
+        // Uniswap v3 actually deploys. (Audit RT09.)
         uint24[] memory feeTiers = new uint24[](feeRaw.length);
         for (uint256 i = 0; i < feeRaw.length; ++i) {
-            require(feeRaw[i] > 0 && feeRaw[i] <= type(uint24).max, "bad fee tier");
+            require(
+                feeRaw[i] == 500 || feeRaw[i] == 3000 || feeRaw[i] == 10000,
+                "fee tier must be one of {500, 3000, 10000}"
+            );
+            for (uint256 j = 0; j < i; ++j) {
+                require(feeRaw[j] != feeRaw[i], "duplicate fee tier");
+            }
             feeTiers[i] = uint24(feeRaw[i]);
         }
 
         // N-1: validate every address wired in immutably.
-        // NOTE: AuditAnchorV2 is a NEW deployment; set AUDIT_ANCHOR_ADDR to it.
-        // The V1 anchor (ANCHOR_MAINNET) is retained only as documentation of
-        // the historical proof trail and must NOT be used here.
-        require(anchor != ANCHOR_MAINNET, "AUDIT_ANCHOR_ADDR is the V1 anchor; deploy V2 first");
         require(anchor.code.length > 0, "AUDIT_ANCHOR_ADDR has no code");
+        // Identify the anchor by CAPABILITY, not by blacklisting one address.
+        // The old check was `anchor != ANCHOR_MAINNET`, which any fresh V1
+        // deployment trivially satisfies — and `script/Deploy.s.sol` deploys
+        // V1. `execCommitmentOf` does not exist on V1 and V1 has no fallback,
+        // so a staticcall that returns 32 bytes is a positive proof of V2.
+        // (Audit RT09.)
+        (bool probeOk, bytes memory probeRet) = anchor.staticcall(
+            abi.encodeWithSignature(
+                "execCommitmentOf(address,bytes32)", address(this), bytes32(0)
+            )
+        );
+        require(
+            probeOk && probeRet.length == 32,
+            "AUDIT_ANCHOR_ADDR does not implement execCommitmentOf - not an AuditAnchorV2"
+        );
+
         require(WMON_MAINNET.code.length > 0, "WMON has no code");
         require(ROUTER_MAINNET.code.length > 0, "SwapRouter02 has no code");
         for (uint256 i = 0; i < approved.length; ++i) {
             require(approved[i].code.length > 0, "APPROVED_TOKENS entry has no code");
+            require(approved[i] != WMON_MAINNET, "WMON cannot be an output token");
+            for (uint256 j = 0; j < i; ++j) {
+                require(approved[j] != approved[i], "duplicate APPROVED_TOKENS entry");
+            }
         }
 
         vm.startBroadcast(pk);

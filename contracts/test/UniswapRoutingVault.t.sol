@@ -62,7 +62,7 @@ contract UniswapRoutingVaultTest is Test {
     ) internal {
         // Evaluate BOTH external reads before pranking: vm.prank applies to the
         // next external call, which would otherwise be routeCommitment().
-        bytes32 commitment = vault.routeCommitment(who, t, f, w, amountInWei, m, deadline);
+        bytes32 commitment = vault.routeCommitment(orderHash, who, t, f, w, amountInWei, m, deadline);
         uint64  seq        = anchor.nextSequence(who);
         vm.prank(who);
         anchor.anchor(orderHash, commitment, seq);
@@ -138,7 +138,7 @@ contract UniswapRoutingVaultTest is Test {
 
         // Same order hash, but flip the weights -> different commitment.
         w[0] = 9000; w[1] = 1000;
-        bytes32 divergent = vault.routeCommitment(alice, t, f, w, 1 ether, m, FUTURE);
+        bytes32 divergent = vault.routeCommitment(orderHash, alice, t, f, w, 1 ether, m, FUTURE);
         bytes32 recorded  = anchor.execCommitmentOf(alice, orderHash);
         vm.prank(alice);
         vm.expectRevert(
@@ -198,7 +198,7 @@ contract UniswapRoutingVaultTest is Test {
         vault.executeAndRoute{value: 1 ether}(orderHash, t, f, w, m, FUTURE);
 
         // Re-anchoring the same hash is refused by the anchor itself...
-        bytes32 c = vault.routeCommitment(alice, t, f, w, 1 ether, m, FUTURE);
+        bytes32 c = vault.routeCommitment(orderHash, alice, t, f, w, 1 ether, m, FUTURE);
         vm.prank(alice);
         vm.expectRevert(
             abi.encodeWithSelector(AuditAnchorV2.AlreadyAnchored.selector, orderHash)

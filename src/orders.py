@@ -155,7 +155,21 @@ class RebalanceOrder:
                 )
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        """Canonical dict for signing and hashing.
+
+        `execution` is OMITTED when absent rather than emitted as null. Adding
+        the field to the dataclass made `asdict` emit `"execution":null` for
+        every schema-v1 order, so their canonical bytes no longer matched what
+        was actually signed — silently invalidating every historical
+        signature, including the shipped mainnet provenance trail. Omitting
+        the key restores byte-identical canonicalisation for v1 orders while
+        v2 orders carry it. `schema_version` is itself signed, so the two
+        shapes remain distinguishable. (Audit M-2.)
+        """
+        d = asdict(self)
+        if d.get("execution") is None:
+            d.pop("execution", None)
+        return d
 
 
 @dataclass
@@ -325,7 +339,8 @@ def sign_order_hedged(order: RebalanceOrder,
 def verify_signed_order(signed: SignedOrder,
                         seen_nonces: set[str] | None = None,
                         trusted: TrustedKeys | None = None,
-                        require_hedged: bool = True) -> bool:
+                        require_hedged: bool = True,
+                        require_execution: bool | None = None) -> bool:
     """Verify an order against a POLICY, not against whatever the file claims.
 
     Two properties the previous implementation did not have:
@@ -359,6 +374,15 @@ def verify_signed_order(signed: SignedOrder,
 
     # Z-2: the required leg set comes from policy, never from the artefact.
     if require_hedged and not signed.is_hedged:
+        return False
+
+    # M-3: the same discipline for the execution binding. A schema-v2 order
+    # with execution=None otherwise verifies and still reaches the route
+    # builders — structurally identical to hedge-stripping. Defaults to
+    # "required for v2 and later" rather than to the artefact's own shape.
+    if require_execution is None:
+        require_execution = signed.order.schema_version >= 2
+    if require_execution and signed.order.execution is None:
         return False
 
     payload = signed.order.to_dict()
@@ -472,7 +496,8 @@ def append_audit(signed: SignedOrder,
                  log_path: Path = AUDIT_LOG_PATH,
                  verified: bool | None = None,
                  trusted: TrustedKeys | None = None,
-                 require_hedged: bool = True) -> None:
+                 require_hedged: bool = True,
+                 require_execution: bool | None = None) -> None:
     """Append the signed order to the audit log, hash-chained to the
     previous entry. Creates the file if needed.
 
@@ -493,7 +518,8 @@ def append_audit(signed: SignedOrder,
 
     ok = (
         bool(verified) if verified is not None
-        else verify_signed_order(signed, trusted=trusted, require_hedged=require_hedged)
+        else verify_signed_order(signed, trusted=trusted, require_hedged=require_hedged,
+                                 require_execution=require_execution)
     )
     if not ok:
         raise AuditVerifyFailed(
@@ -566,12 +592,23 @@ def load_signed_orders(path: Path = SIGNED_ORDERS_PATH) -> list[SignedOrder]:
         ex = od.pop("execution", None)
         if ex is not None:
             kind = ex.get("kind")
-            if kind == "route":
-                od["execution"] = RouteExecution(**ex)
-            elif kind == "supply":
-                od["execution"] = SupplyExecution(**ex)
-            else:
-                raise ValueError(f"unknown execution kind: {kind!r}")
+            # `kind` is signed but was previously unvalidated, so a hostile
+            # artefact could set kind="supply" on route-shaped fields and crash
+            # reconstruction with a raw TypeError — before any signature check
+            # ran. Fail closed with a typed error instead.
+            try:
+                if kind == "route":
+                    od["execution"] = RouteExecution(**ex)
+                elif kind == "supply":
+                    od["execution"] = SupplyExecution(**ex)
+                else:
+                    raise ValueError(f"unknown execution kind: {kind!r}")
+            except TypeError as e:
+                raise ValueError(
+                    f"execution block does not match its declared kind={kind!r}: {e}"
+                ) from e
+            if od["execution"].kind != kind:
+                raise ValueError(f"execution kind mismatch: {kind!r}")
         order = RebalanceOrder(**od)
         out.append(SignedOrder(
             order=order,

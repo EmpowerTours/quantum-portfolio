@@ -64,12 +64,37 @@ def _build_route_execution(amount_in_wei: int,
     vault = os.environ.get("UNISWAP_ROUTING_VAULT", "0x" + "0" * 40)
     user = os.environ.get("AGENT_ADDRESS", "0x" + "0" * 40)
     if vault == "0x" + "0" * 40 or user == "0x" + "0" * 40:
-        print("NOTE: UNISWAP_ROUTING_VAULT / AGENT_ADDRESS unset — the execution")
-        print("      block is structurally valid but points at the zero address.")
-        print("      Set both once AuditAnchorV2 + the V2 vault are deployed.")
+        raise SystemExit(
+            "UNISWAP_ROUTING_VAULT and AGENT_ADDRESS must be set.\n"
+            "A zero vault or user produces a commitment that can NEVER be "
+            "satisfied (msg.sender is never 0), and anchoring it would brick "
+            "that orderHash permanently — AuditAnchorV2 refuses to re-anchor."
+        )
 
-    expected_out = amount_in_wei * REFERENCE_USDC_PER_MON_MICRO // 10**18
+    # A live quote is what should set this. REFERENCE_USDC_PER_MON_MICRO is a
+    # point estimate from one fork block, and the same measurement moved 6.7%
+    # in the weeks before it was taken. Since the signed floor is now the whole
+    # MEV defence, a stale rate either under-protects (a sandwich extracting up
+    # to the drift lands and looks correctly anchored) or over-shoots and
+    # reverts every order until the deadline burns the anchor.
+    expected_micro = int(os.environ.get("DEMO_EXPECTED_OUT_MICRO", 0)) or None
+    if expected_micro is None:
+        expected_out = amount_in_wei * REFERENCE_USDC_PER_MON_MICRO // 10**18
+        print("WARNING: amountOutMin derived from a HARDCODED reference rate, not a")
+        print("         live quote. Set DEMO_EXPECTED_OUT_MICRO from QuoterV2 before")
+        print("         anchoring anything with real value.")
+    else:
+        expected_out = expected_micro
+
+    if not (0 < slippage_bps <= 500):
+        raise ValueError(f"DEMO_SLIPPAGE_BPS must be in (0, 500], got {slippage_bps}")
     floor = expected_out * (10_000 - slippage_bps) // 10_000
+    if floor <= 0:
+        raise ValueError(
+            f"computed amountOutMin is {floor} for amount_in={amount_in_wei} wei. "
+            "Refusing to sign a fail-open slippage floor — clamping this to 1 "
+            "would authorise a ~100% loss."
+        )
     return orders.RouteExecution(
         chain_id=MONAD_MAINNET_CHAIN_ID,
         vault=vault,
@@ -78,7 +103,7 @@ def _build_route_execution(amount_in_wei: int,
         fee_tiers=[USDC_FEE_TIER],
         weights_bps=[10_000],
         amount_in_wei=amount_in_wei,
-        amount_out_min=[max(floor, 1)],
+        amount_out_min=[floor],
         deadline=int(time.time()) + valid_for_s,
     )
 

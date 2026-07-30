@@ -68,7 +68,7 @@ contract MorphoSupplyAdapterForkTest is Test {
         // Provenance: the trader anchors the order, then supplies.
         vm.startPrank(trader);
         anchor.anchor(
-            orderHash, adapter.supplyCommitment(trader, m, amount), anchor.nextSequence(trader)
+            orderHash, adapter.supplyCommitment(orderHash, trader, m, amount), anchor.nextSequence(trader)
         );
 
         deal(USDC, trader, amount);
@@ -102,7 +102,7 @@ contract MorphoSupplyAdapterForkTest is Test {
         vm.startPrank(trader);
         anchor.anchor(
             keccak256("hostile-market"),
-            adapter.supplyCommitment(trader, hostile, 1_000_000),
+            adapter.supplyCommitment(keccak256("hostile-market"), trader, hostile, 1_000_000),
             anchor.nextSequence(trader)
         );
         deal(USDC, trader, 1_000_000);

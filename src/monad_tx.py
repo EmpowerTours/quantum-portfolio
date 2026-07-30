@@ -34,6 +34,7 @@ wallet's ECDSA key authorises the EXECUTION. Two-key custody.
 from __future__ import annotations
 
 import re
+import time as _time
 
 import base64
 import json
@@ -82,6 +83,7 @@ def _verify_or_raise(
     *,
     trusted: TrustedKeys | None = None,
     require_hedged: bool = True,
+    require_execution: bool | None = None,
 ) -> None:
     """Gate every builder on an explicit verification POLICY.
 
@@ -95,7 +97,8 @@ def _verify_or_raise(
     triple-signed; single-leg ML-DSA orders are a legacy path and must opt
     out explicitly rather than being silently accepted (audit Z-2).
     """
-    if not verify_signed_order(signed, trusted=trusted, require_hedged=require_hedged):
+    if not verify_signed_order(signed, trusted=trusted, require_hedged=require_hedged,
+                               require_execution=require_execution):
         raise UnverifiableOrder(
             f"signed order {signed.order.order_id} fails PQ signature "
             "verification — refusing to build calldata that would "
@@ -153,8 +156,9 @@ class UnsignedMonadTx:
 
 def encode_order_calldata(signed: SignedOrder,
     *,
-    trusted: TrustedKeys | None = None,
+    trusted: TrustedKeys,
     require_hedged: bool = True,
+    require_execution: bool | None = None,
 ) -> str:
     """Pack a signed order into a single 0x-hex calldata blob.
 
@@ -173,7 +177,8 @@ def encode_order_calldata(signed: SignedOrder,
 
     The reverse parser lives in decode_order_calldata().
     """
-    _verify_or_raise(signed, trusted=trusted, require_hedged=require_hedged)
+    _verify_or_raise(signed, trusted=trusted, require_hedged=require_hedged,
+                     require_execution=require_execution)
     # Use the SAME canonicalisation as pq_signing.canonical_bytes (H5):
     # signature verification depends on byte-identical canonical form, so
     # a Solidity / non-Python verifier that hashes the on-chain calldata
@@ -357,8 +362,9 @@ def build_alloc_tx(
     max_fee_gwei: int = DEFAULT_MAX_FEE_GWEI,
     priority_gwei: int = DEFAULT_PRIORITY_GWEI,
     chain_id: int = MONAD_CHAIN_ID,
-    trusted: TrustedKeys | None = None,
+    trusted: TrustedKeys,
     require_hedged: bool = True,
+    require_execution: bool | None = None,
 ) -> UnsignedMonadTx:
     """Build an unsigned EIP-1559 TX that deposits `amount_wei` of native
     MON into the MonadAllocationVault under the agent's signed-order hash.
@@ -376,7 +382,8 @@ def build_alloc_tx(
     _require_address(vault_contract, "vault_contract")
     if amount_wei <= 0:
         raise ValueError(f"amount_wei must be positive, got {amount_wei}")
-    _verify_or_raise(signed, trusted=trusted, require_hedged=require_hedged)
+    _verify_or_raise(signed, trusted=trusted, require_hedged=require_hedged,
+                     require_execution=require_execution)
 
     order_hash  = order_sha256(signed)
     pool_hashes = [pool_label_hash(p) for p in signed.order.pools]
@@ -506,43 +513,49 @@ def encode_route_calldata(
 def build_route_tx(
     signed: SignedOrder,
     *,
-    vault_contract: str,
     nonce: int,
-    amount_wei: int,
-    token_outs: list[str],
-    fee_tiers: list[int],
-    amount_out_min: list[int],
-    deadline: int,
+    trusted: TrustedKeys,
     gas_limit: int = ROUTE_EXECUTE_GAS_LIMIT,
     max_fee_gwei: int = DEFAULT_MAX_FEE_GWEI,
     priority_gwei: int = DEFAULT_PRIORITY_GWEI,
-    chain_id: int = MONAD_CHAIN_ID,
-    trusted: TrustedKeys | None = None,
     require_hedged: bool = True,
+    require_execution: bool | None = None,
 ) -> UnsignedMonadTx:
-    """Build an unsigned EIP-1559 TX that routes `amount_wei` of native MON
-    through the UniswapRoutingVault into `token_outs` on Uniswap v3.
+    """Build the unsigned `executeAndRoute` TX for a PQ-signed schema-v2 order.
 
-    Weights are derived from the signed order (`signed.order.weights`) so
-    the on-chain allocation matches the agent's PQ-signed intent exactly.
-    The caller supplies the concrete `token_outs` (the mainnet ERC20 each
-    off-chain pool label maps to), `fee_tiers`, per-hop `amount_out_min`
-    (slippage floors the agent computes from a QuoterV2 read), and a
-    `deadline`. The order's SHA-256 must already be the caller's most
-    recent AuditAnchor entry or the vault reverts with AnchorNotFound.
+    EVERY execution parameter comes from `signed.order.execution` — the block
+    the ML-DSA signature covers and that `AuditAnchorV2.execCommitment` binds.
+
+    This used to take token_outs / fee_tiers / amount_out_min / deadline /
+    amount_wei / vault_contract as free caller kwargs and never read
+    `order.execution` at all, so a verified order could be paired with an
+    entirely different trade: the shipped artefact authorised one leg at
+    10000 bps while the builder would have emitted three legs from
+    `order.weights`. The M-7 binding existed in Solidity and in the hash
+    function and was connected to nothing. Passing the parameters separately
+    is now impossible by construction. (Audit pipeline-1.)
+
+    `trusted` is REQUIRED, not optional: this function turns an artefact into
+    mainnet calldata, so it must pin the signer rather than verify the file
+    against a key the file itself supplies. (Audit pipeline-3 / M-1.)
     """
-    _require_address(vault_contract, "vault_contract")
-    if amount_wei <= 0:
-        raise ValueError(f"amount_wei must be positive, got {amount_wei}")
-    _verify_or_raise(signed, trusted=trusted, require_hedged=require_hedged)
+    _verify_or_raise(signed, trusted=trusted, require_hedged=require_hedged,
+                     require_execution=require_execution)
+
+    ex = signed.order.execution
+    if not isinstance(ex, RouteExecution):
+        raise ValueError(
+            "build_route_tx requires a schema-v2 order carrying a RouteExecution; "
+            f"got {type(ex).__name__}"
+        )
+    validate_route_execution(ex)
 
     order_hash  = order_sha256(signed)
-    weights_bps = fractional_weights_to_bps(signed.order.weights)
-    if not (len(token_outs) == len(fee_tiers) == len(amount_out_min) == len(weights_bps)):
-        raise ValueError(
-            "token_outs / fee_tiers / amount_out_min must be parallel to the "
-            f"order's {len(weights_bps)} weighted pools"
-        )
+    vault_contract = ex.vault
+    amount_wei = ex.amount_in_wei
+    token_outs, fee_tiers = ex.token_outs, ex.fee_tiers
+    weights_bps, amount_out_min = ex.weights_bps, ex.amount_out_min
+    deadline, chain_id = ex.deadline, ex.chain_id
 
     return UnsignedMonadTx(
         chainId=chain_id,
@@ -571,6 +584,71 @@ def build_route_tx(
 ANCHOR_SELECTOR_NO_SEQ = bytes.fromhex("eecdf927")   # anchor(bytes32)
 ANCHOR_SELECTOR_W_SEQ  = bytes.fromhex("db2c4aca")   # anchor(bytes32,uint64)
 ANCHOR_GAS_LIMIT       = 60_000                       # cold first call; ~30K steady
+
+# AuditAnchorV2.anchor(bytes32 orderHash, bytes32 execCommitment, uint64 seq).
+# Verified with `cast sig "anchor(bytes32,bytes32,uint64)"`.
+ANCHOR_V2_SELECTOR   = bytes.fromhex("15954b2c")
+ANCHOR_V2_GAS_LIMIT  = 90_000     # one extra cold SSTORE vs V1
+
+
+def build_anchor_v2_tx(
+    signed: SignedOrder,
+    *,
+    anchor_contract: str,
+    nonce: int,
+    expected_sequence: int,
+    trusted: TrustedKeys,
+    gas_limit: int = ANCHOR_V2_GAS_LIMIT,
+    max_fee_gwei: int = DEFAULT_MAX_FEE_GWEI,
+    priority_gwei: int = DEFAULT_PRIORITY_GWEI,
+    require_hedged: bool = True,
+    require_execution: bool | None = None,
+) -> UnsignedMonadTx:
+    """Anchor a schema-v2 order together with the execution it authorises.
+
+    Without this builder the entire execution binding was decorative: the
+    commitment was computed, printed, and discarded, while the only anchor
+    builders emitted V1 selectors carrying no commitment at all. The
+    recompute-and-revert defence in the vault cannot be armed unless the
+    commitment actually reaches the chain. (Audit pipeline-1.)
+
+    The commitment is derived HERE from the signed execution block, never
+    accepted from the caller, so the anchored value and the value the vault
+    recomputes cannot diverge.
+    """
+    _require_address(anchor_contract, "anchor_contract")
+    if expected_sequence < 0 or expected_sequence >= 2 ** 64:
+        raise ValueError(f"expected_sequence must fit in uint64: {expected_sequence}")
+    _verify_or_raise(signed, trusted=trusted, require_hedged=require_hedged,
+                     require_execution=require_execution)
+
+    ex = signed.order.execution
+    if isinstance(ex, RouteExecution):
+        validate_route_execution(ex)
+        commitment = route_commitment(ex, order_sha256(signed))
+        chain_id = ex.chain_id
+    elif isinstance(ex, SupplyExecution):
+        commitment = supply_commitment(ex, order_sha256(signed))
+        chain_id = ex.chain_id
+    else:
+        raise ValueError(
+            "build_anchor_v2_tx requires a schema-v2 order with an execution block"
+        )
+
+    data = (ANCHOR_V2_SELECTOR + order_sha256(signed) + commitment
+            + expected_sequence.to_bytes(32, "big"))
+    return UnsignedMonadTx(
+        chainId=chain_id,
+        type=2,
+        nonce=nonce,
+        maxFeePerGas=max_fee_gwei * 10 ** 9,
+        maxPriorityFeePerGas=priority_gwei * 10 ** 9,
+        gas=gas_limit,
+        to=anchor_contract,
+        value=0,
+        data="0x" + data.hex(),
+        accessList=[],
+    )
 
 
 def order_sha256(signed: SignedOrder) -> bytes:
@@ -610,8 +688,9 @@ def build_anchor_tx(
     max_fee_gwei: int = DEFAULT_MAX_FEE_GWEI,
     priority_gwei: int = DEFAULT_PRIORITY_GWEI,
     chain_id: int = MONAD_CHAIN_ID,
-    trusted: TrustedKeys | None = None,
+    trusted: TrustedKeys,
     require_hedged: bool = True,
+    require_execution: bool | None = None,
 ) -> UnsignedMonadTx:
     """Produce an unsigned Monad TX that anchors `signed`'s SHA-256 on-chain.
 
@@ -621,7 +700,8 @@ def build_anchor_tx(
     chain by filtering this event by the agent's address.
     """
     _require_address(anchor_contract, "anchor_contract")
-    _verify_or_raise(signed, trusted=trusted, require_hedged=require_hedged)
+    _verify_or_raise(signed, trusted=trusted, require_hedged=require_hedged,
+                     require_execution=require_execution)
     order_hash = order_sha256(signed)
     return UnsignedMonadTx(
         chainId=chain_id,
@@ -647,8 +727,9 @@ def build_unsigned_tx(
     priority_gwei: int = DEFAULT_PRIORITY_GWEI,
     value_wei: int = 0,
     chain_id: int = MONAD_CHAIN_ID,
-    trusted: TrustedKeys | None = None,
+    trusted: TrustedKeys,
     require_hedged: bool = True,
+    require_execution: bool | None = None,
 ) -> UnsignedMonadTx:
     """Produce an unsigned EIP-1559 TX carrying the signed order.
 
@@ -667,7 +748,8 @@ def build_unsigned_tx(
         to=to_address,
         value=value_wei,
         data=encode_order_calldata(
-            signed, trusted=trusted, require_hedged=require_hedged
+            signed, trusted=trusted, require_hedged=require_hedged,
+            require_execution=require_execution,
         ),
         accessList=[],
     )
@@ -689,6 +771,8 @@ def build_unsigned_tx(
 
 
 def _word(v: int) -> bytes:
+    if isinstance(v, bool):
+        raise TypeError("bool is not a uint256; True would silently encode as 1")
     if v < 0 or v >= 2 ** 256:
         raise ValueError(f"value does not fit in uint256: {v}")
     return v.to_bytes(32, "big")
@@ -707,7 +791,7 @@ def _dyn_addr_array(vals: list[str]) -> bytes:
     return _word(len(vals)) + b"".join(_addr_word(a) for a in vals)
 
 
-def route_commitment(ex: RouteExecution) -> bytes:
+def route_commitment(ex: RouteExecution, order_hash: bytes) -> bytes:
     """keccak256 of the ABI encoding UniswapRoutingVault.routeCommitment builds.
 
     A FAITHFUL MIRROR of the Solidity helper, deliberately including its
@@ -717,23 +801,38 @@ def route_commitment(ex: RouteExecution) -> bytes:
     the two implementations disagree about which inputs are even hashable,
     which is precisely the class of divergence this function must not have.
 
+    `order_hash` is part of the preimage. `consumed` is keyed by orderHash, so
+    a commitment that did not name its own order could be filed under unlimited
+    DISTINCT orderHashes and executed once under each — N executions from one
+    authorisation, each passing every off-chain check. (Audit RT08e.)
+
     Call `validate_route_execution` before anchoring — an unexecutable
     commitment cannot be corrected once anchored (contract L-3).
     """
+    if len(order_hash) != 32:
+        raise ValueError(f"order_hash must be 32 bytes, got {len(order_hash)}")
+    if any(f < 0 or f > 0xFFFFFF for f in ex.fee_tiers):
+        raise ValueError("each fee tier must fit in uint24 (Solidity cannot encode more)")
+    if any(w < 0 or w > 0xFFFF for w in ex.weights_bps):
+        raise ValueError("each weight must fit in uint16 (Solidity cannot encode more)")
+
     tails = [
         _dyn_addr_array(ex.token_outs),
         _dyn_uint_array(ex.fee_tiers),
         _dyn_uint_array(ex.weights_bps),
         _dyn_uint_array(ex.amount_out_min),
     ]
-    head_size = 7 * 32
+    head_size = 10 * 32
     offs, running = [], head_size
     for t in tails:
         offs.append(running)
         running += len(t)
 
     head = (
-        _addr_word(ex.user)
+        _word(ex.chain_id)
+        + _addr_word(ex.vault)
+        + order_hash
+        + _addr_word(ex.user)
         + _word(offs[0])
         + _word(offs[1])
         + _word(offs[2])
@@ -744,11 +843,35 @@ def route_commitment(ex: RouteExecution) -> bytes:
     return _keccak256(head + b"".join(tails))
 
 
-def validate_route_execution(ex: RouteExecution) -> None:
+def validate_route_execution(
+    ex: RouteExecution,
+    *,
+    now: int | None = None,
+    min_deadline_margin_s: int = 60,
+    approved_tokens: set[str] | None = None,
+    approved_fee_tiers: set[int] | None = None,
+    expected_out: list[int] | None = None,
+    max_slippage_bps: int = 500,
+    expected_chain_id: int | None = None,
+    expected_vault: str | None = None,
+    max_legs: int = 8,
+) -> None:
     """Reject an execution that could never run, BEFORE its commitment is
-    anchored. AuditAnchorV2 refuses to re-anchor an orderHash, so anchoring a
-    commitment that `executeAndRoute` would reject bricks that order
-    permanently — the only recovery is re-signing off-chain."""
+    anchored.
+
+    This is the ONLY gate in front of an irreversible write: AuditAnchorV2
+    refuses to re-anchor an orderHash, so anchoring a commitment that
+    `executeAndRoute` would reject bricks that order permanently — the only
+    recovery is re-signing off-chain. An earlier version checked lengths,
+    weights and floors but not the deadline, the addresses, the allowlists or
+    the leg count, and so accepted twelve distinct classes of guaranteed-brick
+    order — including the exact shape of the artefact then sitting in
+    outputs/ (user=0x0, vault=0x0, deadline already past). (Audit pipeline-4.)
+
+    Allowlists and chain/vault identity are optional only so this stays usable
+    before a deployment exists; pass them from the deploy config in any real
+    flow.
+    """
     n = len(ex.token_outs)
     if n == 0 or not (n == len(ex.fee_tiers) == len(ex.weights_bps)
                       == len(ex.amount_out_min)):
@@ -757,32 +880,122 @@ def validate_route_execution(ex: RouteExecution) -> None:
             f"non-empty and the same length (got {n}, {len(ex.fee_tiers)}, "
             f"{len(ex.weights_bps)}, {len(ex.amount_out_min)})"
         )
+    if n > max_legs:
+        raise ValueError(
+            f"{n} legs exceeds max_legs={max_legs}; the route would risk "
+            "exceeding the gas limit and revert after the anchor is spent"
+        )
+
+    _require_address(ex.vault, "execution.vault")
+    _require_address(ex.user, "execution.user")
+    if int(ex.vault, 16) == 0:
+        raise ValueError("execution.vault is the zero address")
+    if int(ex.user, 16) == 0:
+        raise ValueError(
+            "execution.user is the zero address — msg.sender can never be 0, "
+            "so this commitment could never be satisfied"
+        )
+    for t in ex.token_outs:
+        _require_address(t, "execution.token_outs entry")
+        if int(t, 16) == 0:
+            raise ValueError("execution.token_outs contains the zero address")
+
     if any(f < 0 or f > 0xFFFFFF for f in ex.fee_tiers):
         raise ValueError("each fee tier must fit in uint24")
     if any(w < 0 or w > 0xFFFF for w in ex.weights_bps):
         raise ValueError("each weight must fit in uint16")
     if sum(ex.weights_bps) != 10_000:
         raise ValueError(f"weights_bps must sum to 10000, got {sum(ex.weights_bps)}")
-    if any(w == 0 for w in ex.weights_bps):
+    # Guard the QUANTITY, not the weight. Integer division floors a perfectly
+    # legal 1-bp weight to zero whenever amount_in_wei * w < 10_000, and
+    # SwapRouter02 reads amountIn == 0 as its CONTRACT_BALANCE sentinel.
+    # Checking `w == 0` did not implement the invariant it claimed.
+    # (Audit RT07, mirrored from the vault.)
+    # Replicate the vault's arithmetic EXACTLY, including the last leg taking
+    # the remainder. A weight of 10_000 on a non-final leg drains the deposit
+    # and leaves the final leg at zero, so the final leg is not automatically
+    # safe either.
+    remaining = ex.amount_in_wei
+    n_legs = len(ex.weights_bps)
+    for i, w in enumerate(ex.weights_bps):
+        leg_in = remaining if i == n_legs - 1 else (ex.amount_in_wei * w) // 10_000
+        if leg_in == 0:
+            raise ValueError(
+                f"leg {i}: amountIn floors to 0 (weight={w} bps of "
+                f"{ex.amount_in_wei} wei). SwapRouter02 reads amountIn == 0 as "
+                "its CONTRACT_BALANCE sentinel and would swap its own inventory"
+            )
+        remaining -= leg_in
+    if any(a <= 0 for a in ex.amount_out_min):
         raise ValueError(
-            "zero-weight leg: SwapRouter02 reads amountIn == 0 as its "
-            "CONTRACT_BALANCE sentinel, and the vault rejects it"
+            "amountOutMin must be strictly positive; a floor of 0 is fail-open"
         )
-    if any(a == 0 for a in ex.amount_out_min):
-        raise ValueError("amountOutMin of 0 is a fail-open slippage floor")
-    if ex.amount_in_wei == 0:
-        raise ValueError("amount_in_wei must be non-zero")
+
+    # A POSITIVE floor is not a MEANINGFUL floor. `amount_out_min=[1]` clears
+    # every absolute guard in the stack while permitting a ~100% loss, and
+    # since binding made the signed floor the entire MEV defence, that is a
+    # fail-open. Judging it requires knowing the expected output, so pass a
+    # live quote; without one this check cannot run and the caller is trusting
+    # an unvalidated floor.
+    if expected_out is not None:
+        if len(expected_out) != n:
+            raise ValueError(
+                f"expected_out has {len(expected_out)} entries for {n} legs"
+            )
+        if not (0 < max_slippage_bps <= 2_000):
+            raise ValueError(f"max_slippage_bps out of range: {max_slippage_bps}")
+        for i, (floor, exp) in enumerate(zip(ex.amount_out_min, expected_out)):
+            if exp <= 0:
+                raise ValueError(f"expected_out[{i}] must be positive")
+            required = exp * (10_000 - max_slippage_bps) // 10_000
+            if floor < required:
+                actual_bps = 10_000 - (floor * 10_000 // exp)
+                raise ValueError(
+                    f"leg {i}: amountOutMin={floor} is {actual_bps} bps below the "
+                    f"quoted {exp}, exceeding the {max_slippage_bps} bps tolerance. "
+                    "The signed floor is the entire MEV defence — a slack floor "
+                    "permits exactly that much extractable value."
+                )
+    if ex.amount_in_wei <= 0:
+        raise ValueError("amount_in_wei must be positive")
+
+    now = int(_time.time()) if now is None else now
+    if ex.deadline <= now + min_deadline_margin_s:
+        raise ValueError(
+            f"deadline {ex.deadline} is in the past or within "
+            f"{min_deadline_margin_s}s of now ({now}); the anchor would be "
+            "spent on a route that can no longer execute"
+        )
+
+    if approved_tokens is not None:
+        lowered = {a.lower() for a in approved_tokens}
+        for t in ex.token_outs:
+            if t.lower() not in lowered:
+                raise ValueError(f"token {t} is not in the vault's approved set")
+    if approved_fee_tiers is not None:
+        for f in ex.fee_tiers:
+            if f not in approved_fee_tiers:
+                raise ValueError(f"fee tier {f} is not in the vault's approved set")
+    if expected_chain_id is not None and ex.chain_id != expected_chain_id:
+        raise ValueError(f"chain_id {ex.chain_id} != expected {expected_chain_id}")
+    if expected_vault is not None and ex.vault.lower() != expected_vault.lower():
+        raise ValueError(f"vault {ex.vault} != expected {expected_vault}")
 
 
-def supply_commitment(ex: SupplyExecution) -> bytes:
+def supply_commitment(ex: SupplyExecution, order_hash: bytes) -> bytes:
     """keccak256 of the ABI encoding MorphoSupplyAdapter.supplyCommitment builds.
 
     MarketParams is a 5-field all-static struct, so it inlines as five words
     with no offset — the same reason Morpho's own market id is
     keccak256(abi.encode(params)).
     """
+    if len(order_hash) != 32:
+        raise ValueError(f"order_hash must be 32 bytes, got {len(order_hash)}")
     return _keccak256(
-        _addr_word(ex.user)
+        _word(ex.chain_id)
+        + _addr_word(ex.adapter)
+        + order_hash
+        + _addr_word(ex.user)
         + _addr_word(ex.loan_token)
         + _addr_word(ex.collateral_token)
         + _addr_word(ex.oracle)

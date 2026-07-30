@@ -131,17 +131,28 @@ contract UniswapRoutingVault is ReentrancyGuard {
     ///         `abi.encode` (never `encodePacked`) is load-bearing: packed
     ///         encoding drops array length prefixes, so feeTiers=[3000,500] with
     ///         weights=[10000] collides with feeTiers=[3000], weights=[500,10000].
+    /// @dev    DOMAIN SEPARATION: `block.chainid` and `address(this)` lead the
+    ///         preimage. Without them the commitment identified neither the
+    ///         chain nor the executor, while `consumed` is per-executor
+    ///         storage — so one anchor was spendable once on EVERY vault
+    ///         sharing this AuditAnchorV2, which is the documented upgrade
+    ///         path ("to add a token, deploy a new vault"), and again on every
+    ///         chain the contracts are deployed to. (Audit RT08 / pipeline-2.)
     function routeCommitment(
-        address user,
+        bytes32   orderHash,
+        address   user,
         address[] memory tokenOuts,
         uint24[]  memory feeTiers,
         uint16[]  memory weightsBps,
         uint256   amountInWei,
         uint256[] memory amountOutMin,
         uint256   deadline
-    ) public pure returns (bytes32) {
+    ) public view returns (bytes32) {
         return keccak256(
-            abi.encode(user, tokenOuts, feeTiers, weightsBps, amountInWei, amountOutMin, deadline)
+            abi.encode(
+                block.chainid, address(this), orderHash, user, tokenOuts,
+                feeTiers, weightsBps, amountInWei, amountOutMin, deadline
+            )
         );
     }
 
@@ -187,7 +198,8 @@ contract UniswapRoutingVault is ReentrancyGuard {
         bytes32 anchored = ANCHOR.execCommitmentOf(msg.sender, orderHash);
         if (anchored == bytes32(0)) revert AnchorNotFound(orderHash);
         bytes32 expected = routeCommitment(
-            msg.sender, tokenOuts, feeTiers, weightsBps, msg.value, amountOutMin, deadline
+            orderHash, msg.sender, tokenOuts, feeTiers, weightsBps,
+            msg.value, amountOutMin, deadline
         );
         if (anchored != expected) revert ExecutionNotAnchored(expected, anchored);
 
@@ -220,20 +232,27 @@ contract UniswapRoutingVault is ReentrancyGuard {
             if (!isApprovedFeeTier[feeTiers[i]]) {
                 revert FeeTierNotApproved(i, feeTiers[i]);
             }
-            // A zero-weight leg floors `amountIn` to 0, which SwapRouter02
-            // reads as the CONTRACT_BALANCE sentinel: it swaps its OWN token
-            // balance and pays from itself. That laundered output would be
-            // recorded against an allocation slice the user never funded.
-            // (Audit M-5.)
-            if (weightsBps[i] == 0) revert ZeroWeightLeg(i);
             // An unbounded slippage floor is a fail-open on a thin pool.
             // (Audit L-2.)
             if (amountOutMin[i] == 0) revert ZeroSlippageFloor(i);
+
             // Last leg absorbs the rounding remainder so the full deposit
             // is deployed and no WMON dust is stranded.
             uint256 amountIn = i == n - 1
                 ? remaining
                 : (msg.value * weightsBps[i]) / 10_000;
+
+            // Guard the QUANTITY, not the weight. SwapRouter02 reads
+            // `amountIn == 0` as its CONTRACT_BALANCE sentinel: it swaps its
+            // OWN inventory and pays from itself, laundering that output into
+            // a hash-anchored Routed event against a slice the caller never
+            // funded. Checking `weightsBps[i] == 0` did NOT implement that
+            // invariant — integer division floors a perfectly legal 1-bp
+            // weight to zero whenever `msg.value * weightsBps[i] < 10_000`,
+            // i.e. for any deposit of 9_999 wei or less, with the weights
+            // still summing to 10_000 and the anchored commitment still
+            // matching. (Audit M-5, reopened as RT07.)
+            if (amountIn == 0) revert ZeroWeightLeg(i);
             remaining -= amountIn;
 
             amountsOut[i] = ROUTER.exactInputSingle(

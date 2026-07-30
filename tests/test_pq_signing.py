@@ -73,10 +73,10 @@ def test_signed_order_roundtrip(tmp_path: Path | None = None):
             qpu_job_id="d88f7sdg7okc73enff00", qaoa_p_optimal=0.0066,
         )
         signed = orders.sign_order(order, kp, seen_nonces=set())
-        assert orders.verify_signed_order(signed, require_hedged=False)
+        assert orders.verify_signed_order(signed, require_hedged=False, require_execution=False)
         # mutate a field and re-verify
         signed.order.weights[0] = 0.99
-        assert not orders.verify_signed_order(signed, require_hedged=False)
+        assert not orders.verify_signed_order(signed, require_hedged=False, require_execution=False)
     finally:
         shutil.rmtree(tmp_path, ignore_errors=True)
 
@@ -107,9 +107,9 @@ def test_schema_version_is_signed():
     )
     signed = orders.sign_order(order, kp, seen_nonces=set())
     assert signed.order.schema_version == orders.SCHEMA_VERSION
-    assert orders.verify_signed_order(signed, require_hedged=False)
+    assert orders.verify_signed_order(signed, require_hedged=False, require_execution=False)
     signed.order.schema_version = orders.SCHEMA_VERSION + 99
-    assert not orders.verify_signed_order(signed, require_hedged=False)
+    assert not orders.verify_signed_order(signed, require_hedged=False, require_execution=False)
 
 
 def test_canonical_bytes_rejects_non_nfc_instead_of_rewriting():
@@ -208,7 +208,7 @@ def test_audit_chain_intact(tmp_path: Path | None = None):
             o = orders.RebalanceOrder(
                 pools=[f"P{i}"], weights=[1.0], expected_return=0.0, expected_vol=0.0,
             )
-            orders.append_audit(orders.sign_order(o, kp, seen_nonces=set()), log, require_hedged=False)
+            orders.append_audit(orders.sign_order(o, kp, seen_nonces=set()), log, require_hedged=False, require_execution=False)
         ok, n, reason = orders.verify_audit_chain(log)
         assert ok, f"chain broken on clean append: {reason}"
         assert n == 3, f"expected 3 entries, got {n}"
@@ -227,7 +227,7 @@ def test_audit_chain_detects_deletion(tmp_path: Path | None = None):
             o = orders.RebalanceOrder(
                 pools=[f"P{i}"], weights=[1.0], expected_return=0.0, expected_vol=0.0,
             )
-            orders.append_audit(orders.sign_order(o, kp, seen_nonces=set()), log, require_hedged=False)
+            orders.append_audit(orders.sign_order(o, kp, seen_nonces=set()), log, require_hedged=False, require_execution=False)
         # Delete the middle line.
         lines = log.read_text().strip().splitlines()
         log.write_text(lines[0] + "\n" + lines[2] + "\n")
@@ -312,7 +312,7 @@ def test_hedged_order_roundtrip(tmp_path: Path | None = None):
         )
         signed = orders.sign_order_hedged(order, ml, slh, ed, seen_nonces=set())
         assert signed.is_hedged
-        assert orders.verify_signed_order(signed, require_hedged=False)
+        assert orders.verify_signed_order(signed, require_hedged=False, require_execution=False)
         comp = orders.verify_signed_order_components(signed)
         assert comp == {"ml_dsa": True, "slh_dsa": True, "ed25519": True}
     finally:
@@ -332,7 +332,7 @@ def test_hedged_tamper_breaks_all_signatures(tmp_path: Path | None = None):
         )
         signed = orders.sign_order_hedged(order, ml, slh, ed, seen_nonces=set())
         signed.order.weights[0] = 0.99   # tamper
-        assert not orders.verify_signed_order(signed, require_hedged=False)
+        assert not orders.verify_signed_order(signed, require_hedged=False, require_execution=False)
         comp = orders.verify_signed_order_components(signed)
         assert comp == {"ml_dsa": False, "slh_dsa": False, "ed25519": False}
     finally:
@@ -348,7 +348,7 @@ def test_legacy_ml_dsa_only_order_still_verifies():
     )
     signed = orders.sign_order(order, kp, seen_nonces=set())
     assert not signed.is_hedged
-    assert orders.verify_signed_order(signed, require_hedged=False)
+    assert orders.verify_signed_order(signed, require_hedged=False, require_execution=False)
 
 
 # --- Schema-version policy ------------------------------------------------
@@ -373,7 +373,7 @@ def test_future_schema_version_rejected():
         schema_version=orders.SCHEMA_VERSION + 99,
     )
     signed = orders.sign_order(order, kp, seen_nonces=set())
-    assert not orders.verify_signed_order(signed, require_hedged=False), (
+    assert not orders.verify_signed_order(signed, require_hedged=False, require_execution=False), (
         "verify_signed_order accepted a future schema_version - the "
         "documented policy in src/orders.py:23 is now unenforced"
     )
@@ -386,7 +386,7 @@ def test_future_schema_version_rejected():
     # different bytes (schema=1), so it MUST fail — proving the
     # signature path was active before and is reactive to field
     # changes.
-    assert not orders.verify_signed_order(signed, require_hedged=False), (
+    assert not orders.verify_signed_order(signed, require_hedged=False, require_execution=False), (
         "tampering schema_version back to current value should have "
         "produced a signature mismatch; the verify path may be broken"
     )
@@ -402,7 +402,7 @@ def test_current_schema_version_accepted():
         schema_version=orders.SCHEMA_VERSION,
     )
     signed = orders.sign_order(order, kp, seen_nonces=set())
-    assert orders.verify_signed_order(signed, require_hedged=False)
+    assert orders.verify_signed_order(signed, require_hedged=False, require_execution=False)
 
 
 # --- B3: append_audit concurrency under flock -----------------------------
@@ -449,7 +449,7 @@ def test_concurrent_append_audit_preserves_chain(tmp_path: Path | None = None):
                 barrier.wait()
                 start = worker_id * APPENDS_PER_WORKER
                 for s in signed_orders_list[start:start + APPENDS_PER_WORKER]:
-                    orders.append_audit(s, log_path=log, require_hedged=False)
+                    orders.append_audit(s, log_path=log, require_hedged=False, require_execution=False)
             except Exception as exc:  # noqa: BLE001
                 errors.append(exc)
 
@@ -507,7 +507,7 @@ def test_append_audit_refuses_unverifiable_order(tmp_path: Path | None = None):
         # Tamper after-the-fact so the verify call inside append_audit fails.
         signed.order.weights = [0.5]
         try:
-            orders.append_audit(signed, log_path=log, require_hedged=False)
+            orders.append_audit(signed, log_path=log, require_hedged=False, require_execution=False)
         except orders.AuditVerifyFailed:
             pass
         else:
