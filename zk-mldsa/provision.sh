@@ -60,9 +60,48 @@ export SP1_PROVER=cpu
 cd "$SCRIPT_DIR/script"
 cargo run --release --bin evm -- --system groth16 --input "$SCRIPT_DIR/mldsa_input.json"
 
+FIXTURE="$SCRIPT_DIR/contracts/src/fixtures/groth16-mldsa-fixture.json"
+
+# Validate the fixture HERE, while the box still exists. Discovering a bad
+# fixture after the box is destroyed means renting another one. The three
+# checks below are exactly the ways the previous fixture was unusable:
+# a 32-byte single-field publicValues, a superseded vkey, and a signer that
+# is not the deployed agentPkHash.
+echo
+echo "==> Validating the fixture before you throw this box away"
+EXPECTED_PKHASH=$(python3 -c "
+import json,hashlib
+d=json.load(open('$SCRIPT_DIR/mldsa_input.json'))
+print(hashlib.sha256(bytes.fromhex(d['pk_hex'])).hexdigest())")
+EXPECTED_ORDER=$(python3 -c "
+import json; print(json.load(open('$SCRIPT_DIR/mldsa_input.json'))['digest'])")
+
+python3 - "$FIXTURE" "$EXPECTED_PKHASH" "$EXPECTED_ORDER" <<'PYEOF'
+import json, sys
+fixture, want_pk, want_order = sys.argv[1], sys.argv[2], sys.argv[3]
+d = json.load(open(fixture))
+pv = d["publicValues"][2:]
+ok = True
+if len(pv) != 128:
+    print(f"  FAIL publicValues is {len(pv)//2} bytes, expected 64 "
+          f"(orderHash + pkHash). Stale single-field guest?")
+    ok = False
+else:
+    order, pk = pv[:64], pv[64:]
+    print(f"  orderHash {order}  {'OK' if order == want_order else 'FAIL expected ' + want_order}")
+    print(f"  pkHash    {pk}  {'OK' if pk == want_pk else 'FAIL expected ' + want_pk}")
+    ok = ok and order == want_order and pk == want_pk
+print(f"  vkey      {d['vkey']}")
+print(f"  proof     {(len(d['proof']) - 2) // 2} bytes")
+if not ok:
+    print("\n  *** FIXTURE IS NOT USABLE — do NOT destroy this box yet. ***")
+    sys.exit(1)
+print("\n  Fixture is valid.")
+PYEOF
+
 echo
 echo "======================= GROTH16 FIXTURE ======================="
-cat "$SCRIPT_DIR/contracts/src/fixtures/groth16-mldsa-fixture.json"
+cat "$FIXTURE"
 echo
 echo "==============================================================="
 echo "Done. Copy the JSON above back to your machine, then destroy this box."
