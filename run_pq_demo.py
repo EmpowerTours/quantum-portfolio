@@ -275,8 +275,14 @@ def main() -> None:
 
     monad_tx_mod = importlib.import_module("src.monad_tx")
     monad_tx_mod.validate_route_execution(exec_block)
-    commitment = monad_tx_mod.route_commitment(exec_block)
+    # The commitment leads with the orderHash: `consumed` is keyed by
+    # orderHash, so a commitment that did not name its own order could be
+    # filed under unlimited distinct orderHashes and executed once under each.
+    # (Audit RT08e.)
+    order_hash = monad_tx_mod.order_sha256(signed)
+    commitment = monad_tx_mod.route_commitment(exec_block, order_hash)
     print("Execution binding (schema v2):")
+    print(f"  orderHash:     0x{order_hash.hex()}")
     print(f"  user:          {exec_block.user}")
     print(f"  vault:         {exec_block.vault}")
     print(f"  tokenOuts:     {exec_block.token_outs}")
@@ -327,7 +333,7 @@ def main() -> None:
     # in calldata. Heavy (~5 KB) but reviewer-readable on-chain.
     tx = monad_tx.build_unsigned_tx(
         signed, to_address=AGENT_WALLET_ADDR, nonce=0,
-        chain_id=DEMO_CHAIN_ID,
+        chain_id=DEMO_CHAIN_ID, trusted=trusted,
     )
     tx_path = Path("outputs/unsigned_monad_tx.json")
     tx_path.write_text(json.dumps(tx.to_dict(), indent=2))
@@ -341,6 +347,7 @@ def main() -> None:
         nonce=0,
         expected_sequence=0,
         chain_id=DEMO_CHAIN_ID,
+        trusted=trusted,
     )
     anchor_path = Path("outputs/unsigned_anchor_tx.json")
     anchor_path.write_text(json.dumps(anchor_tx.to_dict(), indent=2))
@@ -359,6 +366,7 @@ def main() -> None:
         nonce=0,
         amount_wei=DEMO_ALLOC_WEI,
         chain_id=DEMO_CHAIN_ID,
+        trusted=trusted,
     )
     alloc_path = Path("outputs/unsigned_alloc_tx.json")
     alloc_path.write_text(json.dumps(alloc_tx.to_dict(), indent=2))
