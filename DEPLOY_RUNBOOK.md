@@ -1,5 +1,19 @@
 # Mainnet deploy runbook — Monad (chainId 143)
 
+> **STATUS: EXECUTED 2026-07-30.** All three contracts are live and
+> Monadscan-verified. Kept as the record of what was done and as the
+> procedure for any future redeploy.
+>
+> | Contract | Address |
+> |---|---|
+> | AuditAnchorV2 | `0x8422b555DCE11913A4657C2f47C839637FC71ffd` |
+> | UniswapRoutingVault | `0x06F233062eE23590e5CC873df511024f3d981e56` |
+> | MorphoSupplyAdapter | `0x8d5AE2f23E5d20bFb7915168d6b2a3Ce753fE49E` |
+>
+> Anchor deploy tx `0xdb194edf208b64ce5f67b62344a3722f7c95d5983e121b17f0789340e3f20310`.
+> Total cost 0.2998 MON. The deployer key is in `~/projects/fcempowertours/.env`
+> (NOT this repo's `.env`, which holds only the IBM token).
+
 Deploys the three core contracts. **The ZK attestation leg is deliberately not
 included** — its Groth16 fixture is stale (see `zk-mldsa/README.md`), and
 nothing in the core pipeline references `MLDSAAttestation`, so it can be added
