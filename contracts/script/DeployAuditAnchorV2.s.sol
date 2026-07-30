@@ -28,13 +28,18 @@ import { AuditAnchorV2 }    from "../src/AuditAnchorV2.sol";
 ///     Add --broadcast to send. Requires DEPLOYER_PRIVATE_KEY.
 contract DeployAuditAnchorV2 is Script {
     function run() external returns (address anchor) {
-        uint256 pk = vm.envUint("DEPLOYER_PRIVATE_KEY");
+        // Prefer a CLI wallet (--account <keystore> / --ledger), which keeps the
+        // key out of the process environment entirely. Fall back to
+        // DEPLOYER_PRIVATE_KEY when it is set, so existing runbooks and
+        // fork tests keep working. `vm.startBroadcast()` with no argument
+        // uses whatever wallet the CLI supplied.
+        uint256 pk = vm.envOr("DEPLOYER_PRIVATE_KEY", uint256(0));
 
         // V1's script had no chain guard, which is how a mainnet-intended
         // deploy could silently land somewhere else.
         require(block.chainid == 143, "not Monad mainnet (chainId 143)");
 
-        vm.startBroadcast(pk);
+        if (pk != 0) { vm.startBroadcast(pk); } else { vm.startBroadcast(); }
         AuditAnchorV2 a = new AuditAnchorV2();
         vm.stopBroadcast();
 

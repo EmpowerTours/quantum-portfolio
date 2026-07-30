@@ -34,20 +34,36 @@ argument, so just use whatever step 1 actually printed.
 
 ---
 
-## Step 0 — export the deployer key into your shell
+## Step 0 — wallet
 
-The key must never be written into a file in this repo.
+**Preferred: the encrypted keystore.** There is already one named `deployer`
+(`~/.foundry/keystores/deployer`, aes-128-ctr + scrypt). Using it keeps the key
+out of the process environment entirely — forge prompts for the passphrase and
+holds the key only in memory. Confirm it is the right account first:
+
+```bash
+cast wallet address --account deployer
+# must print 0x8dF64bACf6b70F7787f8d14429b258B3fF958ec1
+```
+
+Then add these to every deploy command below:
+
+```
+--account deployer --sender 0x8dF64bACf6b70F7787f8d14429b258B3fF958ec1
+```
+
+**Fallback: an environment variable**, if the keystore holds a different
+account. The key must never be written into a file in this repo.
 
 ```bash
 read -rs DEPLOYER_PRIVATE_KEY && export DEPLOYER_PRIVATE_KEY
-```
-
-Then confirm it derives to the expected deployer before spending anything:
-
-```bash
 cast wallet address --private-key "$DEPLOYER_PRIVATE_KEY"
 # must print 0x8dF64bACf6b70F7787f8d14429b258B3fF958ec1
 ```
+
+The scripts accept either: they read `DEPLOYER_PRIVATE_KEY` when it is set and
+otherwise fall through to whatever wallet the CLI supplied. With neither, forge
+refuses rather than falling back to its default sender — verified on a fork.
 
 ## Step 1 — AuditAnchorV2
 
@@ -57,7 +73,8 @@ anchor, so this must land first.
 ```bash
 cd contracts
 forge script script/DeployAuditAnchorV2.s.sol \
-  --rpc-url https://rpc.monad.xyz --broadcast
+  --rpc-url https://rpc.monad.xyz --broadcast \
+  --account deployer --sender 0x8dF64bACf6b70F7787f8d14429b258B3fF958ec1
 ```
 
 Record the printed address, then confirm the capability the executors probe for:
@@ -79,7 +96,8 @@ export APPROVED_TOKENS=0x754704Bc059F8C67012fEd69BC8A327a5aafb603   # USDC
 export APPROVED_FEE_TIERS=3000                                      # the only liquid WMON/USDC pool
 
 forge script script/DeployUniswapRoutingVault.s.sol \
-  --rpc-url https://rpc.monad.xyz --broadcast
+  --rpc-url https://rpc.monad.xyz --broadcast \
+  --account deployer --sender 0x8dF64bACf6b70F7787f8d14429b258B3fF958ec1
 ```
 
 Only tier 3000 is allowlisted on purpose: the sibling pools hold 0.19 and 2.93
@@ -92,7 +110,8 @@ loss (audit H-3).
 export APPROVED_MARKETS=0xe35c5abc6418b6319b014e07aa3c86163a870a957284128f03cf7a9e414f8899
 
 forge script script/DeployMorphoSupplyAdapter.s.sol \
-  --rpc-url https://rpc.monad.xyz --broadcast
+  --rpc-url https://rpc.monad.xyz --broadcast \
+  --account deployer --sender 0x8dF64bACf6b70F7787f8d14429b258B3fF958ec1
 ```
 
 The script resolves that market id against Morpho itself and requires its loan

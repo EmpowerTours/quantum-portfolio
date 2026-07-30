@@ -25,7 +25,12 @@ contract DeployMorphoSupplyAdapter is Script {
     address constant ANCHOR_MAINNET = 0x4cB79cc36b367A6fd7363BC6a8553a7A270DA27c;
 
     function run() external returns (address adapter) {
-        uint256 pk = vm.envUint("DEPLOYER_PRIVATE_KEY");
+        // Prefer a CLI wallet (--account <keystore> / --ledger), which keeps the
+        // key out of the process environment entirely. Fall back to
+        // DEPLOYER_PRIVATE_KEY when it is set, so existing runbooks and
+        // fork tests keep working. `vm.startBroadcast()` with no argument
+        // uses whatever wallet the CLI supplied.
+        uint256 pk = vm.envOr("DEPLOYER_PRIVATE_KEY", uint256(0));
         address anchor = vm.envAddress("AUDIT_ANCHOR_ADDR");
         address[] memory approved = vm.envAddress("APPROVED_TOKENS", ",");
         bytes32[] memory markets = vm.envBytes32("APPROVED_MARKETS", ",");
@@ -85,7 +90,7 @@ contract DeployMorphoSupplyAdapter is Script {
             require(loanApproved, "market loan token is not in APPROVED_TOKENS");
         }
 
-        vm.startBroadcast(pk);
+        if (pk != 0) { vm.startBroadcast(pk); } else { vm.startBroadcast(); }
         MorphoSupplyAdapter a =
             new MorphoSupplyAdapter(MORPHO_MAINNET, anchor, approved, markets);
         vm.stopBroadcast();

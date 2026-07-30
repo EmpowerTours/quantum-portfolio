@@ -20,9 +20,9 @@
       3,
       4
     ],
-    "objective": -0.5320594283141994
+    "objective": -0.44768139279841657
   },
-  "random_baseline_objective": -0.41296559585550174,
+  "random_baseline_objective": -0.36718958324701134,
   "results": [
     {
       "method": "QAOA (sim, tuned)",
@@ -31,8 +31,8 @@
         3,
         4
       ],
-      "best_objective": -0.5320594283141994,
-      "p_optimal": 0.0107421875,
+      "best_objective": -0.44768139279841657,
+      "p_optimal": 0.007080078125,
       "job_id": null
     },
     {
@@ -42,9 +42,9 @@
         3,
         4
       ],
-      "best_objective": -0.5320594283141994,
-      "p_optimal": 0.0029296875,
-      "job_id": "d89rmk1789is7393mlr0"
+      "best_objective": -0.44768139279841657,
+      "p_optimal": 0.003662109375,
+      "job_id": "d9loihrhdfks73cl9i10"
     },
     {
       "method": "QAOA (hw, mitigated)",
@@ -53,9 +53,9 @@
         3,
         4
       ],
-      "best_objective": -0.5320594283141994,
-      "p_optimal": 0.005126953125,
-      "job_id": "d89rmlqs46sc73fb0qc0"
+      "best_objective": -0.44768139279841657,
+      "p_optimal": 0.003662109375,
+      "job_id": "d9loj33hdfks73cl9in0"
     }
   ]
 }
