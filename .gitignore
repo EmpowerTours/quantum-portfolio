@@ -40,3 +40,8 @@ agent-identity*.json
 # SP1 guest build output. Reproducible from zk-mldsa/program/, and the
 # committed vkey is what pins the program identity, not this binary.
 zk-mldsa/elf/
+
+# Foundry deps for the zk-mldsa contracts project (installed via forge install).
+zk-mldsa/contracts/lib/forge-std/
+zk-mldsa/contracts/out/
+zk-mldsa/contracts/cache/

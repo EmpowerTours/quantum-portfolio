@@ -26,17 +26,37 @@ and check a ~230k-gas Groth16 proof on-chain.
 | Step | Result |
 |---|---|
 | Cross-library compat (quantcrypt sig ↔ RustCrypto `ml-dsa`) | verifies |
-| **Guest execute** (real mainnet order) | verified in zkVM; committed `orderHash 0xf9e798a1…d3c3` (matches the on-chain anchored order) |
+| **Guest execute** (current signing key) | verified in zkVM 2026-07-29; committed `orderHash 0xab308fe8…60a2` **and** `pkHash 0xac0b2aea…02ad` |
 | zkVM cycles (baseline) | 3,038,634 |
-| zkVM cycles (**keccak precompile**, `vendor/keccak`) | **1,876,372** (−38%) |
+| zkVM cycles (**keccak precompile**, `vendor/keccak`) | **2,036,177** (−33%) |
 | **Core proof generation + verification** | **GENERATED and VERIFIED locally** on this 15 GB box (peak RSS 14.75 GB) — succeeds *because* of the precompile patch (baseline OOM'd at 3.04M cycles). |
-| Program vkey | `0x00eddc1f713baedc12aa8c4a088884859c1b2560090711deea375aa734c88c37` |
-| Groth16 wrap (for on-chain) | OOM'd locally at 15 GB, so **generated on a 64 GB cloud box** (Vultr, ~$0.32/hr, one `provision.sh` run). Real EVM-verifiable Groth16 proof: 356-byte proof, `orderHash 0xf9e798a1…d3c3`, committed at `contracts/src/fixtures/groth16-mldsa-fixture.json`. The wrap's memory need is roughly fixed regardless of guest cycles. |
+| Program vkey | `0x00364772d1d557782109c04c8041ea0b05fb55705356a621d37c35d6ecdaba72` |
+| Groth16 wrap (for on-chain) | **NOT YET REGENERATED** — see below. Needs a ≥32 GB box; the wrap's memory need is roughly fixed regardless of guest cycles. |
 
-The circuit, the real-order verification, the STARK proof, **and the
-EVM-verifiable Groth16 proof** are all done. What remains is the on-chain
-deploy: put an SP1 Groth16 verifier + `MLDSAAttestation` on Monad and call
-`attest()` with the fixture.
+### The committed fixture is STALE — do not deploy against it
+
+`contracts/src/fixtures/groth16-mldsa-fixture.json` was generated before two
+changes and is now unusable in three independent ways:
+
+1. its `publicValues` is **32 bytes**, the old orderHash-only layout; the guest
+   now commits `(orderHash, pkHash)` and the contract decodes **64**;
+2. its `vkey` is the superseded `0x00eddc1f…8c37`;
+3. it proves a signature by ML-DSA key `8a1b08d1…`, **whose secret half was
+   lost**. The live identity is `ac0b2aea…` (`keys/pq.pub`).
+
+Because `verifier`, `mldsaProgramVKey` and `agentPkHash` are all `immutable`
+with no owner and no setter, deploying against it would be a permanent
+write-off. `script/DeployMLDSAAttestation.s.sol` now refuses all three cases
+before broadcasting, and re-verifies the proof on-chain after deploying.
+
+**To regenerate:** the guest input has already been re-exported from an order
+signed by the current key (`python zk-mldsa/export_mldsa_input.py`), and the
+guest executes cleanly against it. Only the Groth16 wrap remains — run
+`provision.sh` on a ≥32 GB box, or use the Succinct prover network.
+
+Nothing else in the system depends on this: `AuditAnchorV2`,
+`UniswapRoutingVault` and `MorphoSupplyAdapter` contain no reference to
+`MLDSAAttestation`, so the core pipeline deploys and runs without it.
 
 ### The precompile optimization (`vendor/keccak`)
 
@@ -54,8 +74,19 @@ cd zk-mldsa/script
 cargo run --release --bin fibonacci -- --execute --input ../mldsa_input.json
 ```
 
-`mldsa_input.json` is the real `(pk, canonical order bytes, signature)` exported
-from `outputs/mainnet_route_order.json` via `src/pq_signing.py:canonical_bytes`.
+`mldsa_input.json` is the real `(pk, canonical order bytes, signature)`. Generate
+it with:
+
+```bash
+python zk-mldsa/export_mldsa_input.py --order outputs/signed_orders.json --index 0
+```
+
+That exporter **refuses** to emit an input unless the order was signed by the
+key currently in `keys/pq.pub` and the signature re-verifies — which is exactly
+the check whose absence produced a fixture for a key that was later lost. No
+secret material is read or written: the guest input is `(public key, message,
+signature)`, all public, which is what makes it safe to carry to a rented
+proving box.
 
 ## Finish it (Groth16 proof + on-chain) on adequate hardware
 
@@ -63,10 +94,21 @@ from `outputs/mainnet_route_order.json` via `src/pq_signing.py:canonical_bytes`.
    ```bash
    cargo run --release --bin evm -- --system groth16   # writes the proof + fixture
    ```
+   `provision.sh` does the whole box setup in one shot.
 2. Deploy the SP1 Groth16 verifier (from `succinctlabs/sp1-contracts`) on Monad
-   mainnet, then deploy `MLDSAAttestation(verifier, 0x00eddc1f…8c37)`.
+   mainnet — or reuse the live gateway at
+   `0x7DA83eC4af493081500Ecd36d1a72c23F8fc2abd` — then:
+   ```bash
+   SP1_VERIFIER=0x7DA83eC4af493081500Ecd36d1a72c23F8fc2abd \
+   AGENT_PK_HASH=0xac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad \
+   forge script script/DeployMLDSAAttestation.s.sol --rpc-url https://rpc.monad.xyz
+   ```
+   The script reads the vkey from the fixture, rejects a stale layout or a
+   wrong signer before broadcasting, and calls `isValidProof` against the
+   deployed contract afterwards — so a bricked deployment fails loudly at
+   deploy time rather than on first use.
 3. Call `attest(publicValues, proofBytes)` -> the proof verifies on-chain
-   (~230k gas) and `orderHash 0xf9e798a1…` is recorded as PQ-attested.
+   (~230k gas) and the orderHash is recorded as PQ-attested.
 
 ## Numbers for the pitch (independently citeable)
 

@@ -46,8 +46,27 @@ contract MLDSAAttestation {
 
     error UnknownSigner(bytes32 got, bytes32 expected);
 
+    /// @dev All three arguments are immutable with no setter and no owner, so
+    ///      a wrong value here is a permanent write-off — the contract must be
+    ///      redeployed. Validate every one of them.
+    ///
+    ///      Both failures here are liveness, not safety, and it is worth being
+    ///      precise about why. `verifyProof` is declared `external view`
+    ///      returning nothing, so Solidity emits an `extcodesize` check before
+    ///      the staticcall; against a codeless address that check reverts, and
+    ///      it reverts UNCATCHABLY (a `try/catch` around the call does not
+    ///      intercept it — verified empirically). So a wrong verifier bricks
+    ///      `attest` rather than silently attesting an unverified proof. The
+    ///      silent-pass hazard would only exist if this contract used a
+    ///      low-level `.staticcall`, where success is `true` for an EOA — it
+    ///      deliberately does not. A zero vkey likewise guarantees no real SP1
+    ///      proof ever verifies.
+    ///
+    ///      Bricked is still unrecoverable, hence the requires. (Audit L-6.)
     constructor(address _verifier, bytes32 _mldsaProgramVKey, bytes32 _agentPkHash) {
         require(_agentPkHash != bytes32(0), "agentPkHash unset");
+        require(_mldsaProgramVKey != bytes32(0), "mldsaProgramVKey unset");
+        require(_verifier.code.length > 0, "verifier has no code");
         verifier = _verifier;
         mldsaProgramVKey = _mldsaProgramVKey;
         agentPkHash = _agentPkHash;
