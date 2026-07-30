@@ -44,6 +44,13 @@ struct Input {
 #[serde(rename_all = "camelCase")]
 struct MLDSAProofFixture {
     order_hash: String,
+    /// SHA-256 of the ML-DSA-65 public key that signed the order. The guest
+    /// commits this alongside the orderHash, and MLDSAAttestation pins it as
+    /// an immutable. Without it the proven statement was existentially
+    /// quantified over the key — "SOME keypair signed something" — so anyone
+    /// could sign an order of their own invention and mint a valid
+    /// attestation. (Audit H-3.)
+    pk_hash: String,
     vkey: String,
     public_values: String,
     proof: String,
@@ -82,10 +89,11 @@ fn main() {
 
 fn create_proof_fixture(proof: &SP1ProofWithPublicValues, vk: &SP1VerifyingKey, system: ProofSystem) {
     let bytes = proof.public_values.as_slice();
-    let PublicValuesStruct { orderHash } = PublicValuesStruct::abi_decode(bytes).unwrap();
+    let PublicValuesStruct { orderHash, pkHash } = PublicValuesStruct::abi_decode(bytes).unwrap();
 
     let fixture = MLDSAProofFixture {
         order_hash: format!("0x{}", hex::encode(orderHash)),
+        pk_hash: format!("0x{}", hex::encode(pkHash)),
         vkey: vk.bytes32().to_string(),
         public_values: format!("0x{}", hex::encode(bytes)),
         proof: format!("0x{}", hex::encode(proof.bytes())),
@@ -93,6 +101,7 @@ fn create_proof_fixture(proof: &SP1ProofWithPublicValues, vk: &SP1VerifyingKey, 
 
     println!("Verification Key: {}", fixture.vkey);
     println!("orderHash: {}", fixture.order_hash);
+    println!("pkHash: {}", fixture.pk_hash);
     println!("Public Values: {}", fixture.public_values);
     println!("Proof Bytes: {}", fixture.proof);
 

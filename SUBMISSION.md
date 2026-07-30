@@ -217,7 +217,7 @@ and a 256-run fuzz on arbitrary 32-byte digests. All pass against
 | First anchor TX | [`0x523b46a217968c93671311942ff94370e0981a3bc201683f95908dc916f645e7`](https://testnet.monadscan.com/tx/0x523b46a217968c93671311942ff94370e0981a3bc201683f95908dc916f645e7) (sequence 0, cold-SSTORE 81 770 gas) |
 | Second anchor TX | [`0x0b88cd21b73c5e53aa6b4b29d83601ae5ddf8d9cb253715f1131f5f8c6103a1e`](https://testnet.monadscan.com/tx/0x0b88cd21b73c5e53aa6b4b29d83601ae5ddf8d9cb253715f1131f5f8c6103a1e) (sequence 1, warm-storage **47 061 gas** end-to-end) |
 | Anchored event topic[0] | `0x3d0c97912257c6ad70e8f6fc81ae518ad3e14734d308b512c2729cc637a4b0b1` = `keccak256("Anchored(address,bytes32,uint64,bytes32)")` |
-| On-chain chain link | Second TX's `prevHash` data field == first TX's `orderHash` topic. The off-chain JSONL hash chain and the on-chain event chain are now linked at the byte level. |
+| On-chain chain link | Second TX's `prevHash` data field == first TX's `orderHash` topic, so the on-chain event sequence reproduces the off-chain JSONL ordering. **Scope:** `prev_hash` is written by the logger and is not inside the PQ-signed payload, so this links the two records but does not cryptographically bind them — a holder of the log could rewrite the ordering without invalidating any signature. Each individual order's *contents* remain signature-protected. |
 
 The first anchor pays a one-time cold-SSTORE penalty (two zero→nonzero
 writes for `nextSequence` and `lastHash`). Steady-state cost is **47 K
@@ -237,9 +237,28 @@ Monadscan-verified (source + ABI public):
 
 | | Address (Monadscan-verified) |
 |---|---|
-| **AuditAnchor** (mainnet) | [`0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c`](https://monadscan.com/address/0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c) |
-| **UniswapRoutingVault** (mainnet) | [`0xe2fcada067227c817b8a47b850d727ba065e16dd`](https://monadscan.com/address/0xe2fcada067227c817b8a47b850d727ba065e16dd) |
-| **MorphoSupplyAdapter** (mainnet) | [`0xB1a4341403DA395760561B85C4C96696C0D15958`](https://monadscan.com/address/0xB1a4341403DA395760561B85C4C96696C0D15958) |
+| **AuditAnchorV2** (mainnet) | [`0x8422b555DCE11913A4657C2f47C839637FC71ffd`](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd) |
+| **UniswapRoutingVault** (mainnet) | [`0x06F233062eE23590e5CC873df511024f3d981e56`](https://monadscan.com/address/0x06f233062ee23590e5cc873df511024f3d981e56) |
+| **MorphoSupplyAdapter** (mainnet) | [`0x8d5AE2f23E5d20bFb7915168d6b2a3Ce753fE49E`](https://monadscan.com/address/0x8d5ae2f23e5d20bfb7915168d6b2a3ce753fe49e) |
+
+<details>
+<summary>Superseded 2026-07-30 (the first deployment, still on chain)</summary>
+
+`AuditAnchor` [`0x4cb79cc3…a27c`](https://monadscan.com/address/0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c),
+`UniswapRoutingVault` [`0xe2fcada0…16dd`](https://monadscan.com/address/0xe2fcada067227c817b8a47b850d727ba065e16dd),
+`MorphoSupplyAdapter` [`0xB1a43414…5958`](https://monadscan.com/address/0xB1a4341403DA395760561B85C4C96696C0D15958).
+
+A security audit found that V1's authorisation slot, `lastHash[anchorer]`,
+recorded only *that* an anchorer had approved *something*. Any execution by
+that address satisfied it, so the anchor proved an order existed rather than
+that this specific trade was authorised. `AuditAnchorV2` replaces it with
+`execCommitmentOf[user][orderHash]`, a commitment over the exact executor,
+chain, tokens, fee tiers, weights, amount, slippage floors and deadline. The
+executors recompute it from their own calldata and revert on any divergence.
+
+All four superseded contracts hold zero of every asset; nothing was migrated.
+
+</details>
 
 Unlike the testnet `RoutingVault` (which routed through our own
 `MiniAMM` because no DEX existed on testnet), the mainnet
@@ -247,23 +266,34 @@ Unlike the testnet `RoutingVault` (which routed through our own
 (SwapRouter02 `0xfE31F71C1b106EAc32F1A19239c9a9A72ddfb900`), which went
 live on Monad mainnet on 2025-11-24. Its `amountOutMin` is a true
 per-leg floor, it carries a `deadline`, an immutable approved-token
-allowlist (frozen to `[USDC]` at deploy), and an anchor gate on
-`ANCHOR.lastHash[msg.sender]`.
+allowlist (frozen to `[USDC]` at deploy), an immutable fee-tier allowlist
+(frozen to `[3000]`, the only WMON/USDC pool with real depth), and an anchor
+gate on `ANCHOR.execCommitmentOf[msg.sender][orderHash]`.
 
-**The real-value proof loop (all reviewer-verifiable on Monadscan):**
+**The real-value proof loop, re-executed 2026-07-30 against the V2 contracts**
+(all reviewer-verifiable on Monadscan):
 
 | Step | Contract | TX | Effect |
 |---|---|---|---|
-| 1. Anchor `orderHash` | AuditAnchor | [`0x457c8cb2…d69c70`](https://monadscan.com/tx/0x457c8cb21ea608db9b02a530ca567b29fd85152a691f3cfd600fbf0a01d69c70) | anchored `0xf9e798a1…d3c3` = SHA-256 of a real hedged ML-DSA + SLH-DSA + Ed25519 signed order (100% USDC; `outputs/mainnet_route_order.json`) |
-| 2. `executeAndRoute(0.1 MON → USDC)` | UniswapRoutingVault | [`0x62b84806…193a3`](https://monadscan.com/tx/0x62b848064a9afb0fe990383461ceb929176d52017828b4aaa6d7e683339193a3) | routed **0.1 MON → 2 271 USDC micro-units** through the live WMON/USDC 0.3% pool [`0x659bD0BC…4a9da`](https://monadscan.com/address/0x659bD0BC4167BA25c62E05656F78043E7eD4a9da); the `Routed` event carries the anchored `orderHash`; zero WMON dust; status success |
-| 3. `supply(orderHash, USDC/WBTC market, 2 271)` | MorphoSupplyAdapter | [`0x55c6334e…8ca09`](https://monadscan.com/tx/0x55c6334e3f8f490ba3ddbeece5139201a63f4a6070b05b1d0e1aab75b1c8ca09) | supplied the **exact 2 271 USDC from step 2** into the live **Morpho Blue USDC/WBTC lending market** (`0xe35c5abc…8899`, ~4.75% supply APY); the adapter's `Supplied` event carries the same `orderHash`; the wallet now owns a real, interest-accruing supply position (≈2.23 × 10⁹ Morpho supply shares, already grown between the deposit and a later read); status success |
+| 1. Anchor the **routing** commitment | AuditAnchorV2 | [`0x8702d6a9…d40a7d`](https://monadscan.com/tx/0x8702d6a99fa070ed97032e73351e7167f8ef278da20b7b9ce3d1730866d40a7d) | sequence 0; orderHash `0xd8bf1551…15f9` = SHA-256 of a hedged ML-DSA + SLH-DSA + Ed25519 signed order, with a commitment binding the vault, chain, token, fee tier, weights, amount, slippage floor and deadline |
+| 2. `executeAndRoute(0.1 MON → USDC)` | UniswapRoutingVault | [`0xf3696f0f…8a706`](https://monadscan.com/tx/0xf3696f0f2d461caf4bcb2d555551460b2016ed264730a055ea34c78a9b38a706) | routed **0.1 MON → 2 123 USDC micro-units** through the live WMON/USDC 0.3% pool [`0x659bD0BC…4a9da`](https://monadscan.com/address/0x659bD0BC4167BA25c62E05656F78043E7eD4a9da), above the signed floor of 2 118; zero WMON dust; status success |
+| 3. Anchor the **yield** commitment | AuditAnchorV2 | [`0xb41ff034…4b06f`](https://monadscan.com/tx/0xb41ff03413265d4c9195364e9547fbfc9f5ebaafab02b2804471cb3a5f14b06f) | sequence 1; a second signed order committing to the exact Morpho market and a `maxAssets` ceiling |
+| 4. `supply(USDC/WBTC market, 2 123)` | MorphoSupplyAdapter | [`0xbfd90ffd…19fd4f`](https://monadscan.com/tx/0xbfd90ffdefea2fa91f0cd2a1e3b7ae178a7ad67e24af882e8d1eb13eb619fd4f) | supplied the **exact 2 123 USDC from step 2** into the live **Morpho Blue USDC/WBTC market** (`0xe35c5abc…8899`); position **4 312 430 564 supply shares**, interest-accruing; zero dust in the adapter; status success |
 
-This is the full loop end-to-end: **one PQ-signed decision → one anchor
-→ a real DEX swap → a real yield deposit**, all three steps sharing the
-same `orderHash` and independently verifiable. A judge can read the
-three verified contracts, replay the events, and confirm the anchored
-hash in step 1 threads through the `Routed` (step 2) and `Supplied`
-(step 3) events, without trusting us.
+A judge can read the three verified contracts, replay the events, and confirm
+each execution matches its anchored commitment, without trusting us.
+
+**Why the two legs carry separate orders.** The July 2026 write-up of the V1
+deployment described "one `orderHash`" threading all three steps. That is no
+longer true, and the change is the point. V1 gated on `lastHash[anchorer]` — a
+single slot recording that an address had approved *something*, which any
+execution by that address satisfied. V2 stores a commitment per
+`(user, orderHash)` describing one exact execution, and both executors read
+that same slot expecting to find *their own* commitment in it. Two different
+executions therefore require two anchored orders. The yield leg's order commits
+to a `maxAssets` **ceiling** rather than an exact amount, because it spends the
+output of a swap whose result is not known at signing time; the adapter
+enforces `assets <= maxAssets`.
 
 **Honest scope.** There is still **no quantum advantage** at this
 problem size (8 qubits — a classical solver is optimal and instant; the
