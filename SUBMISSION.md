@@ -246,7 +246,8 @@ Monadscan-verified (source + ABI public):
 
 `AuditAnchor` [`0x4cb79cc3…a27c`](https://monadscan.com/address/0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c),
 `UniswapRoutingVault` [`0xe2fcada0…16dd`](https://monadscan.com/address/0xe2fcada067227c817b8a47b850d727ba065e16dd),
-`MorphoSupplyAdapter` [`0xB1a43414…5958`](https://monadscan.com/address/0xB1a4341403DA395760561B85C4C96696C0D15958).
+`MorphoSupplyAdapter` [`0xB1a43414…5958`](https://monadscan.com/address/0xB1a4341403DA395760561B85C4C96696C0D15958),
+`MLDSAAttestation` [`0xc1a82D8C…3839`](https://monadscan.com/address/0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839).
 
 A security audit found that V1's authorisation slot, `lastHash[anchorer]`,
 recorded only *that* an anchorer had approved *something*. Any execution by
@@ -454,25 +455,46 @@ costs ~500M gas (infeasible). Instead we move the lattice verification
 off-chain into the **SP1 zkVM** and check a ~230k-gas Groth16 proof
 on-chain. The guest verifies the **real mainnet order's** ML-DSA-65
 signature (pure Rust `ml-dsa` crate — confirmed byte-compatible with the
-pipeline's quantcrypt signatures) and commits `SHA-256(order)`. We
-accelerated ML-DSA's SHAKE by patching the `keccak` permutation to SP1's
-keccak precompile (`vendor/keccak`), cutting the trace from 3.04M to
-**1,876,372 cycles (−38%)**. Result: a **real STARK proof that the
-mainnet order's ML-DSA-65 signature is valid was generated *and verified*
-locally** (on a 15 GB dev box — the precompile patch is what brought it
-under the memory ceiling), and the committed `orderHash` is
-`0xf9e798a1…d3c3` — the same order anchored, swapped, and Morpho-supplied
-on mainnet. The STARK→SNARK **Groth16 wrap** (which OOM'd on the dev box)
-was completed on a 64 GB cloud instance (~$0.32), producing a 356-byte
-EVM-verifiable proof. **That proof was then verified on-chain by SP1's
-own Groth16 verifier deployed on Monad mainnet, and permanently recorded
-as PQ-attested** — the full on-chain post-quantum settlement, executed:
+pipeline's quantcrypt signatures) and commits **both** `SHA-256(order)`
+and `SHA-256(public key)`. Committing the key fingerprint is not
+cosmetic: with only the order hash, the proven statement was
+existentially quantified over the signing key — *"some keypair signed
+something hashing to X"* — so anyone could generate their own keypair,
+sign an order of their own invention, and mint a valid attestation. The
+contract pins the expected fingerprint as an immutable and rejects any
+other signer. We accelerated ML-DSA's SHAKE by patching the `keccak`
+permutation to SP1's keccak precompile (`vendor/keccak`), cutting the
+trace to **2,036,531 cycles**. The committed `orderHash` is
+`0xd8bf1551…15f9` — the same order anchored, swapped and Morpho-supplied
+on mainnet on 2026-07-30. The STARK→SNARK **Groth16 wrap** (which OOMs
+on a 15 GB dev box) was completed on a 64 GB cloud instance (~$0.32),
+producing a 356-byte EVM-verifiable proof. **That proof was then verified
+on-chain by SP1's own Groth16 verifier deployed on Monad mainnet, and
+permanently recorded as PQ-attested** — the full on-chain post-quantum
+settlement, executed:
 
 | | Address / TX (Monadscan-verified) |
 |---|---|
-| MLDSAAttestation (mainnet) | [`0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839`](https://monadscan.com/address/0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839) |
-| SP1 Groth16 verifier used | `0x7DA83eC4…2abd` (Succinct's canonical Monad deployment, v6.1.0) |
-| `attest()` tx | [`0x7a3cfcef…b1e3`](https://monadscan.com/tx/0x7a3cfcef63250c6b4ec38e107ecf5963158469eaa5a301bb4f58910f7711b1e3) — Groth16 proof verified on-chain; `PQOrderAttested(0xf9e798a1…)` emitted; `pqAttested[orderHash] == true` |
+| MLDSAAttestation (mainnet) | [`0xb0aADaFe68647578520E988b4444e556c300b4Da`](https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da) |
+| SP1 Groth16 verifier used | `0x7DA83eC4…2abd` (Succinct's canonical Monad deployment) |
+| Program vkey (immutable) | `0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5` |
+| Agent pkHash (immutable) | `0xac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad` |
+| `attest()` tx | [`0x3ec51f36…d56de`](https://monadscan.com/tx/0x3ec51f366d7d7944742f808cef8f897a750be881bddda6aa7a171880377d56de) — Groth16 proof verified on-chain (1 196 224 gas); `PQOrderAttested(0xd8bf1551…)` emitted; `pqAttested[orderHash] == true` |
+
+**Reproducibility caveat, stated because it matters to anyone checking
+this.** The program vkey is a hash of the compiled guest ELF, and the ELF
+is not byte-reproducible across toolchains: the proving box built the
+guest from source and produced vkey `0x00ed29f3…`, where the dev box's
+build gives `0x00364772…`. Only the former verifies — SP1's on-chain
+verifier accepts the proof under `0x00ed29f3…` and *reverts* under
+`0x00364772…`, which we checked before deploying rather than assuming.
+The deploy script therefore reads the vkey **out of the proof fixture**
+rather than from an operator-supplied value; had the locally-computed
+vkey been typed in, `verifier`, `mldsaProgramVKey` and `agentPkHash`
+being immutable would have made the contract permanently unusable. A
+third party rebuilding the guest will get a different vkey unless they
+reproduce the toolchain; SP1's Docker guest build is the route to closing
+that, and it is not yet wired in here.
 
 So the agent's decision now carries an **on-chain, zero-knowledge proof
 of its post-quantum ML-DSA-65 signature** on Monad mainnet — closing the
@@ -628,20 +650,26 @@ Monadscan as evidence of the bug-fix process, not for active use.
 ## Why this fits the challenge
 
 - **Area 3 (primary) — Digital Infrastructure Secured Against Quantum
-  Computing.** The PQ signing layer is not narrative — it is verified
-  by 29 pipeline/PQ tests + 28 Monad-TX Python tests + 48 Foundry tests
-  (105 total) and produces tamper-evident artefacts that a reviewer can
-  audit without running the code. **The full loop is LIVE on Monad
+  Computing.** The PQ signing layer is not narrative — it is verified by
+  **93 Python tests** (32 PQ-signing, 35 Monad-TX encoding, 18 live-quote,
+  8 audit-chain) and **142 Foundry tests**, of which **70 are an adversarial
+  red-team suite** (`contracts/test/redteam/`) that reproduces each
+  vulnerability found in the July 2026 audit and then asserts it is closed —
+  several against the real Uniswap and Morpho deployments on a mainnet fork.
+  235 tests, none skipped. The artefacts are tamper-evident and a reviewer can
+  audit them without running the code. **The full loop is LIVE on Monad
   mainnet (chainId 143), all contracts Monadscan-verified**:
-  [AuditAnchor](https://monadscan.com/address/0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c),
-  [UniswapRoutingVault](https://monadscan.com/address/0xe2fcada067227c817b8a47b850d727ba065e16dd) (real Uniswap v3 swap),
-  [MorphoSupplyAdapter](https://monadscan.com/address/0xB1a4341403DA395760561B85C4C96696C0D15958) (real Morpho lending deposit), and
-  [MLDSAAttestation](https://monadscan.com/address/0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839)
+  [AuditAnchorV2](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd),
+  [UniswapRoutingVault](https://monadscan.com/address/0x06f233062ee23590e5cc873df511024f3d981e56) (real Uniswap v3 swap),
+  [MorphoSupplyAdapter](https://monadscan.com/address/0x8d5ae2f23e5d20bfb7915168d6b2a3ce753fe49e) (real Morpho lending deposit), and
+  [MLDSAAttestation](https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da)
   (the order's ML-DSA-65 post-quantum signature **verified on-chain via a
   zero-knowledge proof**). One PQ-signed agent decision → SHA-256 anchored
   → real MON→USDC swap → real USDC supplied to a live lending market →
-  on-chain ZK attestation of the PQ signature, all linked by the same
-  32-byte `orderHash 0xf9e798a1…`. Aligned with the NIST FIPS 204
+  on-chain ZK attestation of the PQ signature. The routing leg and the ZK
+  attestation share `orderHash 0xd8bf1551…15f9`; the yield leg carries its
+  own signed order, because AuditAnchorV2 binds one commitment per order
+  and each executor demands its own. Aligned with the NIST FIPS 204
   algorithm NEAR Protocol committed to at L1 on 2026-05-06 — the first
   major L1 to commit to a NIST-finalised PQ signature option at the
   account layer.

@@ -479,6 +479,14 @@ def _last_line_hash(log_path: Path) -> str:
             break
         window = min(window * 2, file_size)
 
+    # Normalise EXACTLY as verify_audit_chain does. It hashes `raw.strip()`;
+    # hashing anything else here means the writer chains from one digest while
+    # the verifier expects another, so a perfectly well-formed append silently
+    # breaks the chain. `rstrip(b"\r\n")` above only removes the terminator —
+    # it leaves leading/trailing spaces and tabs, which are legal in JSONL and
+    # which `.strip()` removes. The two must agree byte-for-byte or the log
+    # fails its own verification. (Audit Z-5.)
+    last_line = last_line.strip()
     if not last_line:
         return GENESIS_PREV_HASH
     return hashlib.sha256(last_line).hexdigest()
