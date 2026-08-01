@@ -676,7 +676,7 @@ Monadscan as evidence of the bug-fix process, not for active use.
 
 ## Test coverage and CI
 
-**252 tests, none skipped** (`pytest tests/ && forge test`), re-run
+**279 tests, none skipped** (`pytest tests/ && forge test`), re-run
 2026-07-31 against live Monad mainnet.
 
 **110 Python tests**
@@ -704,7 +704,7 @@ Monadscan as evidence of the bug-fix process, not for active use.
   no execution block is rejected by default; and `canonical_bytes` refuses
   non-string dict keys (L-4).
 
-**142 Foundry tests**, of which **70 are an adversarial red-team suite**
+**169 Foundry tests**, of which **70 are an adversarial red-team suite**
 (`contracts/test/redteam/`, RT01–RT11) that reproduces each audit finding
 and then asserts it closed — several against the real Uniswap v3 and
 Morpho Blue deployments on a mainnet fork. Largest suites:
@@ -714,16 +714,42 @@ Morpho Blue deployments on a mainnet fork. Largest suites:
 `AuditPoC_DustDoS` (8), `AuditAnchor` (8), `RT07_SentinelBypass` (7+1
 fork), `RT11_AnchorStateMachine` (6), `CommitmentParity` (6).
 
+**Mutation-tested, not just counted.** A test count says nothing about whether
+a guard is actually covered. Every security guard in `contracts/src/` was
+deleted one at a time from a scratch copy and the suite re-run; a guard counts
+as covered only if its removal makes a test fail. An external review found
+**nine** guards that could be deleted with the whole suite still green —
+concentrated on `MorphoSupplyAdapter` and `AuditAnchorV2`, which had no direct
+tests at all (`AuditAnchor.t.sol` imports the superseded V1). Seven are now
+killed by `test/AuditAnchorV2.t.sol` and
+`test/MorphoSupplyAdapterGuards.t.sol`, each asserting the exact revert
+selector rather than a bare `vm.expectRevert()`.
+
+The remaining two are the post-transfer `forceApprove(spender, 0)` calls, and
+they are **provably unobservable rather than untested**: `transferFrom`
+decrements the allowance by exactly what it moves, so a leftover allowance
+implies the spender consumed less than was handed over — which the
+balance-delta invariant in the same function already reverts on. The two
+conditions cannot both hold. Both lines are annotated in the source with that
+reasoning and kept as defence in depth.
+
+One test was rewritten rather than added: the reentrancy case originally
+passed because the nested call died on `AnchorNotFound` — the mock's own
+address had no anchor — so `nonReentrant` was never reached. It now anchors
+and funds the attacker so the nested call is valid in every respect except
+its nestedness, and asserts the returndata is
+`ReentrancyGuardReentrantCall()`. Deleting `nonReentrant` now fails it.
+
 ## Why this fits the challenge
 
 - **Area 3 (primary) — Digital Infrastructure Secured Against Quantum
   Computing.** The PQ signing layer is not narrative — it is verified by
   **110 Python tests** (32 PQ-signing, 35 Monad-TX encoding, 18 live-quote,
-  8 audit-chain) and **142 Foundry tests**, of which **70 are an adversarial
+  8 audit-chain) and **169 Foundry tests**, of which **70 are an adversarial
   red-team suite** (`contracts/test/redteam/`) that reproduces each
   vulnerability found in the July 2026 audit and then asserts it is closed —
   several against the real Uniswap and Morpho deployments on a mainnet fork.
-  252 tests, none skipped. The artefacts are tamper-evident and a reviewer can
+  279 tests, none skipped. The artefacts are tamper-evident and a reviewer can
   audit them without running the code. **The full loop is LIVE on Monad
   mainnet (chainId 143), all contracts Monadscan-verified**:
   [AuditAnchorV2](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd),

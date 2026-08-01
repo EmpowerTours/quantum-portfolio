@@ -166,6 +166,14 @@ contract MorphoSupplyAdapter is ReentrancyGuard {
 
         // Reset the allowance and assert everything pulled was supplied: our
         // balance must be exactly what it was on entry.
+        // Defence in depth, and deliberately unobservable: `transferFrom`
+        // decrements the allowance by exactly what it moves, so a leftover
+        // allowance implies the spender consumed less than we handed over —
+        // which the balance-delta invariant below already reverts on. A
+        // mutation sweep confirms deleting this line breaks no test, and that
+        // is expected rather than a coverage gap: the two checks cannot both
+        // be violated. Kept because it costs one SSTORE and removes any
+        // dependence on that reasoning staying true if the invariant changes.
         loan.forceApprove(address(MORPHO), 0);
         uint256 balAfter = loan.balanceOf(address(this));
         if (balAfter != balBefore) {

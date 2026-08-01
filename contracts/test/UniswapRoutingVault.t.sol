@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
 import { Vm }   from "forge-std/Vm.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { WMON }      from "../src/dex/WMON.sol";
 import { MockToken } from "../src/dex/MockToken.sol";
 import { AuditAnchorV2 } from "../src/AuditAnchorV2.sol";
@@ -232,6 +233,45 @@ contract UniswapRoutingVaultTest is Test {
         // And N+1 executes independently.
         vm.prank(alice);
         vault.executeAndRoute{value: 1 ether}(orderN1, t, f, w, m, FUTURE);
+    }
+
+    // --- allowance hygiene ------------------------------------------------
+
+    /// A mutation sweep deleted `forceApprove(ROUTER, 0)` after the swap loop
+    /// and every test still passed. A standing WMON allowance would let the
+    /// router pull from this vault later, outside any anchored order — funds
+    /// that belong to whoever deposits next.
+    function test_AllowanceToRouterIsResetToZeroAfterRouting() public {
+        bytes32 orderHash = keccak256("allowance-reset");
+        (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
+            _oneLeg(address(usdc), 10_000, 1);
+        _anchorFor(alice, orderHash, t, f, w, 1 ether, m, FUTURE);
+        vm.prank(alice);
+        vault.executeAndRoute{value: 1 ether}(orderHash, t, f, w, m, FUTURE);
+
+        assertEq(
+            IERC20(address(wmon)).allowance(address(vault), address(router)), 0,
+            "vault must leave no standing WMON allowance to the router"
+        );
+    }
+
+    /// The reset must hold across consecutive orders, not just the first.
+    function test_AllowanceStaysZeroAcrossTwoOrders() public {
+        (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
+            _oneLeg(address(usdc), 10_000, 1);
+
+        bytes32 o1 = keccak256("allow-1");
+        _anchorFor(alice, o1, t, f, w, 1 ether, m, FUTURE);
+        vm.prank(alice);
+        vault.executeAndRoute{value: 1 ether}(o1, t, f, w, m, FUTURE);
+
+        bytes32 o2 = keccak256("allow-2");
+        _anchorFor(alice, o2, t, f, w, 1 ether, m, FUTURE);
+        vm.prank(alice);
+        vault.executeAndRoute{value: 1 ether}(o2, t, f, w, m, FUTURE);
+
+        assertEq(IERC20(address(wmon)).allowance(address(vault), address(router)), 0);
+        assertEq(IERC20(address(wmon)).balanceOf(address(vault)), 0, "no WMON dust retained");
     }
 
     // --- new per-leg guards ----------------------------------------------

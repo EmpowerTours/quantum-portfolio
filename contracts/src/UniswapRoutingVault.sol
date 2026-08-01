@@ -285,6 +285,14 @@ contract UniswapRoutingVault is ReentrancyGuard {
         // Clear the standing approval and assert the full deposit was routed:
         // our balance must be exactly what it was on entry. If the router ever
         // pulled less than we approved, this catches it.
+        // Defence in depth, and deliberately unobservable: `transferFrom`
+        // decrements the allowance by exactly what it moves, so a leftover
+        // allowance implies the spender consumed less than we handed over —
+        // which the balance-delta invariant below already reverts on. A
+        // mutation sweep confirms deleting this line breaks no test, and that
+        // is expected rather than a coverage gap: the two checks cannot both
+        // be violated. Kept because it costs one SSTORE and removes any
+        // dependence on that reasoning staying true if the invariant changes.
         IERC20(address(WRAPPED_MON)).forceApprove(address(ROUTER), 0);
         uint256 balAfter = IERC20(address(WRAPPED_MON)).balanceOf(address(this));
         if (balAfter != balBefore) {

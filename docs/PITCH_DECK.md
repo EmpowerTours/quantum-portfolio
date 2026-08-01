@@ -220,7 +220,7 @@ QAOA is **not** faster than the classical baseline at this size — that baselin
 
 <h3>Proof, not promises</h3>
 
-# Live on Monad MAINNET.<br>252 tests. ZK-verified.
+# Live on Monad MAINNET.<br>279 tests. ZK-verified.
 
 <div class="grid-3">
 
@@ -229,7 +229,7 @@ QAOA is **not** faster than the classical baseline at this size — that baselin
 </div>
 
 <div>
-<div class="big">252<small>tests passing<br>110 Python + 142 Foundry</small></div>
+<div class="big">279<small>tests passing<br>110 Python + 169 Foundry</small></div>
 </div>
 
 <div>
