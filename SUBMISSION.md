@@ -82,21 +82,34 @@ Baselines: uniform random over 2⁸ bitstrings gives P(optimal) =
 **21.9 %** (C(8,3)/2⁸). Uniform over *feasible* states gives
 **0.01786**.
 
-**What this run does and does not show.** Both hardware arms sit **above the
-noise floor on both axes** — P(optimal) 0.0054 against a uniform null of
-0.00391 (×1.38), and a feasible fraction of
-33.5 % against a noise expectation of 21.9 %. That is the
-first time this project can say so: the previous penalty-mixer run returned
-P(optimal) = 0.00366 against the same 0.00391 null, i.e. **at or below chance**.
-The feasible fraction is the cleaner signal — the XY mixer conserves Hamming
-weight by construction, so a fully decohered circuit would return ~21.9 % and
-a perfect one 100 %; measuring 33.5 % means roughly a sixth of the
-circuit's structure survived 288 two-qubit gates of decoherence.
+**What this run does and does not show.** Two axes, and they say different
+things — the distinction matters and we state it rather than average over it.
 
-It is **not** quantum advantage, and the gap to the simulator
-(0.0266 → 0.0054) is decoherence. Error mitigation again shows no
-benefit on P(optimal) (identical to four decimal places) and a *lower* mean
-approximation ratio, so we make no mitigation claim.
+*The constraint structure partially survived.* The XY mixer conserves Hamming
+weight by construction, so a fully decohered circuit returns the random
+feasible rate of C(8,3)/2⁸ = **21.9 %** and a perfect one returns 100 %. We
+measured **33.5 %** (raw) and **35.6 %** (mitigated). That is real, and it is
+the first evidence in this project that circuit structure survived the device.
+
+*The optimisation signal did not.* Conditioned on landing in the feasible
+subspace, P(optimal | feasible) is **0.0161** raw and **0.0151** mitigated,
+against uniform-over-feasible of 1/C(8,3) = **0.0179** — i.e. **0.90× and
+0.84×, at or slightly below random**. So within the states it produced, the
+circuit expressed no preference for good portfolios. The unconditional
+P(optimal) of 0.00537 clears the uniform 2⁸ null of 0.00391 (×1.38) *only
+because the mixer biases towards feasible states at all*, not because it
+found better ones.
+
+The honest summary: **the XY mixer works and the optimisation does not
+survive 288 two-qubit gates on today's hardware.** That is a sharper and more
+useful result than the previous penalty-mixer run, which returned P(optimal)
+0.00366 against a 0.00391 null — indistinguishable from noise on every axis,
+with no diagnostic capable of telling us why. We can now say precisely which
+component failed.
+
+Error mitigation again shows nothing: identical P(optimal) to five decimal
+places, a *lower* mean approximation ratio, and a lower P(optimal | feasible).
+We make no mitigation claim.
 
 **Which run is on chain.** The order settled on Monad mainnet
 (`orderHash 0xd8bf1551…15f9`) cites `qpu_job_id d9loj33hdfks73cl9in0` — the
