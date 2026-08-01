@@ -48,3 +48,6 @@ zk-mldsa/contracts/cache/
 
 # Local Chromium fetched for marp PDF rendering (not source).
 chrome/
+
+# Internal funding-application draft — not for publication.
+docs/STAGE2_APPLICATION.md
