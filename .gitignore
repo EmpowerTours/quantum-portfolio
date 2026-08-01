@@ -45,3 +45,6 @@ zk-mldsa/elf/
 zk-mldsa/contracts/lib/forge-std/
 zk-mldsa/contracts/out/
 zk-mldsa/contracts/cache/
+
+# Local Chromium fetched for marp PDF rendering (not source).
+chrome/

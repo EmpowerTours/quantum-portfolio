@@ -478,7 +478,7 @@ section::after { color: var(--muted); }
 </div>
 <div class="card">
 <h3>3. Anchor</h3>
-<strong>SHA-256(order)</strong> committed to Monad's <code>AuditAnchor</code> before the vault will execute it.
+<strong>SHA-256(order)</strong> committed to Monad's <code>AuditAnchorV2</code> before the vault will execute it.
 </div>
 </div>
 <br />
@@ -980,10 +980,10 @@ section::after { color: var(--muted); }
 </div>
 <br />
 <table class="addrs">
-<tr><td class="cn">AuditAnchor</td><td><a href="https://monadscan.com/address/0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c">0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c</a></td></tr>
-<tr><td class="cn">UniswapRoutingVault</td><td><a href="https://monadscan.com/address/0xe2fcada067227c817b8a47b850d727ba065e16dd">0xe2fcada067227c817b8a47b850d727ba065e16dd</a></td></tr>
-<tr><td class="cn">MorphoSupplyAdapter</td><td><a href="https://monadscan.com/address/0xB1a4341403DA395760561B85C4C96696C0D15958">0xB1a4341403DA395760561B85C4C96696C0D15958</a></td></tr>
-<tr><td class="cn">MLDSAAttestation</td><td><a href="https://monadscan.com/address/0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839">0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839</a></td></tr>
+<tr><td class="cn">AuditAnchorV2</td><td><a href="https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd">0x8422b555dce11913a4657c2f47c839637fc71ffd</a></td></tr>
+<tr><td class="cn">UniswapRoutingVault</td><td><a href="https://monadscan.com/address/0x06f233062ee23590e5cc873df511024f3d981e56">0x06f233062ee23590e5cc873df511024f3d981e56</a></td></tr>
+<tr><td class="cn">MorphoSupplyAdapter</td><td><a href="https://monadscan.com/address/0x8d5ae2f23e5d20bfb7915168d6b2a3ce753fe49e">0x8d5ae2f23e5d20bfb7915168d6b2a3ce753fe49e</a></td></tr>
+<tr><td class="cn">MLDSAAttestation</td><td><a href="https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da">0xb0aadafe68647578520e988b4444e556c300b4da</a></td></tr>
 </table>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="9" data-paginate="true" data-theme="default" data-style=":root {
@@ -1097,10 +1097,10 @@ section::after { color: var(--muted); }
 <h1 id="qpu-decision-%E2%86%92-pq-signaturebrzk-verified-on-chain-%E2%86%92-yield">QPU decision → PQ signature<br />ZK-verified on-chain → yield.</h1>
 <table>
 <tr><th>Step</th><th>Contract</th><th>What happened (Monad mainnet)</th></tr>
-<tr><td>1. Attest</td><td><a href="https://monadscan.com/address/0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839"><code>MLDSAAttestation</code></a></td><td>Order's <strong>ML-DSA-65 signature verified on-chain via ZK proof</strong> (~230k gas, not ~500M); <code>pqAttested = true</code></td></tr>
-<tr><td>2. Anchor</td><td><a href="https://monadscan.com/address/0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c"><code>AuditAnchor</code></a></td><td>Hash <code>0xf9e798a1…d3c3</code> committed, immutable</td></tr>
-<tr><td>3. Swap</td><td><a href="https://monadscan.com/address/0xe2fcada067227c817b8a47b850d727ba065e16dd"><code>UniswapRoutingVault</code></a></td><td>0.1 MON → <strong>2,271 USDC</strong> via live Uniswap v3, anchor-gated</td></tr>
-<tr><td>4. Yield</td><td><a href="https://monadscan.com/address/0xB1a4341403DA395760561B85C4C96696C0D15958"><code>MorphoSupplyAdapter</code></a></td><td>USDC supplied into a live <strong>Morpho</strong> market (~4.75% APY), non-custodial</td></tr>
+<tr><td>1. Attest</td><td><a href="https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da"><code>MLDSAAttestation</code></a></td><td>Order's <strong>ML-DSA-65 signature verified on-chain via ZK proof</strong> (~230k gas, not ~500M); <code>pqAttested = true</code></td></tr>
+<tr><td>2. Anchor</td><td><a href="https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd"><code>AuditAnchorV2</code></a></td><td>Hash <code>0xd8bf1551…15f9</code> committed, immutable</td></tr>
+<tr><td>3. Swap</td><td><a href="https://monadscan.com/address/0x06f233062ee23590e5cc873df511024f3d981e56"><code>UniswapRoutingVault</code></a></td><td>0.1 MON → <strong>2,123 USDC</strong> via live Uniswap v3, anchor-gated</td></tr>
+<tr><td>4. Yield</td><td><a href="https://monadscan.com/address/0x8d5ae2f23e5d20bfb7915168d6b2a3ce753fe49e"><code>MorphoSupplyAdapter</code></a></td><td>USDC supplied into a live <strong>Morpho</strong> market (~4.75% APY), non-custodial</td></tr>
 </table>
 <br />
 <blockquote>

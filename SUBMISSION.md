@@ -309,6 +309,31 @@ pattern as `MorphoSupplyAdapter`. The claim is precise: the agent's
 decision now settles as an anchored, on-chain, **yield-bearing**
 position on Monad mainnet.
 
+**Known limitation — the optimiser's universe is wider than the
+executable one.** This is visible in the shipped artefacts, so we state it
+rather than leave it to be found. `outputs/signed_orders.json` records
+`pools: [Morpho STEAKETH, Neverland USDC, shMONAD]` at 33.3% each — the
+QAOA selection — while its `execution` block routes **100% into USDC** and
+supplies a single Morpho market. Both are covered by the same PQ
+signature, so nothing is tampered with; but the quantum decision and the
+on-chain action are not yet the *same* allocation.
+
+The cause is structural, not a bug. The optimiser scores an 8-pool
+universe drawn from DeFiLlama, three of which (Sky sUSDS, Ethena sUSDe,
+Maple USDC) are on **Ethereum**, and the Monad ones are lending/staking
+positions rather than Uniswap pairs. We have exactly two execution
+adapters — Uniswap v3 and one Morpho market — and on Monad only the
+WMON/USDC 0.3% pool has real depth (measured 2026-07-30: it returns a
+flat ~20 770 micro-USDC per MON from 0.1 up to 1 000 MON, while the 0.05%
+tier degrades ~89% over the same range). So the executable set today is
+one liquid pair plus one lending market.
+
+Closing this means either narrowing the optimiser to the reachable set —
+the honest, small fix — or building per-protocol adapters for shMONAD,
+Neverland and the Morpho vaults. Until then, read the `pools` field as
+*the decision* and the `execution` block as *what was settled*, and treat
+the link between them as reported rather than enforced.
+
 ### On-chain custody anchor — MonadAllocationVault.sol
 
 AuditAnchor proves *that an agent decision existed*. The companion

@@ -60,14 +60,14 @@ chains that exist **today**.
 ## 4. Validation — what is LIVE and verifiable (Stage-2 evidence)
 
 **The entire loop runs on Monad mainnet with real value, all contracts
-Monadscan-verified, all threaded by one provenance hash `orderHash 0xf9e798a1…`:**
+Monadscan-verified, all threaded by one provenance hash `orderHash 0xd8bf1551…`:**
 
 | Component | Mainnet address (verified) | What it proves |
 |---|---|---|
-| AuditAnchor | `0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c` | the PQ-signed decision existed & is immutable |
-| UniswapRoutingVault | `0xe2fcada067227c817b8a47b850d727ba065e16dd` | real MON→USDC swap through live Uniswap v3 |
-| MorphoSupplyAdapter | `0xB1a4341403DA395760561B85C4C96696C0D15958` | real USDC supplied into a live Morpho lending market (~4.75% APY) |
-| MLDSAAttestation | `0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839` | **the order's ML-DSA-65 post-quantum signature verified on-chain via a ZK proof; `pqAttested == true`** |
+| AuditAnchorV2 | `0x8422b555dce11913a4657c2f47c839637fc71ffd` | the PQ-signed decision existed & is immutable |
+| UniswapRoutingVault | `0x06f233062ee23590e5cc873df511024f3d981e56` | real MON→USDC swap through live Uniswap v3 |
+| MorphoSupplyAdapter | `0x8d5ae2f23e5d20bfb7915168d6b2a3ce753fe49e` | real USDC supplied into a live Morpho lending market (~4.75% APY) |
+| MLDSAAttestation | `0xb0aadafe68647578520e988b4444e556c300b4da` | **the order's ML-DSA-65 post-quantum signature verified on-chain via a ZK proof; `pqAttested == true`** |
 
 - A judge can click each contract, replay the events, and confirm the same
   32-byte `orderHash` threads the anchor → swap → yield → PQ attestation —
