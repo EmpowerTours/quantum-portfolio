@@ -111,6 +111,14 @@ Error mitigation again shows nothing: identical P(optimal) to five decimal
 places, a *lower* mean approximation ratio, and a lower P(optimal | feasible).
 We make no mitigation claim.
 
+**Evidence artefacts.** `docs/screenshots/07-ibm-job-records.png` is a live
+Qiskit Runtime API record of both jobs (status, backend, timestamps, QPU
+seconds, shot counts), retrieved at the time of writing.
+`docs/screenshots/08-hardware-vs-noise.png` plots both metrics against both
+null baselines and is regenerable by anyone with
+`python make_hardware_chart.py`. Neither is a substitute for the raw counts —
+those are the artefact a reviewer should actually check.
+
 **Which run is on chain.** The order settled on Monad mainnet
 (`orderHash 0xd8bf1551…15f9`) cites `qpu_job_id d9loj33hdfks73cl9in0` — the
 **earlier penalty-mixer run**, archived at
