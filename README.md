@@ -13,6 +13,31 @@ the shipped demonstration.
 3. **[Review the Santander submission narrative](SUBMISSION.md)** and the linked IBM Quantum jobs and Monad transactions.
 4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 110 Python tests plus 169 Foundry tests (279 total, none skipped) are documented below.
 
+## Live on Monad mainnet (chainId 143)
+
+Four contracts, all Monadscan-verified — source and ABI public. Click any of
+them; nothing here needs to be taken on trust.
+
+| Contract | Address |
+|---|---|
+| **AuditAnchorV2** | [`0x8422b555DCE11913A4657C2f47C839637FC71ffd`](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd) |
+| **UniswapRoutingVault** | [`0x06F233062eE23590e5CC873df511024f3d981e56`](https://monadscan.com/address/0x06f233062ee23590e5cc873df511024f3d981e56) |
+| **MorphoSupplyAdapter** | [`0x8d5AE2f23E5d20bFb7915168d6b2a3Ce753fE49E`](https://monadscan.com/address/0x8d5ae2f23e5d20bfb7915168d6b2a3ce753fe49e) |
+| **MLDSAAttestation** | [`0xb0aADaFe68647578520E988b4444e556c300b4Da`](https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da) |
+
+One end-to-end run, executed with real value on 2026-07-30:
+
+| Step | Transaction | Effect |
+|---|---|---|
+| ZK attest | [`0x3ec51f36…d56de`](https://monadscan.com/tx/0x3ec51f366d7d7944742f808cef8f897a750be881bddda6aa7a171880377d56de) | Groth16 proof of the order's ML-DSA-65 signature verified on-chain, 1 196 224 gas |
+| Anchor | [`0x8702d6a9…d40a7d`](https://monadscan.com/tx/0x8702d6a99fa070ed97032e73351e7167f8ef278da20b7b9ce3d1730866d40a7d) | commits the exact trade the signature authorises |
+| Swap | [`0xf3696f0f…8a706`](https://monadscan.com/tx/0xf3696f0f2d461caf4bcb2d555551460b2016ed264730a055ea34c78a9b38a706) | 0.1 MON → **2 123 micro-USDC** (0.002123 USDC ≈ $0.002) via live Uniswap v3 |
+| Yield | [`0xbfd90ffd…19fd4f`](https://monadscan.com/tx/0xbfd90ffdefea2fa91f0cd2a1e3b7ae178a7ad67e24af882e8d1eb13eb619fd4f) | supplied into a live Morpho Blue market, position accruing |
+
+Amounts are deliberately tiny — about two-tenths of a US cent. The point is
+that the contracts **refuse** anything the agent did not sign for, not the
+size of the trade.
+
 The live demo uses shipped, reproducible hardware artefacts by default. Running
 new IBM hardware jobs is optional and requires a personal IBM Quantum token.
 
@@ -75,9 +100,20 @@ solver, which is consistency at this scale (not advantage).
 | | |
 |---|---|
 | Optimal selection | Morpho STEAKETH · Neverland USDC · shMONAD (all Monad) |
-| Raw job ID | [`d89rmk1789is7393mlr0`](https://quantum.ibm.com/jobs/d89rmk1789is7393mlr0) |
-| Mitigated job ID | [`d89rmlqs46sc73fb0qc0`](https://quantum.ibm.com/jobs/d89rmlqs46sc73fb0qc0) |
-| Single-run P(optimal) raw / mitigated | 0.3 % → 0.5 % (directional consistency check, single 4 096-shot run — see SUBMISSION.md for Wilson CIs + Fisher exact p ≈ 0.16; **not** a significance-tested lift) |
+| Raw job ID | `d9loihrhdfks73cl9i10` |
+| Mitigated job ID | `d9loj33hdfks73cl9in0` |
+| Single-run P(optimal) raw / mitigated | 0.366 % → 0.366 % (**15 vs 15** successes / 4 096 shots; Fisher exact **p = 1.000** — no measurable mitigation effect) |
+
+> **Read this honestly.** Uniform random sampling over 8 qubits expects
+> **16 / 4 096** successes. This run returned **15**. It is statistically
+> indistinguishable from chance, and we do not claim the QPU optimised
+> anything in it. The dense all-to-all penalty transpiles to ~250 two-qubit
+> gates on heavy-hex Heron, and at DeFi yield scale the covariance term is
+> ~10⁻⁴ of the return term, so the instance degenerates towards a
+> cardinality-constrained sort. `src/xy_qaoa.py` — a budget-preserving XY
+> mixer with feasible-subspace initialisation — is the fix, and is **not yet
+> on the hardware path**. The stocks run below sits ~2.8σ above chance and is
+> the stronger of the two. Full detail in SUBMISSION.md.
 
 ### MVP stock universe (earlier baseline, kept for comparison)
 
@@ -171,19 +207,32 @@ python run_backtest.py
 │   └── xy_qaoa.py               XY-mixer QAOA reference implementation (not in current HW path)
 ├── contracts/                   Foundry sub-project (solc 0.8.28)
 │   ├── foundry.toml
-│   ├── src/AuditAnchor.sol            ~30 K gas on-chain anchor for SHA-256(order)
-│   ├── src/MonadAllocationVault.sol   native-MON vault recording per-orderHash deposits
-│   ├── src/RoutingVault.sol           swaps anchored MON allocations through approved AMM pairs
-│   ├── src/dex/MiniAMM.sol            minimal V2-style AMM used by RoutingVault tests/deploys
-│   ├── test/AuditAnchor.t.sol         8 tests + 256-run fuzz
-│   ├── test/MonadAllocationVault.t.sol  13 tests + 256-run fuzz
-│   ├── test/RoutingVault.t.sol        12 route + slippage + invariant tests
-│   ├── script/Deploy.s.sol            deploys AuditAnchor
-│   ├── script/DeployVault.s.sol       deploys MonadAllocationVault
-│   └── script/DeployDex.s.sol         deploys WMON + mock tokens + AMM pairs + RoutingVault
+│   │  --- LIVE on Monad mainnet, Monadscan-verified ---
+│   ├── src/AuditAnchorV2.sol          binds an order to the ONE execution it authorises
+│   ├── src/UniswapRoutingVault.sol    routes native MON through production Uniswap v3
+│   ├── src/MorphoSupplyAdapter.sol    supplies the proceeds into a live Morpho Blue market
+│   │  --- superseded, retained for the historical trail ---
+│   ├── src/AuditAnchor.sol            V1: recorded only lastHash[anchorer] (see SUBMISSION.md)
+│   ├── src/MonadAllocationVault.sol   testnet native-MON vault
+│   ├── src/RoutingVault.sol           testnet router over the in-repo MiniAMM
+│   ├── src/dex/MiniAMM.sol            minimal V2-style AMM (testnet only)
+│   │  --- tests ---
+│   ├── test/AuditAnchorV2.t.sol       14 direct anchor tests + fuzz
+│   ├── test/MorphoSupplyAdapterGuards.t.sol  11 guard tests (replay, ceiling, reentrancy)
+│   ├── test/UniswapRoutingVault.t.sol 23 route, slippage, dust + allowance tests
+│   ├── test/CommitmentParity.t.sol    Python↔Solidity commitment goldens
+│   ├── test/redteam/RT01..RT11        70 adversarial tests reproducing each audit finding
+│   └── script/Deploy*.s.sol           deploy scripts (chainId-guarded, capability-probed)
+├── zk-mldsa/                    SP1 zkVM proof of the ML-DSA-65 signature
+│   ├── program/                 guest: verifies the sig, commits (orderHash, pkHash)
+│   ├── export_mldsa_input.py    refuses to export input signed by a non-live key
+│   └── contracts/               MLDSAAttestation + its deploy script
 ├── tests/
-│   ├── test_pq_signing.py       29 PQ, integrity, AI lookahead + backtest regression tests
-│   └── test_monad_tx.py         28 calldata + AuditAnchor + vault + route tests
+│   ├── test_pq_signing.py       32 PQ / canonicalisation / keypair-lifecycle tests
+│   ├── test_monad_tx.py         35 calldata, commitment + route-validation tests
+│   ├── test_quoter.py           18 live-quote tests (calldata pinned to `cast`)
+│   ├── test_orders_auditlog.py  8 audit-chain normalisation tests
+│   └── test_pq_policy.py        17 negative tests for key pinning + hedge policy
 │   (Plus 169 Foundry tests in contracts/test/ above — 279 tests total)
 ├── outputs/
 │   ├── hardware_run.json        Cached IBM-QPU result
