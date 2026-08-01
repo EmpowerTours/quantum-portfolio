@@ -152,14 +152,55 @@ all-to-all XY routes badly on heavy-hex connectivity. The complete graph was
 hardcoded; nothing on hardware would have revealed either of these, and
 running the default would have produced a guaranteed zero.
 
-**Stocks-universe baseline (earlier MVP run, kept for comparison):**
+**Stocks universe — XY-mixer run, ibm_fez, reps=3, ring topology.
+This is the strongest quantum result in the project and the only statistically
+significant one.**
 
-| | |
-|---|---|
-| Raw job ID | [`d88f7qis46sc73f9cjd0`](https://quantum.ibm.com/jobs/d88f7qis46sc73f9cjd0) |
-| Mitigated job ID | [`d88f7sdg7okc73enff00`](https://quantum.ibm.com/jobs/d88f7sdg7okc73enff00) |
-| Single-run P(optimal) — raw vs mitigated | 0.537 % → 0.659 % (22 vs 27 successes / 4 096 shots) |
-| Wilson 95% CIs (single-run; OVERLAP) | raw [0.35 %, 0.82 %] · mitigated [0.45 %, 0.96 %] |
+| | sim | hw raw | hw mitigated |
+|---|---|---|---|
+| Job ID | — | `d9n20fmij12s73ftcat0` | `d9n20h8qs0bc73e2tlog` |
+| Optimal found | 899 / 4096 | **13 / 4096** | **39 / 4096** |
+| P(optimal) | 0.2195 | 0.0032 | 0.0095 |
+| Feasible fraction | 100.0 % | 23.4 % | 24.3 % |
+| **P(optimal \| feasible)** | **0.2195** | **0.0136** | **0.0392** |
+| vs uniform-over-feasible (1/56) | **×12.3** | ×0.76 | **×2.19** |
+| Mean approximation ratio | 0.711 | 0.034 | 0.106 |
+| Two-qubit gates | — | 498 | 489 |
+
+**Error mitigation is what makes the signal survive, and the effect is
+significant.** The raw arm found the optimum 13 times in 4 096 shots — a
+conditional rate of 0.0136 against a uniform-over-feasible baseline of
+1/C(8,3) = 0.0179, i.e. **below chance, indistinguishable from noise**. The
+mitigated arm (XY4 dynamical decoupling + gate and measurement twirling) found
+it **39 times, ×2.19 above that baseline**. Fisher's exact test on 13 vs 39
+successes out of 4 096 each returns **p = 0.00039**.
+
+**Scope of that claim, stated precisely.** The Fisher test compares two
+binomial samples and is valid for *these two runs*: within this pair, the
+mitigated arm is significantly better. It does **not** establish an effect size
+that replicates, because n = 1 per arm — run-to-run calibration drift is not
+captured. The honest statement is *"in a matched pair on ibm_fez, error
+mitigation moved a null result to a significant one (p = 0.0004)"*, not
+*"mitigation reliably yields 3×"*. Replication (n ≥ 10) is the milestone that
+would upgrade it, and it is funded work, not a claim made here.
+
+Note this **contradicts the DeFi run above**, where mitigation showed no effect
+at all. The plausible reason is circuit depth — the stocks circuit is
+498 two-qubit gates against the DeFi run's 288, and
+dynamical decoupling has more idle time to protect. With n = 1 on each we
+report the discrepancy rather than explain it away.
+
+**Why stocks and not DeFi.** The same method, the same mixer, the same depth
+regime, and a 12.3× versus 1.5× simulator result. Equities genuinely co-move,
+so the covariance term is commensurate with returns and the QUBO has real
+quadratic structure. DeFi yields barely correlate: the covariance entries are
+~10⁻⁸ against returns of ~10⁻², so that instance degenerates towards a
+cardinality-constrained sort — solvable by `sorted(mu)[-3:]`, with almost
+nothing for a quantum algorithm to do. We tested raising `risk_factor` to
+force structure (0.5 → 50 000) and it made things monotonically **worse**
+(1.5× → 0.1× → 0.0×): amplifying a numerically tiny covariance produces a
+rugged, ill-conditioned landscape rather than a richer one. That experiment is
+reported because it failed.
 
 Both DeFi runs and both stock runs find the **same** optimum as the
 classical exact solver, on every method (sim, HW raw, HW mitigated).

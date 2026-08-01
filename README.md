@@ -115,14 +115,31 @@ solver, which is consistency at this scale (not advantage).
 > on the hardware path**. The stocks run below sits ~2.8σ above chance and is
 > the stronger of the two. Full detail in SUBMISSION.md.
 
-### MVP stock universe (earlier baseline, kept for comparison)
+### Stocks universe — the strongest result
 
-| | |
-|---|---|
-| Optimal selection | GLD · SLV · NVDA |
-| Raw job ID | [`d88f7qis46sc73f9cjd0`](https://quantum.ibm.com/jobs/d88f7qis46sc73f9cjd0) |
-| Mitigated job ID | [`d88f7sdg7okc73enff00`](https://quantum.ibm.com/jobs/d88f7sdg7okc73enff00) |
-| Single-run P(optimal) raw / mitigated | 0.537 % → 0.659 % (directional consistency check, single 4 096-shot run; Fisher exact p ≈ 0.49 — not significance-tested) |
+XY-ring mixer, reps=3, `ibm_fez`. Raw counts shipped in
+`outputs/hardware_run.json`, so every figure below recomputes without an IBM
+account.
+
+| | sim | hw raw | hw **mitigated** |
+|---|---|---|---|
+| Optimal found / 4096 | 899 | 13 | **39** |
+| P(optimal \| feasible) | 0.2195 | 0.0136 | **0.0392** |
+| vs uniform-over-feasible (1/56 = 0.0179) | ×12.3 | ×0.76 | **×2.19** |
+| Two-qubit gates | — | 498 | 489 |
+
+**Error mitigation is what makes the signal survive.** Raw is below chance —
+noise. Mitigated (XY4 dynamical decoupling + twirling) finds the optimum 3×
+more often, and Fisher's exact test on 13 vs 39 successes gives
+**p = 0.00039**.
+
+That p-value compares *these two runs* and is valid for that. It does not
+establish a replicating effect size: n = 1 per arm, so calibration drift is
+uncaptured. Replication (n ≥ 10) is the next milestone, not a claim made here.
+The DeFi run showed *no* mitigation effect at 288 gates; we report the
+discrepancy rather than explain it away.
+
+![hardware vs noise](outputs/hardware_vs_noise_stocks.png)
 
 ## Reproducing
 
