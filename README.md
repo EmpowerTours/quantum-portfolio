@@ -11,7 +11,7 @@ the shipped demonstration.
 1. **[Open the interactive Streamlit demo](https://quantum-portfolio-awhfbfwtbqmp2swgpsvxwf.streamlit.app/)** — run the cached optimizer, inspect AI forecasts and backtesting, verify the real IBM hardware artefacts, and exercise PQ signing/tamper detection.
 2. **[Watch the 81-second product walkthrough](docs/DEMO_VIDEO.mp4)**.
 3. **[Review the Santander submission narrative](SUBMISSION.md)** and the linked IBM Quantum jobs and Monad transactions.
-4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 93 Python tests plus 142 Foundry tests (235 total, none skipped) are documented below.
+4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 110 Python tests plus 142 Foundry tests (252 total, none skipped) are documented below.
 
 The live demo uses shipped, reproducible hardware artefacts by default. Running
 new IBM hardware jobs is optional and requires a personal IBM Quantum token.
@@ -184,7 +184,7 @@ python run_backtest.py
 ├── tests/
 │   ├── test_pq_signing.py       29 PQ, integrity, AI lookahead + backtest regression tests
 │   └── test_monad_tx.py         28 calldata + AuditAnchor + vault + route tests
-│   (Plus 142 Foundry tests in contracts/test/ above — 235 tests total)
+│   (Plus 142 Foundry tests in contracts/test/ above — 252 tests total)
 ├── outputs/
 │   ├── hardware_run.json        Cached IBM-QPU result
 │   ├── backtest.json            Walk-forward metrics

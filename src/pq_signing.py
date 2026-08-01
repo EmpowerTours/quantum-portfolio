@@ -141,8 +141,23 @@ def _assert_nfc(obj: Any, _path: str = "") -> None:
         return
     if isinstance(obj, dict):
         for k, v in obj.items():
-            if isinstance(k, str):
-                _assert_nfc(k, f"{_path}.{k}")
+            # A non-str key defeats injectivity by a different route than Z-1.
+            # `json.dumps` stringifies it, so {1: "x"} and {"1": "x"} produce
+            # IDENTICAL canonical bytes — two distinct payloads, one signature,
+            # one anchored orderHash. True/None/1.0 collide with "true"/"null"/
+            # "1.0" the same way. Unreachable through RebalanceOrder.to_dict()
+            # (asdict always yields str keys), but canonical_bytes is an
+            # exported general-purpose signing primitive whose whole contract is
+            # injectivity, so it must refuse rather than rely on its callers.
+            # (Audit L-4.)
+            if not isinstance(k, str):
+                raise ValueError(
+                    f"non-string dict key at {_path or '<root>'}: {k!r} "
+                    f"({type(k).__name__}). JSON stringifies it, so this payload "
+                    f"would canonicalise identically to one using the string "
+                    f"{str(k)!r} — two different orders sharing one signature."
+                )
+            _assert_nfc(k, f"{_path}.{k}")
             _assert_nfc(v, f"{_path}.{k}")
         return
 

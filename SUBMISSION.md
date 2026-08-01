@@ -111,14 +111,15 @@ classical exact solver, on every method (sim, HW raw, HW mitigated).
 
 **Statistical honesty about the mitigation lift.** Each P(optimal)
 above is a single-run frequency (count of optimal-bitstring samples
-divided by 4 096 shots). The Wilson 95% CIs overlap for both runs, so
-the observed mitigated > raw ordering is a **directional consistency
-check**, not a hypothesis-tested significance claim. A Fisher's exact
-test on 12 vs 20 successes (DeFi) returns p ≈ 0.16; on 22 vs 27
-successes (stocks) p ≈ 0.49. Reaching α = 0.05 significance on lifts
-of this magnitude requires either many more shots per run or
-replicated independent runs — both shipped as "more compute time" in
-the funding line below.
+divided by 4 096 shots), n = 1 per arm. There is **no measured mitigation
+effect to defend**: the DeFi run is 15 vs 15 successes, Fisher exact
+p = 1.000. The stocks run is 22 vs 27, p ≈ 0.49 — also not significant, and
+its Wilson intervals overlap. So across both universes the honest statement
+is that this experiment is under-powered to detect a mitigation lift, and in
+the DeFi case the raw output is itself indistinguishable from chance.
+Reaching α = 0.05 needs replicated independent runs (n ≥ 10) and a problem
+instance whose quadratic term is not numerically negligible — both are
+milestones in the funding line below, not results claimed here.
 
 **Methodological precedent (NOT a transitive significance claim).** A
 February-2026 study on IBM Torino/Fez (Heron family) reported a
@@ -551,9 +552,25 @@ reproduce the toolchain; SP1's Docker guest build is the route to closing
 that, and it is not yet wired in here.
 
 So the agent's decision now carries an **on-chain, zero-knowledge proof
-of its post-quantum ML-DSA-65 signature** on Monad mainnet — closing the
-Q-Day on-chain gap without waiting for chain-level PQ support, and
-without the ~500M-gas cost of verifying ML-DSA in the EVM. Honest scope
+of its post-quantum ML-DSA-65 signature** on Monad mainnet, without the
+~500M-gas cost of verifying ML-DSA in the EVM.
+
+**Precisely what this does and does not do.** `pqAttested[orderHash]` is an
+on-chain *record* that a valid ML-DSA-65 signature by the pinned key exists
+over that order. It is **not** a *gate*: `grep -rn pqAttested contracts/src/`
+returns nothing, and `AuditAnchorV2`, `UniswapRoutingVault` and
+`MorphoSupplyAdapter` never read it. Settlement is authorised by
+`execCommitmentOf[user][orderHash]`, which is written by an ordinary
+secp256k1 ECDSA transaction. An attacker holding the deployer key could
+anchor a commitment and execute a trade having broken no post-quantum
+scheme; the PQ signature is enforced by `_verify_or_raise` inside the Python
+builders, which such an attacker would simply not run.
+
+So this closes the *cost* barrier to on-chain PQ verification — the part
+that was previously infeasible — and demonstrates the primitive end to end.
+It does not yet make PQ authorisation mandatory for settlement. Wiring the
+executors to require `pqAttested[orderHash]` is the step that would, and it
+is a contract change, not a research problem. Honest scope
 unchanged: no quantum advantage anywhere; this is the PQ-*settlement*
 path, proven end to end.
 
@@ -659,10 +676,10 @@ Monadscan as evidence of the bug-fix process, not for active use.
 
 ## Test coverage and CI
 
-**235 tests, none skipped** (`pytest tests/ && forge test`), re-run
+**252 tests, none skipped** (`pytest tests/ && forge test`), re-run
 2026-07-31 against live Monad mainnet.
 
-**93 Python tests**
+**110 Python tests**
 - `test_pq_signing.py` (32) — SLH-DSA variant lock-in; round-trip and
   tamper detection for ML-DSA, SLH-DSA and Ed25519; strict
   canonicalisation (NFC validation, sorted keys, no NaN); strict `verify`
@@ -678,6 +695,14 @@ Monadscan as evidence of the bug-fix process, not for active use.
 - `test_orders_auditlog.py` (8) — writer and verifier normalise a log
   line identically under five terminator variants; reverse scan survives
   entries beyond the initial window; the shipped log still verifies.
+- `test_pq_policy.py` (17) — the negative tests for the two policy flags
+  that carry the M-1 and Z-2 defences: key pinning rejects a
+  self-consistent forgery signed with the attacker's own three keypairs;
+  one wrong pinned key out of three is enough to reject; stripping a
+  signature leg fails under `require_hedged=True`; corrupting any single
+  leg fails the whole order (the combiner is AND); a schema-v2 order with
+  no execution block is rejected by default; and `canonical_bytes` refuses
+  non-string dict keys (L-4).
 
 **142 Foundry tests**, of which **70 are an adversarial red-team suite**
 (`contracts/test/redteam/`, RT01–RT11) that reproduces each audit finding
@@ -693,12 +718,12 @@ fork), `RT11_AnchorStateMachine` (6), `CommitmentParity` (6).
 
 - **Area 3 (primary) — Digital Infrastructure Secured Against Quantum
   Computing.** The PQ signing layer is not narrative — it is verified by
-  **93 Python tests** (32 PQ-signing, 35 Monad-TX encoding, 18 live-quote,
+  **110 Python tests** (32 PQ-signing, 35 Monad-TX encoding, 18 live-quote,
   8 audit-chain) and **142 Foundry tests**, of which **70 are an adversarial
   red-team suite** (`contracts/test/redteam/`) that reproduces each
   vulnerability found in the July 2026 audit and then asserts it is closed —
   several against the real Uniswap and Morpho deployments on a mainnet fork.
-  235 tests, none skipped. The artefacts are tamper-evident and a reviewer can
+  252 tests, none skipped. The artefacts are tamper-evident and a reviewer can
   audit them without running the code. **The full loop is LIVE on Monad
   mainnet (chainId 143), all contracts Monadscan-verified**:
   [AuditAnchorV2](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd),

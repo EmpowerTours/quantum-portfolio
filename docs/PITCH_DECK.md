@@ -162,7 +162,7 @@ QAOA on IBM Heron · Hedged post-quantum signatures · On-chain provenance on Mo
 
 <h3>What this is, honestly</h3>
 
-QAOA is **not** yet faster than SLSQP for this problem size. We measure the **gap** as it closes. Honest measurement is the deliverable.
+QAOA is **not** faster than the classical baseline at this size — that baseline is `NumPyMinimumEigensolver` (brute-force exact, `src/solvers.py:33`), which is optimal and instant on 8 assets. We measure the **gap** honestly rather than claim it is closed.
 
 </div>
 
@@ -220,7 +220,7 @@ QAOA is **not** yet faster than SLSQP for this problem size. We measure the **ga
 
 <h3>Proof, not promises</h3>
 
-# Live on Monad MAINNET.<br>235 tests. ZK-verified.
+# Live on Monad MAINNET.<br>252 tests. ZK-verified.
 
 <div class="grid-3">
 
@@ -229,7 +229,7 @@ QAOA is **not** yet faster than SLSQP for this problem size. We measure the **ga
 </div>
 
 <div>
-<div class="big">235<small>tests passing<br>93 Python + 142 Foundry</small></div>
+<div class="big">252<small>tests passing<br>110 Python + 142 Foundry</small></div>
 </div>
 
 <div>

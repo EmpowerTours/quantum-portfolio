@@ -58,14 +58,32 @@ time of signing, **and a `prev_hash` field linking it to the SHA-256 of
 the previous line**. The first entry's `prev_hash` is the genesis
 sentinel (64 zeros). `verify_audit_chain()` walks the file and rejects
 the log if any line's `prev_hash` does not match the SHA-256 of the
-previous serialised line — i.e. **deletions, reorderings, and middle
-edits are detected**. Append-only forward-extension is the only mutation
-that preserves the chain.
+previous serialised line.
+
+**Scope — this is weaker than it looks, and the limit matters.**
+`prev_hash` is attached by the logger *after* signing, so it is NOT inside
+the PQ-signed payload, and `verify_audit_chain()` checks linkage only — it
+never re-verifies a signature. The chain therefore detects **accidental
+corruption, truncation, and edits made without recomputing the chain**. It
+does **not** resist an adversary who can write the file: deleting entries,
+reordering the survivors and recomputing every `prev_hash` yields a log that
+passes `verify_audit_chain()` while every remaining signature still verifies
+against the correctly-pinned agent keys. An agent could retroactively drop
+its losing allocations. Replay protection inherits the same weakness, since
+`_load_seen_nonces` reads its nonce set from this same mutable file.
+
+What *is* protected: the CONTENTS of each individual entry, by the hedged
+signature. What is not: the SEQUENCE and COMPLETENESS of the log.
+`AuditAnchorV2`'s per-anchorer sequence counter is a genuine on-chain
+ordering commitment, but it covers only anchored orders and is authorised by
+an ECDSA transaction. Closing this properly means signing `(order,
+prev_hash)` together — a schema bump — so that reordering requires forging a
+signature.
 
 ### Schema versioning
 Every signed `RebalanceOrder` carries a `schema_version` integer that is
-itself part of the signed payload. Current constant: `SCHEMA_VERSION = 1`
-(`src/orders.py:42`). Adding or renaming fields bumps the constant. An
+itself part of the signed payload. Current constant: `SCHEMA_VERSION = 2`
+(`src/orders.py:46`). Adding or renaming fields bumps the constant. An
 order signed under schema 1 cannot be re-purposed as if it were schema
 2 — the signature covers the version. Additionally, `verify_signed_order`
 rejects any incoming order whose `schema_version` exceeds the current

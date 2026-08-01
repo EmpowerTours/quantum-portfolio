@@ -31,40 +31,50 @@ and check a ~230k-gas Groth16 proof on-chain.
 | zkVM cycles (**keccak precompile**, `vendor/keccak`) | **2,036,177** (−33%) |
 | **Core proof generation + verification** | **GENERATED and VERIFIED locally** on this 15 GB box (peak RSS 14.75 GB) — succeeds *because* of the precompile patch (baseline OOM'd at 3.04M cycles). |
 | Program vkey | `0x00364772d1d557782109c04c8041ea0b05fb55705356a621d37c35d6ecdaba72` |
-| Groth16 wrap (for on-chain) | **NOT YET REGENERATED** — see below. Needs a ≥32 GB box; the wrap's memory need is roughly fixed regardless of guest cycles. |
+| Groth16 wrap (for on-chain) | **DONE 2026-07-30** on a 64 GB box (~$0.32). 356-byte proof, vkey `0x00ed29f3…cbd5`, 64-byte publicValues. Verified on-chain by SP1's Monad verifier and consumed by `attest()`. |
 
-### The committed fixture is STALE — do not deploy against it
+### Status: the fixture is CURRENT and deployed
 
-`contracts/src/fixtures/groth16-mldsa-fixture.json` was generated before two
-changes and is now unusable in three independent ways:
+`contracts/src/fixtures/groth16-mldsa-fixture.json` proves the ML-DSA-65
+signature over orderHash `0xd8bf1551…15f9` — the same order anchored and
+swapped on Monad mainnet — by the live signing key `ac0b2aea…`.
 
-1. its `publicValues` is **32 bytes**, the old orderHash-only layout; the guest
-   now commits `(orderHash, pkHash)` and the contract decodes **64**;
-2. its `vkey` is the superseded `0x00eddc1f…8c37`;
-3. it proves a signature by ML-DSA key `8a1b08d1…`, **whose secret half was
-   lost**. The live identity is `ac0b2aea…` (`keys/pq.pub`).
+| | |
+|---|---|
+| publicValues | 64 bytes = `(orderHash, pkHash)` |
+| vkey | `0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5` |
+| proof | 356 bytes, selector `0x4388a21c` |
+| Deployed to | `MLDSAAttestation` [`0xb0aADaFe68647578520E988b4444e556c300b4Da`](https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da) |
+| `attest()` | [`0x3ec51f36…d56de`](https://monadscan.com/tx/0x3ec51f366d7d7944742f808cef8f897a750be881bddda6aa7a171880377d56de), 1 196 224 gas |
 
-Because `verifier`, `mldsaProgramVKey` and `agentPkHash` are all `immutable`
-with no owner and no setter, deploying against it would be a permanent
-write-off. `script/DeployMLDSAAttestation.s.sol` now refuses all three cases
-before broadcasting, and re-verifies the proof on-chain after deploying.
+An *earlier* fixture was unusable in three ways — 32-byte single-field
+publicValues, the superseded vkey `0x00eddc1f…8c37`, and a signature by the
+ML-DSA key `8a1b08d1…` whose secret half was lost. Because `verifier`,
+`mldsaProgramVKey` and `agentPkHash` are all `immutable`, deploying against it
+would have been a permanent write-off. `script/DeployMLDSAAttestation.s.sol`
+rejects all three cases before broadcasting and re-verifies the proof on-chain
+after deploying.
 
-**To regenerate:** the guest input has already been re-exported from an order
-signed by the current key (`python zk-mldsa/export_mldsa_input.py`), and the
-guest executes cleanly against it. Only the Groth16 wrap remains — run
-`provision.sh` on a ≥32 GB box, or use the Succinct prover network.
+### Known limitation — the vkey is not reproducible from source
 
-Nothing else in the system depends on this: `AuditAnchorV2`,
-`UniswapRoutingVault` and `MorphoSupplyAdapter` contain no reference to
-`MLDSAAttestation`, so the core pipeline deploys and runs without it.
+The vkey is a hash of the compiled guest ELF, and the ELF is not
+byte-reproducible across toolchains: the proving box produced
+`0x00ed29f3…` where a local build produces `0x00364772…`. Only the former
+verifies — SP1's on-chain verifier accepts the proof under `0x00ed29f3…` and
+reverts under `0x00364772…`, which was checked before deploying.
 
-### The precompile optimization (`vendor/keccak`)
+**This means a third party cannot currently confirm that the deployed vkey
+corresponds to `program/src/main.rs`.** For a project whose claim is
+"verify it yourself", that is a real gap, not a footnote. The two causes are
+both in this directory:
 
-ML-DSA's SHAKE runs through the `shake` → `keccak` crates. We vendored `keccak`
-v0.2.0 and patched `with_p1600` so the full Keccak-f[1600] permutation calls
-SP1's `syscall_keccak_permute` precompile inside the zkVM (`[patch.crates-io]`
-in the workspace `Cargo.toml`). That single change cut cycles 38% and brought
-core proving under the 15 GB ceiling.
+* `script/build.rs` calls `build_program_with_args("../program", Default::default())`
+  and `sp1_build::BuildArgs.docker` defaults to `false`. Setting `docker: true`
+  with a pinned SP1 tag gives reproducible guest builds.
+* `rust-toolchain` pins `channel = "stable"`, a moving target.
+
+Fixing both and publishing the guest ELF's SHA-256 next to the vkey is what
+closes this.
 
 ## Reproduce the execute (no proving)
 
