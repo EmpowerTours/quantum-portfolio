@@ -147,10 +147,14 @@ QAOA on IBM Heron · Hedged post-quantum signatures · On-chain provenance on Mo
 
 <div>
 
-- Circuit compiled + queued against **IBM Heron** via Qiskit Runtime.
-- We report **mean ± stdev across 12 seeds** vs SLSQP baseline.
-- Not single-best-run cherry-picking — the failure mode of quantum-finance papers.
-- Live hardware tab in the Streamlit demo: depth, qubit budget, queue state.
+- Executed on **IBM Heron r2** (`ibm_marrakesh`) via Qiskit Runtime, 4 096 shots,
+  raw and error-mitigated (XY4 DD + measurement twirling). Job IDs shipped in
+  `outputs/hardware_run_defi.json`.
+- **n = 1 per arm.** We report Wilson 95% CIs and a Fisher exact test, and they
+  do not separate: the DeFi run is 15 vs 15 successes, p = 1.000.
+- **Uniform random on 8 qubits expects 16 / 4 096.** Our DeFi run returned 15.
+  We do not claim the QPU optimised anything in it. The stocks run sits ~2.8σ
+  above chance. Replication (n ≥ 10) is a funded milestone, not a result.
 
 </div>
 

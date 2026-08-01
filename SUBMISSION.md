@@ -58,15 +58,44 @@ twirling** (Qiskit Runtime sampler options; see
 `src/qaoa_hw.py:140-148`). **Two real-hardware runs**, both verifiable
 on https://quantum.ibm.com:
 
-**DeFi-pool universe (matches the pitch):**
+**DeFi-pool universe (matches the pitch)** — re-run 2026-07-30, and these
+are the numbers in `outputs/hardware_run_defi.json` that the Streamlit demo
+displays:
 
 | | |
 |---|---|
 | Optimal selection | Morpho STEAKETH · Neverland USDC · shMONAD (all Monad pools) |
-| Raw job ID | [`d89rmk1789is7393mlr0`](https://quantum.ibm.com/jobs/d89rmk1789is7393mlr0) |
-| Mitigated job ID (XY4 DD + measurement twirling) | [`d89rmlqs46sc73fb0qc0`](https://quantum.ibm.com/jobs/d89rmlqs46sc73fb0qc0) |
-| Single-run P(optimal) — raw vs mitigated | 0.293 % → 0.488 % (12 vs 20 successes / 4 096 shots) |
-| Wilson 95% CIs (single-run; OVERLAP) | raw [0.16 %, 0.53 %] · mitigated [0.30 %, 0.77 %] |
+| Raw job ID | `d9loihrhdfks73cl9i10` |
+| Mitigated job ID (XY4 DD + measurement twirling) | `d9loj33hdfks73cl9in0` |
+| Single-run P(optimal) — raw vs mitigated | 0.366 % → 0.366 % (**15 vs 15** successes / 4 096 shots) |
+| Fisher exact, raw vs mitigated | **p = 1.000 — no measurable mitigation effect** |
+
+> **Read this result honestly.** With 8 assets there are 2⁸ = 256 bitstrings,
+> so uniform random sampling yields an expected **16 / 4 096** successes.
+> This run returned **15 / 4 096** — statistically indistinguishable from,
+> and numerically just below, chance. We do not claim the QPU optimised
+> anything in this run.
+>
+> The mechanism is understood. The dense all-to-all Ising penalty transpiles
+> to roughly 250 two-qubit gates on heavy-hex Heron connectivity; at typical
+> CZ error rates the accumulated fidelity is consistent with a depolarised
+> output. Compounding it, at DeFi yield scale the covariance term is ~10⁻⁴
+> of the return term, so the quadratic part of the objective is numerically
+> negligible and the instance degenerates towards a cardinality-constrained
+> sort. The earlier stocks run (below) sits ~2.8σ above chance and is the
+> stronger of the two.
+>
+> The fix is in this repository and not yet on the hardware path:
+> `src/xy_qaoa.py` implements a budget-preserving XY mixer with
+> feasible-subspace initialisation, which raises the ceiling from 1/256 to
+> 1/C(8,3) = 1/56 and removes the penalty layer's routing cost. Wiring it up
+> and re-running with replication is the next milestone, not a claim we make
+> today.
+>
+> A previous revision of this table reported an earlier pair of jobs
+> (`d89rmk…` / `d89rmlqs…`, 12 → 20, p ≈ 0.16). Those were superseded when
+> the run was regenerated on 2026-07-30 and the table was not updated at the
+> same time. The numbers above are the shipped artefact.
 
 **Stocks-universe baseline (earlier MVP run, kept for comparison):**
 
