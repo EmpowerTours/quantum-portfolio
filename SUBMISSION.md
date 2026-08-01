@@ -630,47 +630,35 @@ Monadscan as evidence of the bug-fix process, not for active use.
 
 ## Test coverage and CI
 
-- 29 pipeline/PQ tests covering: variant lock-in for SLH-DSA-SHAKE-256s;
-  round-trip + tampering for ML-DSA, SLH-DSA, and Ed25519; hedged-order
-  round-trip + per-component verification; tamper invalidates all three
-  signatures; legacy ML-DSA-only orders still verify; replay rejection;
-  schema-version coverage; strict canonicalisation; strict `verify`
-  typing; audit-chain intact + deletion detection; **concurrent
-  append_audit under POSIX flock preserves the chain**; **reverse-line
-  scan survives audit entries larger than the 64 KB pre-fix window**;
-  **append_audit refuses to record an unverifiable order**; **AI
-  walk-forward is lookahead-free** (corrupting prices past `as_of` does
-  not change the prediction); and the one-year DeFi history supports a
-  day-based warmup with complete monthly holding periods.
-- 23 Monad-TX Python tests covering: calldata round trip with shared
-  canonicalisation against the PQ-signing layer; transaction field
-  shape; bad-address rejection; corruption detection; **AuditAnchor
-  calldata selectors verified against `forge inspect`**; **anchor TX
-  gas budget under 100 K**; **MONAD_CHAIN_ID locked at 143 (mainnet)**;
-  **MonadAllocationVault execute() selector lock-in (`0x4a987805`)**;
-  **fractional-weights → uint16 basis-points round-trip sums to 10000**;
-  **pool label keccak matches Solidity's hash byte-for-byte**;
-  **fractional-weights raises on zero-sum or negative input** so the
-  on-chain Allocated event cannot misrepresent agent intent.
-- 33 Foundry tests across three test suites:
-    * AuditAnchor (8): genesis, chain linking, per-anchorer counter
-      isolation, sequence-mismatch revert, zero-hash revert, overload
-      coherence, gas budget, 256-run fuzz.
-    * MonadAllocationVault (13): execute records & emits event,
-      reverts on zero value / zero hash / length mismatch / weights
-      sum mismatch, withdraw happy path + insufficient-deposit revert,
-      per-user and per-orderHash isolation, naked-send revert,
-      reentrancy guard via CEI ordering, gas budget, 256-run fuzz on
-      deposit/withdraw invariant.
-    * RoutingVault (12): happy-path routing, slippage reverts,
-      anchor-existence guard, pair allowlist, token/pair validation,
-      naked-send rejection, event payload, WMON dust recovery guard,
-      canonical V2 quote formula, and k-invariant growth after swap.
-- GitHub Actions runs the Python suite on Python 3.11 and 3.12 on every
-  push, plus an import smoke test of every source module on top of the
-  full `requirements.txt`. Audit-chain verification of the shipped
-  `outputs/audit_log.jsonl` runs as a separate CI step. All 33 Foundry
-  tests also run in CI.
+**235 tests, none skipped** (`pytest tests/ && forge test`), re-run
+2026-07-31 against live Monad mainnet.
+
+**93 Python tests**
+- `test_pq_signing.py` (32) — SLH-DSA variant lock-in; round-trip and
+  tamper detection for ML-DSA, SLH-DSA and Ed25519; strict
+  canonicalisation (NFC validation, sorted keys, no NaN); strict `verify`
+  typing; `ensure_keypair` refuses to silently generate a new identity.
+- `test_monad_tx.py` (35) — calldata round trip against the PQ-signing
+  layer; selectors verified against `forge inspect`; `MONAD_CHAIN_ID`
+  locked at 143; fractional-weights → basis-points round-trip sums to
+  10 000; commitment goldens pinned to `cast`; the twelve brickable
+  route classes rejected by `validate_route_execution`.
+- `test_quoter.py` (18) — live-quote calldata pinned byte-for-byte to
+  `cast abi-encode`; every failure path refuses rather than falling back
+  to a hardcoded rate; fee tiers outside {500, 3000, 10000} rejected.
+- `test_orders_auditlog.py` (8) — writer and verifier normalise a log
+  line identically under five terminator variants; reverse scan survives
+  entries beyond the initial window; the shipped log still verifies.
+
+**142 Foundry tests**, of which **70 are an adversarial red-team suite**
+(`contracts/test/redteam/`, RT01–RT11) that reproduces each audit finding
+and then asserts it closed — several against the real Uniswap v3 and
+Morpho Blue deployments on a mainnet fork. Largest suites:
+`UniswapRoutingVault` (21), `MonadAllocationVault` (13), `RoutingVault`
+(12), `RT08_CommitmentDomainSeparation` (10), `RT06_V2BindingSurface` (9),
+`RT09_DeployGuards` (8+1 fork), `RT03_DustInvariantAttacks` (8),
+`AuditPoC_DustDoS` (8), `AuditAnchor` (8), `RT07_SentinelBypass` (7+1
+fork), `RT11_AnchorStateMachine` (6), `CommitmentParity` (6).
 
 ## Why this fits the challenge
 

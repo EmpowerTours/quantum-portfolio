@@ -216,7 +216,7 @@ QAOA is **not** yet faster than SLSQP for this problem size. We measure the **ga
 
 <h3>Proof, not promises</h3>
 
-# Live on Monad MAINNET.<br>105 tests. ZK-verified.
+# Live on Monad MAINNET.<br>235 tests. ZK-verified.
 
 <div class="grid-3">
 
@@ -225,7 +225,7 @@ QAOA is **not** yet faster than SLSQP for this problem size. We measure the **ga
 </div>
 
 <div>
-<div class="big">105<small>tests passing<br>Python + Foundry</small></div>
+<div class="big">235<small>tests passing<br>93 Python + 142 Foundry</small></div>
 </div>
 
 <div>
@@ -261,7 +261,7 @@ QAOA is **not** yet faster than SLSQP for this problem size. We measure the **ga
 
 <br>
 
-> One 32-byte <code>orderHash</code> threads all four. A reviewer replays the events and verifies the whole loop on-chain — without trusting us.
+> The routing leg and the ZK attestation share one 32-byte <code>orderHash</code>; the yield leg carries its own signed order, because AuditAnchorV2 binds one commitment per order and each executor demands its own. A reviewer replays the events and verifies every step on-chain — without trusting us.
 
 ---
 

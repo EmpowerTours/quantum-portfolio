@@ -966,13 +966,13 @@ section::after { color: var(--muted); }
 .pill { display: inline-block; padding: 4px 14px; border-radius: 999px; background: rgba(108,240,255,.12); color: var(--accent); font-size: 18px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; }
 ;" data-marpit-pagination-total="12" data-size="16:9">
 <h3>Proof, not promises</h3>
-<h1 id="live-on-monad-mainnetbr105-tests-zk-verified">Live on Monad MAINNET.<br />105 tests. ZK-verified.</h1>
+<h1 id="live-on-monad-mainnetbr235-tests-zk-verified">Live on Monad MAINNET.<br />235 tests. ZK-verified.</h1>
 <div class="grid-3">
 <div>
 <div class="big">4<small>contracts live<br />Monadscan-verified</small></div>
 </div>
 <div>
-<div class="big">105<small>tests passing<br />Python + Foundry</small></div>
+<div class="big">235<small>tests passing<br />93 Python + 142 Foundry</small></div>
 </div>
 <div>
 <div class="big">3<small>signature algorithms<br />per order, hedged</small></div>
@@ -1104,7 +1104,7 @@ section::after { color: var(--muted); }
 </table>
 <br />
 <blockquote>
-<p>One 32-byte <code>orderHash</code> threads all four. A reviewer replays the events and verifies the whole loop on-chain — without trusting us.</p>
+<p>The routing leg and the ZK attestation share one 32-byte <code>orderHash</code>; the yield leg carries its own signed order, because AuditAnchorV2 binds one commitment per order and each executor demands its own. A reviewer replays the events and verifies every step on-chain — without trusting us.</p>
 </blockquote>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="10" data-paginate="true" data-theme="default" data-style=":root {
