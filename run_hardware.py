@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import time
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from src.data import get_market_data
 from src.problem import build_problem
 from src.qaoa_hw import (build_cost_hamiltonian, optimize_angles, sample_hardware,
                          sample_simulator)
+from src.xy_qaoa import optimize_xy_qaoa
 from src.hardware import get_service
 from src.solvers import portfolio_metrics, solve_exact
 
@@ -49,7 +51,38 @@ def _random_baseline(problem) -> float:
 
 
 def approximation_ratio(score, problem, optimal_obj, random_obj) -> float:
+    """Best-of-N approximation ratio. RETAINED FOR CONTINUITY ONLY.
+
+    This reaches 1.000 if ANY of the shots hits the optimum, so on an 8-asset
+    instance a uniform random sampler achieves it with probability
+    1 - (255/256)^4096 ~ 0.9999999. It is not a measure of circuit quality.
+    Use `mean_approximation_ratio` below to judge the run.
+    """
     return (random_obj - score.best_objective) / (random_obj - optimal_obj)
+
+
+def mean_approximation_ratio(score, optimal_obj, random_feasible_obj) -> float | None:
+    """AR computed from the MEAN energy over feasible shots — an expectation,
+    so noise scores ~0 and only a circuit that concentrates amplitude on good
+    states scores near 1. Baseline is the mean over uniformly-random FEASIBLE
+    bitstrings, so numerator and denominator share a support."""
+    if score.mean_feasible_objective is None:
+        return None
+    denom = random_feasible_obj - optimal_obj
+    if denom == 0:
+        return None
+    return (random_feasible_obj - score.mean_feasible_objective) / denom
+
+
+def _random_feasible_baseline(problem) -> float:
+    """Expected objective over uniformly-random FEASIBLE selections (|x| == k)."""
+    import itertools
+    n, k = problem.num_assets, problem.budget
+    tot, cnt = 0.0, 0
+    for combo in itertools.combinations(range(n), k):
+        x = np.zeros(n); x[list(combo)] = 1
+        tot += float(problem.qp.objective.evaluate(x)); cnt += 1
+    return tot / cnt
 
 
 def main() -> None:
@@ -59,6 +92,21 @@ def main() -> None:
     ap.add_argument("--days", type=int, default=365,
                     help="(defi only) history window in days")
     ap.add_argument("--budget", type=int, default=BUDGET)
+    ap.add_argument("--reps", type=int, default=None,
+                    help="QAOA layers. Default: 2 for penalty, 3 for xy — the xy "
+                         "path COLLAPSES to a single deterministic state at reps=2.")
+    ap.add_argument("--xy-topology", choices=("ring", "complete"), default="ring",
+                    help="ring is both cheaper and better on heavy-hex: measured "
+                         "P(opt) 0.2078 at 454 two-qubit gates, vs complete's "
+                         "0.0808 at 1572.")
+    ap.add_argument("--mixer", choices=("penalty", "xy"), default="penalty",
+                    help="penalty: X mixer over the full 2^n space, budget enforced "
+                         "as a quadratic penalty (the original path). xy: XY mixer "
+                         "with feasible-subspace initialisation, which CONSERVES "
+                         "Hamming weight so every sample satisfies the budget by "
+                         "construction. xy raises the random-guess ceiling from "
+                         "1/2^n to 1/C(n,k) and drops the dense penalty layer that "
+                         "dominates two-qubit gate count after routing.")
     args = ap.parse_args()
 
     if args.universe == "defi":
@@ -76,10 +124,31 @@ def main() -> None:
 
     random_obj = _random_baseline(problem)
 
-    print(f"Tuning QAOA(reps={REPS}) on simulator...")
+    n, k = problem.num_assets, args.budget
+    uniform_null = 1.0 / (2 ** n)
+    feasible_null = 1.0 / math.comb(n, k)
+    print(f"Random-guess baselines: uniform 1/2^{n} = {uniform_null:.5f}"
+          f"  |  uniform-over-feasible 1/C({n},{k}) = {feasible_null:.5f}")
+
     t0 = time.perf_counter()
-    ansatz, params = optimize_angles(problem, reps=REPS, maxiter=80)
-    print(f"  tuned in {time.perf_counter()-t0:.1f}s\n")
+    reps = args.reps if args.reps is not None else (3 if args.mixer == "xy" else REPS)
+    if args.mixer == "xy":
+        if reps < 3:
+            raise SystemExit(
+                f"--mixer xy needs --reps >= 3; at reps={reps} the optimiser "
+                "minimises <H> by rotating deterministically onto ONE basis "
+                "state, giving 100% feasibility and P(optimal) = 0."
+            )
+        print(f"Tuning XY-mixer QAOA(reps={reps}, topology={args.xy_topology}) "
+              "on simulator (feasible-subspace init, TQA warm starts)...")
+        bound, angles, energy = optimize_xy_qaoa(problem, reps=reps,
+                                                 topology=args.xy_topology)
+        ansatz, params = bound, {}          # already bound
+        print(f"  tuned in {time.perf_counter()-t0:.1f}s  best energy {energy:.6f}\n")
+    else:
+        print(f"Tuning penalty-QAOA(reps={reps}) on simulator...")
+        ansatz, params = optimize_angles(problem, reps=reps, maxiter=80)
+        print(f"  tuned in {time.perf_counter()-t0:.1f}s\n")
 
     print("Sampling on simulator (reference)...")
     sim = sample_simulator(problem, ansatz, params, exact.selection, shots=SHOTS)
@@ -104,17 +173,25 @@ def main() -> None:
     rows = [
         ("Classical (exact)", exact.selection, exact.objective, 1.0, "-"),
     ]
+    random_feasible_obj = _random_feasible_baseline(problem)
     for s in (sim, hw_raw, hw_mit):
         ar = approximation_ratio(s, problem, exact.objective, random_obj)
         rows.append((s.method, s.best_selection, s.best_objective, s.p_optimal, ar))
 
-    print(f"{'Method':<26}{'Selection':<22}{'Obj':>9}{'P(opt)':>9}{'AR':>8}")
-    print("-" * 74)
-    for m, sel, obj, popt, ar in rows:
-        sel_str = ", ".join(market.tickers[i] for i in sel) if sel else "(none)"
-        ar_str = f"{ar:.3f}" if isinstance(ar, float) else ar
-        popt_str = f"{popt:.3f}" if isinstance(popt, float) else "-"
-        print(f"{m:<26}{sel_str:<22}{obj:>9.4f}{popt_str:>9}{ar_str:>8}")
+    print(f"{'Method':<24}{'Obj':>9}{'P(opt)':>9}{'feas%':>8}{'meanAR':>8}{'2Q':>6}{'depth':>7}")
+    print("-" * 71)
+    print(f"{'Classical (exact)':<24}{exact.objective:>9.4f}{1.0:>9.3f}{'-':>8}{'-':>8}{'-':>6}{'-':>7}")
+    for sc in (sim, hw_raw, hw_mit):
+        mar = mean_approximation_ratio(sc, exact.objective, random_feasible_obj)
+        print(f"{sc.method:<24}{sc.best_objective:>9.4f}{sc.p_optimal:>9.4f}"
+              f"{sc.feasible_fraction*100:>7.1f}%"
+              f"{(f'{mar:.3f}' if mar is not None else '-'):>8}"
+              f"{(sc.two_qubit_gates if sc.two_qubit_gates is not None else '-'):>6}"
+              f"{(sc.circuit_depth if sc.circuit_depth is not None else '-'):>7}")
+    print()
+    print(f"  P(opt) null: uniform {uniform_null:.5f} | uniform-over-feasible {feasible_null:.5f}")
+    print(f"  A run whose feasible% ~= {100/2**n*math.comb(n,k):.1f}% and P(opt) ~= "
+          f"{uniform_null:.5f} is indistinguishable from noise.")
 
     Path("outputs").mkdir(exist_ok=True)
     out_name = "hardware_run.json" if args.universe == "stocks" else "hardware_run_defi.json"
@@ -122,15 +199,27 @@ def main() -> None:
         "backend": backend.name,
         "universe": args.universe,
         "shots": SHOTS,
-        "reps": REPS,
+        "reps": reps,
+        "xy_topology": args.xy_topology if args.mixer == "xy" else None,
         "tickers": list(market.tickers),
         "budget": args.budget,
         "optimal": {"selection": exact.selection, "objective": exact.objective},
         "random_baseline_objective": random_obj,
+        "mixer": args.mixer,
+        "null_p_optimal_uniform": uniform_null,
+        "null_p_optimal_uniform_feasible": feasible_null,
+        "random_feasible_baseline_objective": random_feasible_obj,
         "results": [
-            {"method": s.method, "best_selection": s.best_selection,
-             "best_objective": s.best_objective, "p_optimal": s.p_optimal,
-             "job_id": s.job_id} for s in (sim, hw_raw, hw_mit)
+            {"method": sc.method, "best_selection": sc.best_selection,
+             "best_objective": sc.best_objective, "p_optimal": sc.p_optimal,
+             "feasible_fraction": sc.feasible_fraction,
+             "mean_feasible_objective": sc.mean_feasible_objective,
+             "mean_approximation_ratio":
+                 mean_approximation_ratio(sc, exact.objective, random_feasible_obj),
+             "two_qubit_gates": sc.two_qubit_gates,
+             "circuit_depth": sc.circuit_depth,
+             "counts": sc.counts,
+             "job_id": sc.job_id} for sc in (sim, hw_raw, hw_mit)
         ],
     }, indent=2))
     print(f"\nSaved outputs/{out_name}")

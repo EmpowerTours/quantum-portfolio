@@ -77,7 +77,8 @@ def _apply_xy_mixer(qc: QuantumCircuit, beta, topology: str = "complete") -> Non
         qc.ryy(2 * beta, i, j)
 
 
-def build_xy_qaoa(problem: PortfolioProblem, reps: int = 2, normalize: bool = True):
+def build_xy_qaoa(problem: PortfolioProblem, reps: int = 2, normalize: bool = True,
+                  topology: str = "ring"):
     """Return (parameterized circuit, cost Hamiltonian, offset, scale).
 
     `scale` is the multiplier baked into the cost layer (1.0 if not normalized).
@@ -92,13 +93,28 @@ def build_xy_qaoa(problem: PortfolioProblem, reps: int = 2, normalize: bool = Tr
     betas = ParameterVector("b", reps)
     for r in range(reps):
         _apply_cost_layer(qc, hamiltonian, gammas[r], scale=scale)
-        _apply_xy_mixer(qc, betas[r], topology="complete")
+        _apply_xy_mixer(qc, betas[r], topology=topology)
     return qc, hamiltonian, offset, scale
 
 
 def optimize_xy_qaoa(problem: PortfolioProblem, reps: int = 3,
-                     n_restarts: int = 12, maxiter: int = 200, seed: int = 42):
+                     n_restarts: int = 12, maxiter: int = 200, seed: int = 42,
+                     topology: str = "ring"):
     """Tune XY-mixer QAOA angles on a noiseless simulator.
+
+    `topology` defaults to "ring" (n edges) rather than "complete" (n(n-1)/2).
+    Measured on FakeMarrakesh with 8 assets, budget 3, simulator P(optimal)
+    against a uniform-over-feasible null of 1/C(8,3) = 0.0179:
+
+        complete reps=2   P(opt) 0.0000   2Q   ~0   (collapses to one state)
+        complete reps=6   P(opt) 0.0808   2Q 1572
+        ring     reps=3   P(opt) 0.2078   2Q  454
+        ring     reps=4   P(opt) 0.2820   2Q  683
+
+    Complete-graph XY needs all-to-all connectivity, which routes badly on
+    heavy-hex; ring is both cheaper AND better here. reps must be >= 3: at
+    reps=2 the optimiser minimises <H> by rotating deterministically onto a
+    single suboptimal basis state, giving 100% feasibility and P(opt) = 0.
 
     Uses TQA (Trotterized Quantum Annealing) warm starts at several dt scales,
     plus random restarts. Returns (bound_circuit, optimal_params_dict, min_value).
@@ -106,7 +122,7 @@ def optimize_xy_qaoa(problem: PortfolioProblem, reps: int = 3,
     from qiskit.primitives import StatevectorEstimator
     from scipy.optimize import minimize
 
-    qc, H, _, _ = build_xy_qaoa(problem, reps=reps, normalize=True)
+    qc, H, _, _ = build_xy_qaoa(problem, reps=reps, normalize=True, topology=topology)
     est = StatevectorEstimator(seed=seed)
     order = list(qc.parameters)
 

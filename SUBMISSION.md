@@ -55,47 +55,81 @@ penalty in the cost Hamiltonian runs on IBM Heron silicon
 (`ibm_marrakesh`). Hardware error is suppressed at the sampler level
 with **XY4 dynamical decoupling, gate twirling, and measurement
 twirling** (Qiskit Runtime sampler options; see
-`src/qaoa_hw.py:140-148`). **Two real-hardware runs**, both verifiable
-on https://quantum.ibm.com:
+`src/qaoa_hw.py:140-148`).
 
-**DeFi-pool universe (matches the pitch)** — re-run 2026-07-30, and these
-are the numbers in `outputs/hardware_run_defi.json` that the Streamlit demo
-displays:
+**Verifiability.** Qiskit Runtime job results are scoped to the owning IBM
+account, so a job ID alone is *not* third-party verifiable — an earlier
+revision claimed the runs were "verifiable on quantum.ibm.com", which a
+reviewer clicking the link would have found untrue. The raw measurement
+counts are therefore shipped inside `outputs/hardware_run_defi.json`, so
+P(optimal), the feasible fraction and the approximation ratio can all be
+recomputed from the artefact without an IBM account. `backfill_counts.py`
+re-derives them from the job IDs and asserts they match what is stored.
 
-| | |
-|---|---|
-| Optimal selection | Morpho STEAKETH · Neverland USDC · shMONAD (all Monad pools) |
-| Raw job ID | `d9loihrhdfks73cl9i10` |
-| Mitigated job ID (XY4 DD + measurement twirling) | `d9loj33hdfks73cl9in0` |
-| Single-run P(optimal) — raw vs mitigated | 0.366 % → 0.366 % (**15 vs 15** successes / 4 096 shots) |
-| Fisher exact, raw vs mitigated | **p = 1.000 — no measurable mitigation effect** |
+**DeFi-pool universe — XY-mixer run, ibm_marrakesh, reps=3, ring topology:**
 
-> **Read this result honestly.** With 8 assets there are 2⁸ = 256 bitstrings,
-> so uniform random sampling yields an expected **16 / 4 096** successes.
-> This run returned **15 / 4 096** — statistically indistinguishable from,
-> and numerically just below, chance. We do not claim the QPU optimised
-> anything in this run.
->
-> The mechanism is understood. The dense all-to-all Ising penalty transpiles
-> to roughly 250 two-qubit gates on heavy-hex Heron connectivity; at typical
-> CZ error rates the accumulated fidelity is consistent with a depolarised
-> output. Compounding it, at DeFi yield scale the covariance term is ~10⁻⁴
-> of the return term, so the quadratic part of the objective is numerically
-> negligible and the instance degenerates towards a cardinality-constrained
-> sort. The earlier stocks run (below) sits ~2.8σ above chance and is the
-> stronger of the two.
->
-> The fix is in this repository and not yet on the hardware path:
-> `src/xy_qaoa.py` implements a budget-preserving XY mixer with
-> feasible-subspace initialisation, which raises the ceiling from 1/256 to
-> 1/C(8,3) = 1/56 and removes the penalty layer's routing cost. Wiring it up
-> and re-running with replication is the next milestone, not a claim we make
-> today.
->
-> A previous revision of this table reported an earlier pair of jobs
-> (`d89rmk…` / `d89rmlqs…`, 12 → 20, p ≈ 0.16). Those were superseded when
-> the run was regenerated on 2026-07-30 and the table was not updated at the
-> same time. The numbers above are the shipped artefact.
+| | sim | hw raw | hw mitigated |
+|---|---|---|---|
+| Job ID | — | `d9mobuvurbec73e654n0` | `d9moep7urbec73e657tg` |
+| P(optimal) | 0.0266 | **0.0054** | **0.0054** |
+| Feasible fraction | 100.0 % | **33.5 %** | **35.6 %** |
+| Mean approximation ratio | 0.168 | 0.066 | 0.029 |
+| Two-qubit gates (transpiled) | — | 288 | 272 |
+| Distinct states sampled | — | 255 | 254 |
+
+Baselines: uniform random over 2⁸ bitstrings gives P(optimal) =
+**0.00391** and a feasible fraction of
+**21.9 %** (C(8,3)/2⁸). Uniform over *feasible* states gives
+**0.01786**.
+
+**What this run does and does not show.** Both hardware arms sit **above the
+noise floor on both axes** — P(optimal) 0.0054 against a uniform null of
+0.00391 (×1.38), and a feasible fraction of
+33.5 % against a noise expectation of 21.9 %. That is the
+first time this project can say so: the previous penalty-mixer run returned
+P(optimal) = 0.00366 against the same 0.00391 null, i.e. **at or below chance**.
+The feasible fraction is the cleaner signal — the XY mixer conserves Hamming
+weight by construction, so a fully decohered circuit would return ~21.9 % and
+a perfect one 100 %; measuring 33.5 % means roughly a sixth of the
+circuit's structure survived 288 two-qubit gates of decoherence.
+
+It is **not** quantum advantage, and the gap to the simulator
+(0.0266 → 0.0054) is decoherence. Error mitigation again shows no
+benefit on P(optimal) (identical to four decimal places) and a *lower* mean
+approximation ratio, so we make no mitigation claim.
+
+**Which run is on chain.** The order settled on Monad mainnet
+(`orderHash 0xd8bf1551…15f9`) cites `qpu_job_id d9loj33hdfks73cl9in0` — the
+**earlier penalty-mixer run**, archived at
+`outputs/hardware_run_defi_penalty_anchored.json` so that job ID still
+resolves. The XY run above is newer and better but is **not** the one that was
+anchored, swapped, supplied and ZK-attested; re-threading it to chain would
+mean a fresh signed order, a fresh anchor and a fresh Groth16 proof. Both runs
+select the same three pools (Morpho STEAKETH · Neverland USDC · shMONAD), so the
+*decision* is unchanged — only the circuit that produced it improved.
+
+**Why the XY mixer, and what it cost.** The original path enforced the budget
+as a quadratic penalty over the full 2ⁿ space. `src/xy_qaoa.py` instead starts
+in a feasible state and mixes with an XY interaction that conserves Hamming
+weight, so the budget holds by construction. Measured on the stocks universe
+against a uniform-over-feasible null of 0.0179:
+
+| configuration | simulator P(opt) | 2Q gates (FakeMarrakesh) |
+|---|---|---|
+| penalty, reps=2 | 0.00098 | 228 |
+| XY complete, reps=2 | **0.0000** — collapses to one basis state | — |
+| XY complete, reps=6 | 0.0808 | 1572 |
+| **XY ring, reps=3** | **0.2078** | **454** |
+
+Two findings worth stating because they are not obvious. At **reps=2 the XY
+path fails completely**: the optimiser minimises ⟨H⟩ by rotating
+deterministically onto a single suboptimal basis state, giving 100 %
+feasibility and P(optimal) = 0. `run_hardware.py` now refuses `--reps < 3`
+with that explanation. And the **ring topology beats the complete graph on
+both axes** — 2.6× the P(optimal) at 29 % of the gate count — because
+all-to-all XY routes badly on heavy-hex connectivity. The complete graph was
+hardcoded; nothing on hardware would have revealed either of these, and
+running the default would have produced a guaranteed zero.
 
 **Stocks-universe baseline (earlier MVP run, kept for comparison):**
 

@@ -32,6 +32,25 @@ class SampleScore:
     p_optimal: float          # fraction of shots landing on the optimal portfolio
     backend: str
     job_id: str | None = None
+    # --- diagnostics without which p_optimal cannot be interpreted ----------
+    # An external review pointed out that the artefact reported p_optimal with
+    # no way to tell a working circuit from a depolarised one. These make the
+    # difference visible: `feasible_fraction` separates "the constraint held"
+    # from "we sampled noise" (uniform noise over n qubits gives
+    # C(n,k)/2**n), and `mean_feasible_objective` supports an approximation
+    # ratio that is an EXPECTATION rather than a best-of-N order statistic —
+    # the latter is achieved by pure noise with probability ~1.
+    feasible_fraction: float = 0.0
+    mean_feasible_objective: float | None = None
+    two_qubit_gates: int | None = None
+    circuit_depth: int | None = None
+    # Raw measurement counts. Shipped in the artefact so a reviewer can
+    # recompute P(optimal), the feasible fraction and the approximation ratio
+    # independently. Previously only summary scalars were stored, which made
+    # the headline numbers unverifiable — and Qiskit Runtime job results are
+    # scoped to the owning IBM account, so "verifiable on quantum.ibm.com"
+    # was not something a third party could actually do.
+    counts: dict[str, int] | None = None
 
 
 def build_cost_hamiltonian(problem: PortfolioProblem):
@@ -64,6 +83,20 @@ def optimize_angles(problem: PortfolioProblem, reps: int = 2, maxiter: int = 80,
     return ansatz, res.x
 
 
+def circuit_cost(isa) -> tuple[int, int]:
+    """(two-qubit gate count, depth) of a transpiled circuit.
+
+    This is the single number that explains whether a hardware result means
+    anything: a dense all-to-all penalty Hamiltonian routes to ~250 CZs on
+    heavy-hex connectivity, and at Heron error rates that predicts a
+    depolarised output. It was previously computed nowhere and reported
+    nowhere.
+    """
+    ops = isa.count_ops()
+    two_q = sum(c for g, c in ops.items() if g in ("cz", "cx", "ecr", "rzz"))
+    return two_q, isa.depth()
+
+
 def _score_counts(counts: dict[str, int], problem: PortfolioProblem,
                   optimal: list[int], method: str, backend: str,
                   job_id: str | None = None) -> SampleScore:
@@ -72,6 +105,7 @@ def _score_counts(counts: dict[str, int], problem: PortfolioProblem,
     opt_set = set(optimal)
     p_opt = 0.0
     best_sel, best_obj = [], float("inf")
+    feasible_shots, weighted_obj = 0, 0.0
     for bitstring, c in counts.items():
         sel = _decode(bitstring, n)
         if set(sel) == opt_set:
@@ -80,9 +114,16 @@ def _score_counts(counts: dict[str, int], problem: PortfolioProblem,
             x = np.zeros(n)
             x[sel] = 1
             obj = float(problem.qp.objective.evaluate(x))
+            feasible_shots += c
+            weighted_obj += obj * c
             if obj < best_obj:
                 best_obj, best_sel = obj, sel
-    return SampleScore(method, best_sel, best_obj, p_opt, backend, job_id)
+    return SampleScore(
+        method, best_sel, best_obj, p_opt, backend, job_id,
+        feasible_fraction=feasible_shots / total if total else 0.0,
+        mean_feasible_objective=(weighted_obj / feasible_shots) if feasible_shots else None,
+        counts=dict(counts),
+    )
 
 
 def sample_simulator(problem, ansatz, params, optimal, shots=4096, seed=42):
@@ -153,7 +194,10 @@ def sample_hardware(problem, ansatz, params, optimal, backend, *, mitigate: bool
         sampler.options.twirling.enable_measure = False
         label = "QAOA (hw, raw)"
 
+    two_q, depth = circuit_cost(isa)
     job = _submit_with_retry(sampler, isa, shots)
     res = job.result()
     counts = res[0].data.meas.get_counts()
-    return _score_counts(counts, problem, optimal, label, backend.name, job.job_id())
+    score = _score_counts(counts, problem, optimal, label, backend.name, job.job_id())
+    score.two_qubit_gates, score.circuit_depth = two_q, depth
+    return score
