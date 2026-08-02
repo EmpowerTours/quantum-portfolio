@@ -100,12 +100,17 @@ solver, which is consistency at this scale (not advantage).
 | | |
 |---|---|
 | Optimal selection | Morpho STEAKETH · Neverland USDC · shMONAD (all Monad) |
-| Raw job ID | `d9loihrhdfks73cl9i10` |
-| Mitigated job ID | `d9loj33hdfks73cl9in0` |
-| Single-run P(optimal) raw / mitigated | 0.366 % → 0.366 % (**15 vs 15** successes / 4 096 shots; Fisher exact **p = 1.000** — no measurable mitigation effect) |
+| Raw job ID | `d9mobuvurbec73e654n0` |
+| Mitigated job ID | `d9moep7urbec73e657tg` |
+| Single-run P(optimal) raw / mitigated | 0.537 % → 0.537 % (**22 vs 22** successes / 4 096 shots; Fisher exact **p = 1.000** — no measurable mitigation effect) |
+| Feasible fraction | 33.5 % → 35.6 % (decohered floor 21.9 %) |
 
-> **Read this honestly.** Uniform random sampling over 8 qubits expects
-> **16 / 4 096** successes. This run returned **15**. It is statistically
+> **Read this honestly.** The XY mixer conserves the budget, so the feasible
+> fraction (33.5 % vs a 21.9 % decohered floor) shows circuit structure
+> survived. But conditioned on feasibility, P(optimal) is 0.0161 against a
+> uniform-over-feasible baseline of 0.0179 — **at or below random**. The
+> constraint survived; the optimisation did not. Contrast the stocks run
+> above, where mitigation produced a significant effect. This run returned 22
 > indistinguishable from chance, and we do not claim the QPU optimised
 > anything in it. The dense all-to-all penalty transpiles to ~250 two-qubit
 > gates on heavy-hex Heron, and at DeFi yield scale the covariance term is

@@ -205,17 +205,23 @@ reported because it failed.
 Both DeFi runs and both stock runs find the **same** optimum as the
 classical exact solver, on every method (sim, HW raw, HW mitigated).
 
-**Statistical honesty about the mitigation lift.** Each P(optimal)
-above is a single-run frequency (count of optimal-bitstring samples
-divided by 4 096 shots), n = 1 per arm. There is **no measured mitigation
-effect to defend**: the DeFi run is 15 vs 15 successes, Fisher exact
-p = 1.000. The stocks run is 22 vs 27, p ≈ 0.49 — also not significant, and
-its Wilson intervals overlap. So across both universes the honest statement
-is that this experiment is under-powered to detect a mitigation lift, and in
-the DeFi case the raw output is itself indistinguishable from chance.
-Reaching α = 0.05 needs replicated independent runs (n ≥ 10) and a problem
-instance whose quadratic term is not numerically negligible — both are
-milestones in the funding line below, not results claimed here.
+**Statistical honesty about the mitigation lift.** Every P(optimal) above is
+a single-run frequency over 4 096 shots, n = 1 per arm. The two universes
+disagree and we report both rather than the flattering one:
+
+* **Stocks** (`ibm_fez`, 498 two-qubit gates): 13 → 39 successes, Fisher exact
+  **p = 0.00039**. A real, significant effect *within this pair of runs*.
+* **DeFi** (`ibm_marrakesh`, 288 gates): 22 → 22 successes, **p = 1.000**. No
+  effect whatsoever.
+
+n = 1 per arm means neither result establishes a replicating effect size —
+run-to-run calibration drift is uncaptured, and a significant Fisher test on
+one matched pair is not the same as a reproducible lift. Reaching a defensible
+effect size needs n ≥ 10 independent runs per arm, which is funded work rather
+than a claim made here. The plausible explanation for the disagreement is
+depth — dynamical decoupling has more idle time to protect at 498 gates than
+at 288 — but with a single run each we state that as a hypothesis, not a
+finding.
 
 **Methodological precedent (NOT a transitive significance claim).** A
 February-2026 study on IBM Torino/Fez (Heron family) reported a
