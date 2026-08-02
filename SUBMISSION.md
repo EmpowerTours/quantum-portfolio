@@ -381,6 +381,16 @@ Monadscan-verified (source + ABI public):
 `MorphoSupplyAdapter` [`0xB1a43414…5958`](https://monadscan.com/address/0xB1a4341403DA395760561B85C4C96696C0D15958),
 `MLDSAAttestation` [`0xc1a82D8C…3839`](https://monadscan.com/address/0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839).
 
+> **The superseded `MLDSAAttestation` is exploitable and still callable. Do not
+> use it.** It was replaced for a different reason than the anchor: its zkVM
+> guest committed only `SHA-256(order)`, so the statement it proved was
+> existentially quantified over the signing key — *"some keypair signed
+> something hashing to X"*. Anyone can generate a keypair, sign an order of
+> their own invention, produce a valid proof and have that contract record it
+> as PQ-attested. It has no owner and no pause, so it cannot be disabled.
+> (Audit H-3.) The replacement additionally commits `SHA-256(public key)` and
+> pins it as an immutable, so the proof names *which* key signed.
+
 A security audit found that V1's authorisation slot, `lastHash[anchorer]`,
 recorded only *that* an anchorer had approved *something*. Any execution by
 that address satisfied it, so the anchor proved an order existed rather than
