@@ -325,7 +325,7 @@ the 32-byte digest to `AuditAnchor.anchor(bytes32, uint64)`, which:
 giving roughly **27–30 K gas** end-to-end once the 21 K base TX cost,
 ~600 bytes of warm-storage calldata, and warm-SSTORE overhead are
 added. We deliberately do **not** verify ML-DSA on-chain: a pure-
-Solidity verifier would cost ~500 M gas
+Solidity verifier would cost an estimated ~500 M gas (literature figure, not measured by us)
 ([hackernoon 2026](https://hackernoon.com/comparing-on-chain-post-quantum-signature-verification-for-ethereum)).
 Anchoring the digest, not the signature, is the cost-feasible cell in
 the off-chain-PQ × on-chain-classical design space — and remains
@@ -608,8 +608,9 @@ row "Q-Day quantum attacker (on-chain)" documents this explicitly.
 
 **Closing the on-chain gap without waiting for the chain — ZK ML-DSA
 verification (`zk-mldsa/`).** Verifying ML-DSA-65 directly in the EVM
-costs ~500M gas (infeasible). Instead we move the lattice verification
-off-chain into the **SP1 zkVM** and check a ~230k-gas Groth16 proof
+is estimated at ~500M gas — infeasible against any block limit. That figure is a published estimate we did not measure; what we DID measure is the replacement. Instead we move the lattice verification
+off-chain into the **SP1 zkVM** and check a Groth16 proof on-chain for a
+**measured 1 196 224 gas** (`attest()` tx `0x3ec51f36…d56de`)
 on-chain. The guest verifies the **real mainnet order's** ML-DSA-65
 signature (pure Rust `ml-dsa` crate — confirmed byte-compatible with the
 pipeline's quantcrypt signatures) and commits **both** `SHA-256(order)`
@@ -655,7 +656,7 @@ that, and it is not yet wired in here.
 
 So the agent's decision now carries an **on-chain, zero-knowledge proof
 of its post-quantum ML-DSA-65 signature** on Monad mainnet, without the
-~500M-gas cost of verifying ML-DSA in the EVM.
+estimated ~500M-gas cost of verifying ML-DSA natively in the EVM. Measured replacement: 1 196 224 gas, a ~420x reduction.
 
 **Precisely what this does and does not do.** `pqAttested[orderHash]` is an
 on-chain *record* that a valid ML-DSA-65 signature by the pinned key exists

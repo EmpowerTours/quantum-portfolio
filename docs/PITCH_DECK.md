@@ -251,7 +251,7 @@ QAOA is **not** faster than the classical baseline at this size — that baselin
 <table>
 
 <tr><th>Step</th><th>Contract</th><th>What happened (Monad mainnet)</th></tr>
-<tr><td>1. Attest</td><td><a href="https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da"><code>MLDSAAttestation</code></a></td><td>Order's <strong>ML-DSA-65 signature verified on-chain via ZK proof</strong> (~230k gas, not ~500M); <code>pqAttested = true</code></td></tr>
+<tr><td>1. Attest</td><td><a href="https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da"><code>MLDSAAttestation</code></a></td><td>Order's <strong>ML-DSA-65 signature verified on-chain via ZK proof</strong> (1.20M gas measured, vs ~500M estimated for native EVM ML-DSA); <code>pqAttested = true</code></td></tr>
 <tr><td>2. Anchor</td><td><a href="https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd"><code>AuditAnchorV2</code></a></td><td>Hash <code>0xd8bf1551…15f9</code> committed, immutable</td></tr>
 <tr><td>3. Swap</td><td><a href="https://monadscan.com/address/0x06f233062ee23590e5cc873df511024f3d981e56"><code>UniswapRoutingVault</code></a></td><td>0.1 MON → <strong>2,123 micro-USDC</strong> (0.002123 USDC ≈ $0.002 — a deliberately tiny live-value demo) via live Uniswap v3, anchor-gated</td></tr>
 <tr><td>4. Yield</td><td><a href="https://monadscan.com/address/0x8d5ae2f23e5d20bfb7915168d6b2a3ce753fe49e"><code>MorphoSupplyAdapter</code></a></td><td>USDC supplied into a live <strong>Morpho</strong> market (~4.75% APY), non-custodial</td></tr>
