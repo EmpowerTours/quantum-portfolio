@@ -55,26 +55,37 @@ would have been a permanent write-off. `script/DeployMLDSAAttestation.s.sol`
 rejects all three cases before broadcasting and re-verifies the proof on-chain
 after deploying.
 
-### Known limitation — the vkey is not reproducible from source
+### The vkey IS reproducible — verify it yourself
 
-The vkey is a hash of the compiled guest ELF, and the ELF is not
-byte-reproducible across toolchains: the proving box produced
-`0x00ed29f3…` where a local build produces `0x00364772…`. Only the former
-verifies — SP1's on-chain verifier accepts the proof under `0x00ed29f3…` and
-reverts under `0x00364772…`, which was checked before deploying.
+The program vkey is a hash of the compiled guest ELF, and `MLDSAAttestation`
+pins it as an immutable. Three commands confirm the contract on Monad runs the
+program in this directory:
 
-**This means a third party cannot currently confirm that the deployed vkey
-corresponds to `program/src/main.rs`.** For a project whose claim is
-"verify it yourself", that is a real gap, not a footnote. The two causes are
-both in this directory:
+```bash
+cd zk-mldsa/script
+cargo build --release          # compiles inside ghcr.io/succinctlabs/sp1:v6.3.1
+cargo run --release --bin vkey # 0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5
 
-* `script/build.rs` calls `build_program_with_args("../program", Default::default())`
-  and `sp1_build::BuildArgs.docker` defaults to `false`. Setting `docker: true`
-  with a pinned SP1 tag gives reproducible guest builds.
-* `rust-toolchain` pins `channel = "stable"`, a moving target.
+cast call 0xb0aADaFe68647578520E988b4444e556c300b4Da \
+  "mldsaProgramVKey()(bytes32)" --rpc-url https://rpc.monad.xyz
+# same value
+```
 
-Fixing both and publishing the guest ELF's SHA-256 next to the vkey is what
-closes this.
+Guest ELF SHA-256: `87ece7e02e2464947a30399983346d2da7a8182f176c065e5635414ea138a376`
+
+**This was not always true, and the fix is worth stating.** `script/build.rs`
+called `build_program_with_args("../program", Default::default())`, and
+`sp1_build::BuildArgs.docker` defaults to `false` — so the guest compiled
+against whatever toolchain the host happened to have. `rust-toolchain` also
+pinned `channel = "stable"`, a moving target. Identical source produced
+`0x00ed29f3…` on the proving box and `0x00364772…` on a dev box, and only the
+former verified on chain.
+
+Both are now pinned: `docker: true` with `tag: "v6.3.1"` (the resolved
+`sp1-build` version, not the `6.0.1` floor in `Cargo.toml`), and
+`channel = "1.90.0"`. The match above is therefore deterministic rather than
+coincidental — which matters, because the vkey IS the on-chain identity of the
+program and a silent toolchain bump would change it.
 
 ## Reproduce the execute (no proving)
 

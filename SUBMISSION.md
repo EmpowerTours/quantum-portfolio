@@ -649,20 +649,25 @@ settlement, executed:
 | Agent pkHash (immutable) | `0xac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad` |
 | `attest()` tx | [`0x3ec51f36…d56de`](https://monadscan.com/tx/0x3ec51f366d7d7944742f808cef8f897a750be881bddda6aa7a171880377d56de) — Groth16 proof verified on-chain (1 196 224 gas); `PQOrderAttested(0xd8bf1551…)` emitted; `pqAttested[orderHash] == true` |
 
-**Reproducibility caveat, stated because it matters to anyone checking
-this.** The program vkey is a hash of the compiled guest ELF, and the ELF
-is not byte-reproducible across toolchains: the proving box built the
-guest from source and produced vkey `0x00ed29f3…`, where the dev box's
-build gives `0x00364772…`. Only the former verifies — SP1's on-chain
-verifier accepts the proof under `0x00ed29f3…` and *reverts* under
-`0x00364772…`, which we checked before deploying rather than assuming.
-The deploy script therefore reads the vkey **out of the proof fixture**
-rather than from an operator-supplied value; had the locally-computed
-vkey been typed in, `verifier`, `mldsaProgramVKey` and `agentPkHash`
-being immutable would have made the contract permanently unusable. A
-third party rebuilding the guest will get a different vkey unless they
-reproduce the toolchain; SP1's Docker guest build is the route to closing
-that, and it is not yet wired in here.
+**Reproducible, and checkable in three commands.** The program vkey is a hash
+of the compiled guest ELF and is pinned as an immutable in the contract, so it
+is the on-chain identity of the program. A reviewer can confirm the deployed
+contract runs the source in this repository:
+
+```bash
+cd zk-mldsa/script && cargo build --release   # builds in ghcr.io/succinctlabs/sp1:v6.3.1
+cargo run --release --bin vkey                # 0x00ed29f3…cbd5
+cast call 0xb0aADaFe68647578520E988b4444e556c300b4Da "mldsaProgramVKey()(bytes32)"
+```
+
+Both return `0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5`.
+Guest ELF SHA-256 `87ece7e02e246494…`.
+
+This required a fix and we state it rather than presenting it as always having
+worked: `build.rs` used `BuildArgs::default()`, where `docker` is `false`, and
+`rust-toolchain` pinned the moving `stable` channel. Identical source therefore
+produced two different vkeys on two machines. Both are now pinned, so the match
+is deterministic.
 
 So the agent's decision now carries an **on-chain, zero-knowledge proof
 of its post-quantum ML-DSA-65 signature** on Monad mainnet, without the
