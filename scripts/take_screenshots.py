@@ -13,7 +13,7 @@ from playwright.sync_api import sync_playwright
 
 URL = "http://localhost:8501"
 OUT_DIR = Path("docs/screenshots")
-VIEWPORT = {"width": 1600, "height": 1000}
+VIEWPORT = {"width": 1600, "height": 2200}   # tall enough that the hardware panel is not cut mid-metric
 
 TABS = [
     ("01-run-optimizer.png",         "Run optimizer"),

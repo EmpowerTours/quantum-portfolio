@@ -20,10 +20,32 @@ for b, v in zip(bars, p_opt):
 
 raw, mit = results[1]["p_optimal"], results[2]["p_optimal"]
 lift = (mit - raw) / raw * 100 if raw > 0 else 0
+
+# A "+X% lift" headline with no significance test is the claim this project
+# exists to avoid making. Compute Fisher exact on the raw success counts and
+# say plainly whether the difference is distinguishable from chance, and draw
+# the random-guess baseline so the bars are readable against something.
+pval = None
+if results[1].get("counts") and results[2].get("counts"):
+    from scipy.stats import fisher_exact
+    shots = sum(results[1]["counts"].values())
+    a, b = round(raw * shots), round(mit * shots)
+    _, pval = fisher_exact([[a, shots - a], [b, shots - b]])
+
+null_u = data.get("null_p_optimal_uniform")
+if null_u:
+    ax.axhline(null_u, ls="--", c="#E45756", lw=1.2,
+               label=f"uniform random  {null_u:.5f}")
+    ax.legend(fontsize=8, loc="upper right")
+
 ax.set_ylabel("P(optimal portfolio)")
 ax.set_ylim(0, max(p_opt) * 1.18)
-ax.set_title(f"QAOA portfolio optimization on {data['backend']}\n"
-             f"Error mitigation lifts P(optimal) by {lift:+.0f}% over raw hardware")
+sig = ("" if pval is None else
+       f"  ·  Fisher exact p = {pval:.5f} "
+       f"({'significant' if pval < 0.05 else 'NOT significant'}, n=1 per arm)")
+ax.set_title(f"QAOA portfolio optimization on {data['backend']} "
+             f"({data.get('universe','?')} universe)\n"
+             f"Error mitigation {lift:+.0f}% vs raw{sig}")
 ax.spines[["top", "right"]].set_visible(False)
 ax.grid(axis="y", alpha=0.3)
 
