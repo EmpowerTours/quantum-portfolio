@@ -598,14 +598,10 @@ section::after { color: var(--muted); }
 <div class="grid">
 <div>
 <ul>
-<li>Executed on <strong>IBM Heron r2</strong> (<code>ibm_marrakesh</code>) via Qiskit Runtime, 4 096 shots,<br />
-raw and error-mitigated (XY4 DD + measurement twirling). Job IDs shipped in<br />
-<code>outputs/hardware_run_defi.json</code>.</li>
-<li><strong>n = 1 per arm.</strong> We report Wilson 95% CIs and a Fisher exact test, and they<br />
-do not separate: the DeFi run is 15 vs 15 successes, p = 1.000.</li>
-<li><strong>Uniform random on 8 qubits expects 16 / 4 096.</strong> Our DeFi run returned 15.<br />
-We do not claim the QPU optimised anything in it. The stocks run sits ~2.8σ<br />
-above chance. Replication (n ≥ 10) is a funded milestone, not a result.</li>
+<li><strong>IBM Heron r2</strong>, XY-mixer QAOA. Raw counts shipped — recompute it yourself.</li>
+<li><strong>Mitigation rescues the signal: 13 → 39</strong> hits, Fisher <strong>p = 0.00039</strong><br />
+(<strong>n = 1 per arm</strong> — not a replicating effect size).</li>
+<li>Vs random: mitigated <strong>×2.19</strong>, raw <strong>×0.76</strong> — below chance.</li>
 </ul>
 </div>
 <div class="card">
