@@ -6,6 +6,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege. Without this the default token is read/write across every
+# scope on push events; nothing here needs to write. (Audit finding.)
+permissions:
+  contents: read
+
 jobs:
   contracts:
     name: Foundry contract tests
@@ -13,15 +18,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: foundry-rs/foundry-toolchain@v1
-      - name: Install Forge standard library
+
+      # contracts/lib/ is gitignored, so EVERY dependency has to be installed
+      # here. Only forge-std was, while src/ imports OpenZeppelin
+      # (SafeERC20, IERC20, ReentrancyGuard) — so CI could not compile at all
+      # and had been red since OpenZeppelin was introduced.
+      - name: Install contract dependencies
         working-directory: contracts
-        run: forge install foundry-rs/forge-std --shallow --no-git
+        run: |
+          forge install foundry-rs/forge-std --shallow --no-git
+          forge install OpenZeppelin/openzeppelin-contracts --shallow --no-git
+
+      - name: Show resolved remappings
+        working-directory: contracts
+        run: forge remappings
+
+      # No fork env vars on purpose: the fork-gated suites read MONAD_RPC_URL
+      # through vm.envOr and self-skip when it is absent, so this runs the
+      # deterministic suite without depending on a live RPC in CI.
       - name: Run contract test suite
         working-directory: contracts
         run: forge test
 
   test:
-    name: PQ signing + integrity tests
+    name: Python test suite
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -29,32 +49,31 @@ jobs:
         python: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+          cache: pip
 
-      - name: Install runtime deps
-        # Tests import src.pq_signing (quantcrypt) and src.orders
-        # (cryptography), so we install the pinned runtime requirements.
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install pytest
 
-      - name: Run PQ signing test suite
-        run: python tests/test_pq_signing.py
+      # Previously this ran two files directly as scripts. Three of the five
+      # test modules use pytest fixtures and parametrisation, so they never
+      # ran in CI at all — including the negative tests covering key pinning
+      # and the hedge policy, which are the two highest-severity fixes here.
+      - name: Run the full Python suite
+        run: pytest tests/ -q
 
-      - name: Run Monad TX test suite
-        run: python tests/test_monad_tx.py
-
-      - name: Verify shipped signed orders + audit-log chain integrity
-        # signed_orders.json + audit_log.jsonl are shipped as reproducibility
-        # artefacts. The signed-orders file proves every embedded order
-        # verifies against its embedded public key under all three signature
-        # schemes; the audit log proves the hash-chain is intact. A reviewer
-        # who clones the repo can verify both offline.
+      - name: Verify shipped artefacts (signed orders + audit chain)
+        # signed_orders.json and audit_log.jsonl ship as reproducibility
+        # artefacts: every embedded order must verify under all three
+        # signature schemes, and the hash chain must be intact. A reviewer who
+        # clones the repo can run exactly this, offline.
         run: |
-          python -c "
+          python - <<'PY'
           import sys
           sys.path.insert(0, '.')
           from src import orders
@@ -64,7 +83,36 @@ jobs:
           ok, n, reason = orders.verify_audit_chain()
           assert ok, f'audit chain broken: {reason}'
           print(f'audit chain intact: {n} entries')
-          "
+          PY
+
+  claims:
+    name: documented claims match the artefacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      # forge is needed: the check compares the DOCUMENTED test total against
+      # what both suites actually report, so it must be able to run them.
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Install contract dependencies
+        working-directory: contracts
+        run: |
+          forge install foundry-rs/forge-std --shallow --no-git
+          forge install OpenZeppelin/openzeppelin-contracts --shallow --no-git
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      # Recomputes P(optimal) and the feasible fraction from the raw shipped
+      # counts and asserts the stored summaries match, then checks every
+      # documented test count against what the suites actually report.
+      # Chain checks are omitted so CI does not depend on a live RPC.
+      - name: Verify claims
+        run: python verify_claims.py
 
   imports:
     name: source imports cleanly on Python 3.12
@@ -74,16 +122,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
       - run: pip install -r requirements.txt
       - run: |
-          python -c "
+          python - <<'PY'
           import importlib
           for m in ['src.pq_signing', 'src.orders', 'src.problem',
-                   'src.solvers', 'src.qaoa_hw', 'src.xy_qaoa',
-                   'src.ai_forecast', 'src.backtest', 'src.data',
-                   'src.defi_data', 'src.hardware']:
+                    'src.solvers', 'src.qaoa_hw', 'src.xy_qaoa',
+                    'src.ai_forecast', 'src.backtest', 'src.data',
+                    'src.defi_data', 'src.hardware', 'src.quoter',
+                    'src.keystore', 'src.monad_tx']:
               importlib.import_module(m)
               print(f'imports OK: {m}')
-          import py_compile; py_compile.compile('app.py', doraise=True)
+          import py_compile
+          py_compile.compile('app.py', doraise=True)
           print('app.py compiles OK')
-          "
+          PY

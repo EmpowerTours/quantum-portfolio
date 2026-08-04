@@ -16,7 +16,9 @@ Exit code is non-zero if any claim fails, so CI can gate on it.
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -84,11 +86,16 @@ def check_artifact_metrics() -> None:
 def check_test_counts() -> None:
     """The documented totals must equal what the suites actually report."""
     print("\n[tests] documented counts vs actual")
-    py = subprocess.run([str(ROOT / ".venv/bin/python"), "-m", "pytest", "tests/", "-q"],
+    py = subprocess.run([sys.executable, "-m", "pytest", "tests/", "-q"],
                         cwd=ROOT, capture_output=True, text=True, timeout=900).stdout
     m = re.search(r"(\d+) passed", py)
     npy = int(m.group(1)) if m else -1
-    env = {"PATH": f"{Path.home()}/.foundry/bin:/usr/bin:/bin",
+    if not shutil.which("forge", path=f"{Path.home()}/.foundry/bin:{os.environ.get('PATH','')}"):
+        print("    forge not found — cannot verify the combined test count")
+        check(False, "forge available for test-count verification",
+              "install foundry, or run this where forge is on PATH")
+        return
+    env = {"PATH": f"{Path.home()}/.foundry/bin:{os.environ.get('PATH','')}",
            "MONAD_RPC_URL": RPC,
            "FORK_TOKEN_OUT": "0x754704Bc059F8C67012fEd69BC8A327a5aafb603",
            "FORK_FEE": "3000"}
