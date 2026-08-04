@@ -456,79 +456,153 @@ with tab_pq:
 
     @st.cache_resource(show_spinner=False)
     def _cached_keypairs(_path: str):
-        p = _Path(_path)
-        return (_pq.ensure_keypair(p),
-                _pq.slh_dsa_ensure_keypair(p),
-                _pq.ed25519_ensure_keypair(p))
+        """Load the SECRET halves if present. Returns None when they are not.
 
-    kp, slh_kp, ed_kp = _cached_keypairs(str(KEYS_DIR))
-    import hashlib as _h
-    st.success(
-        f"Hedged keypairs loaded from `{KEYS_DIR}/` — "
-        f"ML-DSA pk SHA-256 `{_h.sha256(kp.pk).hexdigest()[:12]}…`  ·  "
-        f"SLH-DSA pk `{_h.sha256(slh_kp.pk).hexdigest()[:12]}…`  ·  "
-        f"Ed25519 pk `{_h.sha256(ed_kp.pk).hexdigest()[:12]}…`"
+        On a hosted deployment they never are: keys/*.sec is gitignored and is
+        not deployed, deliberately. `ensure_keypair` refuses to silently
+        generate a replacement — that behaviour is what lost the 2026-07-12
+        mainnet signing identity — so this returns None and the panel falls
+        back to verification, which is what a reviewer would do anyway.
+        """
+        p = _Path(_path)
+        try:
+            return (_pq.ensure_keypair(p),
+                    _pq.slh_dsa_ensure_keypair(p),
+                    _pq.ed25519_ensure_keypair(p))
+        except _pq.MissingKeypair:
+            return None
+
+    # Read from the live contract with:
+    #   cast call 0xb0aADaFe68647578520E988b4444e556c300b4Da \
+    #     "agentPkHash()(bytes32)" --rpc-url https://rpc.monad.xyz
+    # Hardcoded rather than fetched so the panel needs no RPC at render time.
+    _ANCHOR_V2 = "0x8422b555DCE11913A4657C2f47C839637FC71ffd"
+    _ANCHOR_TX = ("0x8702d6a99fa070ed97032e73351e7167f8ef278d"
+                  "a20b7b9ce3d1730866d40a7d")
+    _ONCHAIN_PK_HASH = (
+        "0xac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad"
     )
 
-    # sign-an-order interactive demo
-    st.subheader("Sign a sample order")
-    sel_default = ", ".join(market.tickers[:budget])
-    text_sel = st.text_input("Pools (comma-separated)", value=sel_default)
-    note = st.text_input("Note (optional, gets hashed into the digest)",
-                         value="manual demo from Streamlit")
-    if st.button("Sign with ML-DSA + SLH-DSA + Ed25519",
-                 type="primary", key="sign_btn"):
-        pools = [p.strip() for p in text_sel.split(",") if p.strip()]
-        w = [1.0 / len(pools)] * len(pools) if pools else []
-        order = _orders.RebalanceOrder(
-            pools=pools, weights=w,
-            expected_return=0.0, expected_vol=0.0,
+    import hashlib as _h
+    _keys = _cached_keypairs(str(KEYS_DIR))
+    can_sign = _keys is not None
+    if can_sign:
+        kp, slh_kp, ed_kp = _keys
+        st.success(
+            f"Hedged keypairs loaded from `{KEYS_DIR}/` — "
+            f"ML-DSA pk SHA-256 `{_h.sha256(kp.pk).hexdigest()[:12]}…`  ·  "
+            f"SLH-DSA pk `{_h.sha256(slh_kp.pk).hexdigest()[:12]}…`  ·  "
+            f"Ed25519 pk `{_h.sha256(ed_kp.pk).hexdigest()[:12]}…`"
         )
+    else:
+        kp = slh_kp = ed_kp = None
+        trusted = _orders.TrustedKeys.load()
+        st.info(
+            "**Verification mode.** This deployment holds only the PUBLIC keys "
+            f"(`{KEYS_DIR}/*.pub`); the secret halves are gitignored and never "
+            "deployed. Rather than generate a throwaway identity — the exact "
+            "behaviour that lost our 2026-07-12 signing key — the app verifies "
+            "the SHIPPED signed orders against the pinned public keys below. "
+            "That is the check a reviewer should care about: it proves the "
+            "artefacts in this repository were signed by the identity that is "
+            "pinned on-chain.\n\n"
+            f"Local  `keys/pq.pub` SHA-256 — `0x{_h.sha256(trusted.ml_dsa).hexdigest()}`  \n"
+            f"On-chain `agentPkHash`       — `{_ONCHAIN_PK_HASH}`  \n"
+            f"**Match: {'yes' if '0x' + _h.sha256(trusted.ml_dsa).hexdigest() == _ONCHAIN_PK_HASH else 'NO'}** "
+            "— check it yourself:\n"
+            "```\ncast call 0xb0aADaFe68647578520E988b4444e556c300b4Da \\\n"
+            '  "agentPkHash()(bytes32)" --rpc-url https://rpc.monad.xyz\n```'
+        )
+        st.subheader("Verify the shipped signed orders")
         try:
-            signed = _orders.sign_order_hedged(order, kp, slh_kp, ed_kp)
-            components = _orders.verify_signed_order_components(signed)
-            ok = _orders.verify_signed_order(signed, trusted=_orders.TrustedKeys.load())
-            st.json({
-                "order_id":  order.order_id,
-                "nonce":     order.nonce,
-                "issued":    order.issued_at,
-                "pools":     order.pools,
-                "digest":    signed.message_digest_sha256,
-                "algorithm": signed.algorithm,
-                "ml_dsa_sig_b64_truncated":  signed.signature_b64[:48] + "...",
-                "slh_dsa_sig_b64_truncated": (signed.slh_dsa_signature_b64 or "")[:48] + "...",
-                "ed25519_sig_b64_truncated": (signed.ed25519_signature_b64 or "")[:48] + "...",
-                "components": components,
-                "verified_all":  ok,
-            })
-
-            # Tamper test — flip one bit on weights[0], all three sigs must fail.
-            tampered_order = _orders.RebalanceOrder(
-                **{**order.to_dict(),
-                   "weights": ([w[0] + 0.01] + w[1:]) if w else []}
-            )
-            tampered = _orders.SignedOrder(
-                order=tampered_order,
-                algorithm=signed.algorithm,
-                public_key_b64=signed.public_key_b64,
-                signature_b64=signed.signature_b64,
-                message_digest_sha256=signed.message_digest_sha256,
-                slh_dsa_public_key_b64=signed.slh_dsa_public_key_b64,
-                slh_dsa_signature_b64=signed.slh_dsa_signature_b64,
-                ed25519_public_key_b64=signed.ed25519_public_key_b64,
-                ed25519_signature_b64=signed.ed25519_signature_b64,
-            )
-            tcomp = _orders.verify_signed_order_components(tampered)
+            rows = []
+            for so in _orders.load_signed_orders():
+                comp = _orders.verify_signed_order_components(so)
+                rows.append({
+                    "order_id": so.order.order_id[:8] + "…",
+                    "pools": ", ".join(so.order.pools),
+                    "ML-DSA": comp["ml_dsa"], "SLH-DSA": comp["slh_dsa"],
+                    "Ed25519": comp["ed25519"],
+                    "verified (pinned keys)": _orders.verify_signed_order(
+                        so, trusted=trusted, require_execution=False),
+                })
+            st.dataframe(rows, use_container_width=True)
+            ok, n, why = _orders.verify_audit_chain()
             st.caption(
-                f"Tamper test (weights[0] += 0.01): "
-                f"components={tcomp}  ·  "
-                f"verify_all = **{_orders.verify_signed_order(tampered)}** "
-                "(every scheme must fail)"
+                f"Audit chain: **{'intact' if ok else 'BROKEN — ' + why}**, "
+                f"{n} entries. Scope: `prev_hash` is attached after signing, so "
+                "the chain detects corruption and single-line edits but does not "
+                "resist a holder who rewrites the whole file — see SECURITY.md."
             )
-            _orders.append_audit(signed)
-            st.caption(f"Appended to `{_orders.AUDIT_LOG_PATH}`")
-        except _orders.NonceSeenError as e:
-            st.error(f"Replay blocked: {e}")
+        except Exception as _e:
+            st.error(f"could not verify shipped orders: {_e}")
+
+    # sign-an-order interactive demo — only when secret keys are present
+    if not can_sign:
+        st.caption(
+            "Interactive signing is unavailable without the secret keys. "
+            "Clone the repository and run `python run_pq_demo.py` to sign "
+            "locally with your own identity."
+        )
+    if can_sign:
+        st.subheader("Sign a sample order")
+        sel_default = ", ".join(market.tickers[:budget])
+        text_sel = st.text_input("Pools (comma-separated)", value=sel_default)
+        note = st.text_input("Note (optional, gets hashed into the digest)",
+                             value="manual demo from Streamlit")
+        if st.button("Sign with ML-DSA + SLH-DSA + Ed25519",
+                     type="primary", key="sign_btn"):
+            pools = [p.strip() for p in text_sel.split(",") if p.strip()]
+            w = [1.0 / len(pools)] * len(pools) if pools else []
+            order = _orders.RebalanceOrder(
+                pools=pools, weights=w,
+                expected_return=0.0, expected_vol=0.0,
+            )
+            try:
+                signed = _orders.sign_order_hedged(order, kp, slh_kp, ed_kp)
+                components = _orders.verify_signed_order_components(signed)
+                ok = _orders.verify_signed_order(signed, trusted=_orders.TrustedKeys.load())
+                st.json({
+                    "order_id":  order.order_id,
+                    "nonce":     order.nonce,
+                    "issued":    order.issued_at,
+                    "pools":     order.pools,
+                    "digest":    signed.message_digest_sha256,
+                    "algorithm": signed.algorithm,
+                    "ml_dsa_sig_b64_truncated":  signed.signature_b64[:48] + "...",
+                    "slh_dsa_sig_b64_truncated": (signed.slh_dsa_signature_b64 or "")[:48] + "...",
+                    "ed25519_sig_b64_truncated": (signed.ed25519_signature_b64 or "")[:48] + "...",
+                    "components": components,
+                    "verified_all":  ok,
+                })
+
+                # Tamper test — flip one bit on weights[0], all three sigs must fail.
+                tampered_order = _orders.RebalanceOrder(
+                    **{**order.to_dict(),
+                       "weights": ([w[0] + 0.01] + w[1:]) if w else []}
+                )
+                tampered = _orders.SignedOrder(
+                    order=tampered_order,
+                    algorithm=signed.algorithm,
+                    public_key_b64=signed.public_key_b64,
+                    signature_b64=signed.signature_b64,
+                    message_digest_sha256=signed.message_digest_sha256,
+                    slh_dsa_public_key_b64=signed.slh_dsa_public_key_b64,
+                    slh_dsa_signature_b64=signed.slh_dsa_signature_b64,
+                    ed25519_public_key_b64=signed.ed25519_public_key_b64,
+                    ed25519_signature_b64=signed.ed25519_signature_b64,
+                )
+                tcomp = _orders.verify_signed_order_components(tampered)
+                st.caption(
+                    f"Tamper test (weights[0] += 0.01): "
+                    f"components={tcomp}  ·  "
+                    f"verify_all = **{_orders.verify_signed_order(tampered)}** "
+                    "(every scheme must fail)"
+                )
+                _orders.append_audit(signed)
+                st.caption(f"Appended to `{_orders.AUDIT_LOG_PATH}`")
+            except _orders.NonceSeenError as e:
+                st.error(f"Replay blocked: {e}")
 
     st.divider()
 
@@ -575,48 +649,82 @@ with tab_pq:
                 "use the sign button above and the next demo run will write it.")
 
     st.divider()
-    st.subheader("On-chain anchor (AuditAnchor.sol)")
+    st.subheader("On-chain anchor (AuditAnchorV2.sol)")
     st.markdown(
-        "A separate, minimal Solidity contract — `contracts/src/AuditAnchor.sol` "
-        "— anchors the **SHA-256 of each signed order** as an event "
-        "(`Anchored(address, bytes32, uint64, bytes32)`). Cost: **~30 K gas** "
-        "per call ([Foundry measurement](https://github.com/EmpowerTours/quantum-portfolio/blob/main/contracts/test/AuditAnchor.t.sol): "
-        "3.9 K function body + 21 K base + ~5 K warm SSTOREs).  \n"
-        "We deliberately do **not** verify ML-DSA on-chain — a pure-Solidity "
-        "verifier would cost ~500 M gas. The hash anchor preserves the "
-        "off-chain hash-chain's tamper-evidence on-chain at a cost EVM "
-        "consensus can sustain today."
+        "`AuditAnchorV2` anchors the **SHA-256 of each signed order** together "
+        "with a **commitment to the execution it authorises**, and emits "
+        "`Anchored(address, bytes32, bytes32, uint64, uint64)`. The vault "
+        "recomputes that commitment from its own calldata and reverts on a "
+        "mismatch, so the anchor is not decorative — an order cannot be "
+        "anchored for one route and executed as another.  \n"
+        "We deliberately do **not** verify ML-DSA inside `AuditAnchorV2` — a "
+        "pure-Solidity verifier would cost ~500 M gas. That verification is "
+        "done instead by a **Groth16 proof** in `MLDSAAttestation` "
+        "(1.20 M gas measured), which is the separate contract below."
     )
+
+    st.markdown(
+        "**Live on Monad mainnet (chainId 143), Monadscan-verified:**  \n"
+        f"`AuditAnchorV2` [`{_ANCHOR_V2}`]"
+        f"(https://monadscan.com/address/{_ANCHOR_V2.lower()})"
+    )
+
+    # Rather than render a hypothetical unsigned transaction, decode the anchor
+    # transaction that actually executed and recompute both committed values
+    # from the shipped order. If the artefacts ever drift apart, this panel
+    # says so on screen instead of quietly showing a number nobody checks.
     try:
         from src import monad_tx as _mtx
         latest_signed = (_orders.load_signed_orders() or [None])[-1]
-        if latest_signed is not None:
-            _DEMO_ANCHOR = "0x0e649C383CFA6be1998445D0A7a8E1cc7540D239"   # AuditAnchor deployed on Monad testnet (chainId 10143)
-            # M-1: pin the signer. Without `trusted` the artefact is verified
-            # against the public key it carries, so anyone who can write
-            # outputs/signed_orders.json ships their own keypair and this UI
-            # renders mainnet-shaped calldata for THEIR order. The defence
-            # existed as an API parameter and was simply not engaged here.
-            anchor_tx = _mtx.build_anchor_tx(
-                latest_signed,
-                anchor_contract=_DEMO_ANCHOR,
-                nonce=0,
-                expected_sequence=0,
-                trusted=_orders.TrustedKeys.load(),
+        ex_path = _Path("outputs/executed_anchor_tx.json")
+        if latest_signed is not None and ex_path.exists():
+            ex_tx = json.loads(ex_path.read_text())
+            dec = ex_tx["decoded"]
+            oh = "0x" + _mtx.order_sha256(latest_signed).hex()
+            cm = "0x" + _mtx.route_commitment(
+                latest_signed.order.execution,
+                _mtx.order_sha256(latest_signed)).hex()
+            oh_ok, cm_ok = dec["orderHash"] == oh, dec["execCommitment"] == cm
+
+            st.markdown(
+                f"Anchor transaction executed: [`{ex_tx['txHash'][:20]}…`]"
+                f"({ex_tx['explorer']})  ·  block {ex_tx['blockNumber']:,}  ·  "
+                f"status {ex_tx['status']}  ·  {ex_tx['gasUsed']:,} gas used"
             )
-            order_hash_hex = _mtx.order_sha256(latest_signed).hex()
+            st.dataframe([
+                {"committed value": "orderHash = SHA-256(canonical signed order)",
+                 "recomputed here from outputs/signed_orders.json": oh,
+                 "read from mainnet calldata": dec["orderHash"],
+                 "match": oh_ok},
+                {"committed value": "execCommitment = keccak(route ‖ orderHash)",
+                 "recomputed here from outputs/signed_orders.json": cm,
+                 "read from mainnet calldata": dec["execCommitment"],
+                 "match": cm_ok},
+            ], use_container_width=True, hide_index=True)
+
+            if oh_ok and cm_ok:
+                st.success(
+                    "Both committed values recompute exactly. The order shipped "
+                    "in this repository **is** the order anchored on Monad "
+                    "mainnet, and the execution it authorises **is** the "
+                    "execution the vault was required to perform — the vault "
+                    "recomputes this same commitment and reverts on divergence."
+                )
+            else:
+                st.error(
+                    "Recomputed values do NOT match the mainnet calldata — the "
+                    "shipped order and the anchored order have diverged."
+                )
+            with st.expander("Raw executed transaction"):
+                st.code(json.dumps(ex_tx, indent=2)[:3000], language="json")
+
             st.caption(
-                f"SHA-256(canonical order) = `{order_hash_hex}`  ·  "
-                f"gas budget = {anchor_tx.gas:,}  ·  "
-                f"chainId = {anchor_tx.chainId} (Monad mainnet)"
-            )
-            import json as _json
-            st.code(_json.dumps(anchor_tx.to_dict(), indent=2), language="json")
-            st.caption(
-                f"Contract deployed and Monadscan-verified on Monad "
-                f"testnet (chainId 10143). View on "
-                f"[Monadscan]({'https://testnet.monadscan.com/address/' + _DEMO_ANCHOR.lower()}). "
-                "The full quantum->PQ->anchor->swap->yield->ZK-attestation loop is LIVE on Monad mainnet (chainId 143), all contracts Monadscan-verified."
+                "No *new* anchor transaction can be built from this order, by "
+                "design: `validate_route_execution` refuses once the route "
+                "deadline has passed, because anchoring commits gas to an "
+                "execution that can no longer happen. Run "
+                "`python run_pq_demo.py` to sign a fresh order and the builder "
+                "emits live mainnet calldata."
             )
     except Exception as _e:  # noqa: BLE001
         st.warning(f"Could not build anchor TX preview: {_e}")
@@ -658,8 +766,15 @@ At an 8-pool scale, classical solvers are provably optimal and faster. We do
   transaction the agent emits.
 
 **What this MVP does not yet model**: underlying token-price risk (covered
-under yield-vol-only assumption), live on-chain custody anchoring (the agent emits
-the *intended* tx, settling layer is the next milestone), the hardware-wallet
-form factor (cryptography is implemented; HW form factor is productization).
+under yield-vol-only assumption), the hardware-wallet form factor
+(cryptography is implemented; the HW form factor is productization), and
+automatic execution — a human still approves what the optimizer picks.
+
+**What it does do, contrary to an earlier version of this note**: the
+settlement layer is live, not a milestone. The full
+quantum -> PQ-sign -> anchor -> swap -> yield -> ZK-attestation loop executed on
+Monad **mainnet** with real value, and the PQ-signing tab recomputes the
+anchored orderHash and execution commitment from the shipped order to prove
+it.
         """
     )

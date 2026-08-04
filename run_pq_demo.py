@@ -13,7 +13,7 @@ An attacker has to break ALL THREE to forge an order. Writes:
     outputs/audit_log.jsonl        — append-only hash-chained log
     outputs/unsigned_monad_tx.json — wallet-ready EIP-1559 TX
                                      (self-transfer with full signed-order payload)
-    outputs/unsigned_anchor_tx.json — wallet-ready anchor TX
+    outputs/unsigned_anchor_tx.json — wallet-ready AuditAnchorV2 TX (mainnet)
                                      (calls deployed AuditAnchor.anchor)
     keys/pq.{pub,sec}              — ML-DSA-65 keypair  (sk chmod 600)
     keys/slh.{pub,sec}             — SLH-DSA keypair    (sk chmod 600)
@@ -33,6 +33,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import sys
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -118,10 +119,17 @@ HARDWARE_RUN_DEFI   = Path("outputs/hardware_run_defi.json")
 HARDWARE_RUN_STOCKS = Path("outputs/hardware_run.json")
 KEYS_DIR            = Path("keys")
 
-# Deployed on Monad testnet (chainId 10143), both Monadscan-verified.
-# The full quantum->PQ->anchor->swap->yield->ZK-attestation loop is LIVE on Monad mainnet (chainId 143), all contracts Monadscan-verified.
-AUDIT_ANCHOR_TESTNET = "0x0e649C383CFA6be1998445D0A7a8E1cc7540D239"
-ALLOC_VAULT_TESTNET  = "0xC39e298ce89cDfc934c697c9Fe0CC4BAA80B87f5"
+# AuditAnchorV2 on Monad MAINNET (chainId 143), Monadscan-verified. This is
+# the anchor the live loop uses; V1 below has code only on testnet.
+AUDIT_ANCHOR_V2_MAINNET = "0x8422b555DCE11913A4657C2f47C839637FC71ffd"
+
+# Testnet-only, and superseded. MonadAllocationVault was the first
+# custody-with-attribution experiment; UniswapRoutingVault +
+# MorphoSupplyAdapter on mainnet replaced it. `cast codesize` returns 0 for
+# both of these on mainnet, so Path C below is explicitly labelled testnet
+# rather than being silently emitted with a mainnet chainId.
+AUDIT_ANCHOR_V1_TESTNET = "0x0e649C383CFA6be1998445D0A7a8E1cc7540D239"
+ALLOC_VAULT_TESTNET     = "0xC39e298ce89cDfc934c697c9Fe0CC4BAA80B87f5"
 
 # Demo allocation amount (0.01 MON). The vault's `withdraw` lets the
 # same wallet pull the deposit back, so this is reversible test value.
@@ -192,7 +200,33 @@ def _real_portfolio_metrics(universe: str, artefact_tickers: list[str],
     return m
 
 
+def _guard_shipped_evidence() -> None:
+    """Refuse to silently replace an order that is anchored on-chain.
+
+    outputs/signed_orders.json is not scratch output: the order it holds is
+    the one whose SHA-256 and execution commitment were anchored on Monad
+    mainnet, and outputs/executed_anchor_tx.json plus the Streamlit PQ panel
+    both recompute against it. A plain `python run_pq_demo.py` used to
+    overwrite it, which severs that link with no warning — the artefact still
+    looks fine, it just no longer corresponds to any transaction on chain.
+
+    Pass --replace-shipped when replacing it is what you actually mean.
+    """
+    if "--replace-shipped" in sys.argv:
+        return
+    if not orders.SIGNED_ORDERS_PATH.exists():
+        return
+    raise SystemExit(
+        f"{orders.SIGNED_ORDERS_PATH} already exists and holds the order that\n"
+        "is anchored on Monad mainnet (see outputs/executed_anchor_tx.json).\n"
+        "Overwriting it would break the recomputation the app and\n"
+        "verify_claims.py rely on, with no visible symptom.\n\n"
+        "  python run_pq_demo.py --replace-shipped   # yes, replace it\n"
+    )
+
+
 def main() -> None:
+    _guard_shipped_evidence()
     run_path, universe = _pick_hardware_run()
     print(f"Using hardware artefact: {run_path}  (universe: {universe})")
     hw = json.loads(run_path.read_text())
@@ -322,12 +356,13 @@ def main() -> None:
     # ---- Unsigned Monad TXs ----
     from src import monad_tx
 
-    # Both demo TXs target Monad TESTNET (chainId 10143) because the
-    # deployed AuditAnchor address is a testnet artefact. The runtime
-    # default `MONAD_CHAIN_ID` is mainnet (143) — passing the testnet
-    # constant explicitly prevents a copy-paste from broadcasting on
-    # the wrong chain.
-    DEMO_CHAIN_ID = monad_tx.MONAD_TESTNET_CHAIN_ID
+    # Paths A and B target Monad MAINNET (143): AuditAnchorV2 is deployed
+    # there and the full loop executed against it. Path C is the one leg
+    # still pinned to testnet, because MonadAllocationVault has no mainnet
+    # code — it is passed the testnet id explicitly so a copy-paste cannot
+    # broadcast it on the wrong chain.
+    DEMO_CHAIN_ID    = monad_tx.MONAD_CHAIN_ID
+    TESTNET_CHAIN_ID = monad_tx.MONAD_TESTNET_CHAIN_ID
 
     # Path A: self-transfer-with-payload — embeds the entire signed order
     # in calldata. Heavy (~5 KB) but reviewer-readable on-chain.
@@ -340,13 +375,15 @@ def main() -> None:
     print(f"Built unsigned self-transfer TX → {tx_path}")
     print(f"  chainId={tx.chainId}  to={tx.to}  calldata={len(tx.data)//2 - 1} bytes")
 
-    # Path B: AuditAnchor — anchors only the 32-byte SHA-256, ~30 K gas.
-    anchor_tx = monad_tx.build_anchor_tx(
+    # Path B: AuditAnchorV2 — anchors the 32-byte SHA-256 plus the
+    # execution commitment, on mainnet.
+    # V2, not V1: V1 carries no execution commitment, so the vault's
+    # recompute-and-revert defence cannot be armed by a V1 anchor.
+    anchor_tx = monad_tx.build_anchor_v2_tx(
         signed,
-        anchor_contract=AUDIT_ANCHOR_TESTNET,
+        anchor_contract=AUDIT_ANCHOR_V2_MAINNET,
         nonce=0,
         expected_sequence=0,
-        chain_id=DEMO_CHAIN_ID,
         trusted=trusted,
     )
     anchor_path = Path("outputs/unsigned_anchor_tx.json")
@@ -355,7 +392,8 @@ def main() -> None:
     print(f"  chainId={anchor_tx.chainId}  to={anchor_tx.to}  "
           f"calldata={len(anchor_tx.data)//2 - 1} bytes  gas={anchor_tx.gas:,}")
 
-    # Path C: MonadAllocationVault — deposits native MON under orderHash.
+    # Path C: MonadAllocationVault (TESTNET ONLY — no mainnet code).
+    # Deposits native MON under orderHash.
     # Real on-chain effect (msg.value moves into the vault), withdrawable
     # by the same wallet. Forms the third leg of the provenance trail:
     # signed_orders.json (off-chain) → AuditAnchor (on-chain hash) →
@@ -365,7 +403,7 @@ def main() -> None:
         vault_contract=ALLOC_VAULT_TESTNET,
         nonce=0,
         amount_wei=DEMO_ALLOC_WEI,
-        chain_id=DEMO_CHAIN_ID,
+        chain_id=TESTNET_CHAIN_ID,
         trusted=trusted,
     )
     alloc_path = Path("outputs/unsigned_alloc_tx.json")

@@ -110,6 +110,56 @@ def check_test_counts() -> None:
             check(claimed == total, f"{path} claims {claimed} tests", f"actual {total}")
 
 
+def check_execution_binding() -> None:
+    """The shipped order must still be the order anchored on mainnet.
+
+    Added after `python run_pq_demo.py` silently overwrote signed_orders.json
+    with a fresh unexecuted order. Nothing failed: the file was well-formed,
+    every signature verified, the app rendered. It just no longer had anything
+    to do with the transaction it was linked to. This recomputes both
+    committed values and compares them against the executed calldata, so that
+    class of drift is a test failure rather than a coincidence.
+    """
+    print("\n[binding] shipped order vs the anchor executed on mainnet")
+    ex_path = ROOT / "outputs/executed_anchor_tx.json"
+    if not ex_path.exists():
+        check(False, "outputs/executed_anchor_tx.json present"); return
+    sys.path.insert(0, str(ROOT))
+    from src import monad_tx, orders as _o          # noqa: PLC0415
+
+    ex = json.loads(ex_path.read_text())
+    dec = ex["decoded"]
+    so = _o.load_signed_orders()[-1]
+    oh = "0x" + monad_tx.order_sha256(so).hex()
+    cm = "0x" + monad_tx.route_commitment(
+        so.order.execution, monad_tx.order_sha256(so)).hex()
+    check(dec["orderHash"] == oh, "anchored orderHash == SHA-256(shipped order)",
+          f"{dec['orderHash'][:18]}… vs {oh[:18]}…")
+    check(dec["execCommitment"] == cm, "anchored execCommitment recomputes",
+          f"{dec['execCommitment'][:18]}… vs {cm[:18]}…")
+    check(ex["chainId"] == 143, "anchor executed on Monad mainnet",
+          f"chainId {ex['chainId']}")
+    check(ex["status"] == 1, "anchor transaction succeeded")
+
+    # The calldata must decode to exactly what the JSON claims it decodes to.
+    d = ex["data"]
+    check(d[:10] == "0x15954b2c" and "0x" + d[10:74] == dec["orderHash"]
+          and "0x" + d[74:138] == dec["execCommitment"],
+          "executed calldata matches its own decoded block")
+
+    # Unsigned artefacts must not quietly carry a testnet chain id while the
+    # docs say mainnet. unsigned_alloc_tx is testnet ON PURPOSE (the vault has
+    # no mainnet code) and is the single documented exception.
+    for name, want in (("unsigned_monad_tx.json", 143),
+                       ("unsigned_anchor_tx.json", 143),
+                       ("unsigned_alloc_tx.json", 10143)):
+        f = ROOT / "outputs" / name
+        if not f.exists():
+            continue
+        got = json.loads(f.read_text()).get("chainId")
+        check(got == want, f"{name} chainId", f"{got} (expected {want})")
+
+
 def check_addresses() -> None:
     """Superseded contracts may appear ONLY inside an explicit superseded block."""
     print("\n[addresses] live present, superseded quarantined")
@@ -153,6 +203,7 @@ def check_chain() -> None:
 def main() -> int:
     print("Verifying documented claims against chain, artefacts and tests.")
     check_artifact_metrics()
+    check_execution_binding()
     check_addresses()
     check_test_counts()
     if "--chain" in sys.argv:
