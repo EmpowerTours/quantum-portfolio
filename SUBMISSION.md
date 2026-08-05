@@ -12,10 +12,16 @@ audit trail survives the cryptographically relevant quantum era
 
 **Interactive demo:** https://quantum-portfolio-awhfbfwtbqmp2swgpsvxwf.streamlit.app/
 
-**81-second walkthrough:** https://github.com/EmpowerTours/quantum-portfolio/blob/main/docs/DEMO_VIDEO.mp4
+**90-second walkthrough:** https://github.com/EmpowerTours/quantum-portfolio/blob/main/docs/DEMO_VIDEO.mp4
 
 **License:** MIT
 **Applicant:** EmpowerTours SAS de CV (Mexico)
+> **Classification note.** Our Phase 1 entry form records **Vertical 2 —
+> Quantum Software and AI-Driven Intelligence**. This document is written
+> Area-3-primary for the reason given below, and we have asked the challenge
+> administrators which should stand. The discrepancy is disclosed rather than
+> resolved in whichever direction happens to flatter the submission.
+
 **Application areas:** **Area 3 (primary)** — *Digital Infrastructure
 Secured Against Quantum Computing*: a hedged PQ-signed off-chain
 order layer with on-chain custody anchoring, **executed on Monad
@@ -305,7 +311,15 @@ by design: the agent's PQ key authorises **intent**, the wallet's
 ECDSA key authorises **on-chain custody** (the anchor + vault TX).
 Either alone is insufficient.
 
-### On-chain audit anchor — AuditAnchor.sol
+### On-chain audit anchor — AuditAnchor.sol (V1, SUPERSEDED)
+
+> **Read this as history, not as the current design.** V1 is described here
+> because the audit finding that killed it, and the replacement it forced, are
+> the substance of our security process. It has **no code on Monad mainnet**.
+> The live contract is `AuditAnchorV2`
+> [`0x8422b555DCE11913A4657C2f47C839637FC71ffd`](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd),
+> described under "Now live on Monad mainnet" below, and it is what every
+> reviewer command in this document queries.
 
 The off-chain hash-chained audit log is bridged to on-chain immutability
 by `contracts/src/AuditAnchor.sol`, a minimal Foundry-tested Solidity
@@ -1128,7 +1142,7 @@ reason the ask is for a counterparty rather than for headcount.
 |---|---|
 | **Scope** | PQ-authorised settlement for one defined asset flow in Santander's digital-asset or treasury operation, limited value, on a chain of their choosing |
 | **Duration** | 12 weeks |
-| **Indicative price** | $75–120 k, structured to cover the third-party security audit that gates everything else |
+| **Indicative price** | $75–120 k. Sized to fund a **scoped** audit of the settlement path — `AuditAnchorV2` + `UniswapRoutingVault` + the canonicalisation layer — not the full-stack engagement budgeted at $50–200 k below, which includes the SP1 guest and the ZK circuit and is a later, larger piece of work |
 | **Success criteria, agreed up front** | every settlement instruction carries a verifiable ML-DSA + SLH-DSA + Ed25519 signature; each is anchored and attested on-chain within the agreed gas and latency budget; an independent auditor confirms the on-chain record cannot be reconciled to any instruction other than the one signed; failure on any criterion means the pilot failed, and we will report it as such |
 
 A pilot is the ask rather than a cheque because our binding constraint is not

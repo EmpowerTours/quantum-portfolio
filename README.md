@@ -9,9 +9,16 @@ No installation, IBM Quantum account, wallet, or API key is required to review
 the shipped demonstration.
 
 1. **[Open the interactive Streamlit demo](https://quantum-portfolio-awhfbfwtbqmp2swgpsvxwf.streamlit.app/)** — run the cached optimizer, inspect AI forecasts and backtesting, verify the real IBM hardware artefacts, and exercise PQ signing/tamper detection.
-2. **[Watch the 81-second product walkthrough](docs/DEMO_VIDEO.mp4)**.
+2. **[Watch the 90-second product walkthrough](docs/DEMO_VIDEO.mp4)**.
 3. **[Review the Santander submission narrative](SUBMISSION.md)** and the linked IBM Quantum jobs and Monad transactions.
 4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 110 Python tests plus 169 Foundry tests (279 total, none skipped) are documented below.
+5. **[Read the business case](SUBMISSION.md#business-model-market-and-go-to-market)** — who buys this, why the 31 December 2031 deadline is the forcing function, how it is priced, and what we are asking Santander for.
+
+**Traction, stated up front so it is not a discovery:** we have no customers, no
+revenue and no letters of intent. What we have is shipped and checkable — four
+Monadscan-verified contracts on Monad mainnet, one end-to-end run executed with
+real value, 279 passing tests, and two IBM Heron QPU runs with published job IDs
+and raw counts.
 
 ## Live on Monad mainnet (chainId 143)
 
@@ -71,8 +78,16 @@ with post-quantum cryptography.
   demonstration + Q-Day-ready off-chain order layer.
 
 This is the submission artefact for the **Santander X Global Challenge:
-Quantum AI Leap** (Area 3 primary + Area 2 secondary, application deadline
-2026-06-30). See [`SUBMISSION.md`](SUBMISSION.md) for the application
+Quantum AI Leap** (application deadline 2026-06-30).
+
+> **On the application area.** Our Phase 1 entry form records **Vertical 2 —
+> Quantum Software and AI-Driven Intelligence**. This narrative is written
+> Area-3-primary (*Digital Infrastructure Secured Against Quantum Threats*),
+> because that is what the work turned out to be: the post-quantum settlement
+> layer is the substance, and the quantum-optimisation layer is reported
+> honestly as showing no advantage at this scale. We have written to the
+> challenge administrators to ask which classification should stand. We are
+> flagging the discrepancy rather than quietly picking whichever reads better. See [`SUBMISSION.md`](SUBMISSION.md) for the application
 narrative and [`SECURITY.md`](SECURITY.md) for the threat model.
 
 ## Demo

@@ -579,7 +579,7 @@ Runs everything outside the codebase — company, operations and delivery. Empow
 
 # A 12-week paid pilot.<br>Not a cheque.
 
-## One asset flow. Agreed pass/fail criteria. **$75–120k**, structured to fund the third-party audit that gates everything else.
+## One asset flow. Agreed pass/fail criteria. **$75–120k** — sized to fund a scoped audit of the settlement path, not the full-stack engagement.
 
 <div class="grid">
 

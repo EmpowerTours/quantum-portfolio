@@ -1,6 +1,6 @@
 # Demo Video — Narration Script
 
-**Target:** 81 seconds. Companion to `docs/DEMO_VIDEO.mp4` (silent storyboard).
+**Target:** 90 seconds. Companion to `docs/DEMO_VIDEO.mp4` (silent storyboard).
 
 **How to record:** open `DEMO_VIDEO.mp4` in any player, hit record on OBS/Loom/iMovie, narrate the lines below. Each scene gets one breath. Don't rush — the silent track has a built-in 0.4s crossfade between scenes so a half-second pause feels natural.
 
@@ -18,7 +18,8 @@
 | 6 | **Streamlit — PQ signing** | 9 s | "Every order is signed three times. ML-DSA, SLH-DSA, and Ed25519. Two lattice and hash post-quantum families, plus a classical hedge. Any one survives." *(26 words, ~9 s)* |
 | 7 | **Proof — live on Monad mainnet, 279 tests** | 10 s | "Live on Monad mainnet, all Monadscan-verified. Two hundred seventy-nine tests across Python and Foundry. The post-quantum signature is verified on-chain by a zero-knowledge proof. Reproducible from a cold clone." *(20 words, ~7 s)* — leave 3 s of silence for the numbers to land |
 | 8 | **Live demo TX** | 10 s | "One transaction on Monad mainnet. A tenth of a MON in, real USDC out, lent straight into a live lending market. Tiny value on purpose — the point is that the contract refuses anything the agent didn't sign for." *(35 words, ~12 s)* |
-| 9 | **The Ask — pilot with Santander** | 8 s | "Pilot with Santander. Q-Day-resistant treasury rails on infrastructure we can prove is honest." *(14 words, ~6 s)* |
+| 9 | **Why now — the 2031 deadline** | 9 s | "This is not a someday problem. Executive Order 14412 requires post-quantum authentication by the thirty-first of December, twenty thirty-one. Authentication means signatures. That is exactly what this is." *(29 words, ~10 s)* |
+| 10 | **The Ask — a 12-week paid pilot** | 8 s | "So the ask is not a cheque. Twelve weeks, one asset flow, pass-fail criteria agreed up front — and we will report failure as failure." *(25 words, ~9 s)* |
 
 ---
 

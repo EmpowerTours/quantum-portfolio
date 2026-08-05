@@ -195,9 +195,9 @@ def check_reviewer_commands() -> None:
     cm = "0x" + monad_tx.route_commitment(
         so.order.execution, monad_tx.order_sha256(so)).hex()
 
-    docs = text(["README.md", "SUBMISSION.md"])
-    for path, body in docs.items():
-        check(oh[2:] in body, f"{path} documents the real orderHash", oh[:18] + "…")
+    docs = text(["README.md", "SUBMISSION.md", "SECURITY.md"])
+    for path in ("README.md", "SUBMISSION.md"):
+        check(oh[2:] in docs[path], f"{path} documents the real orderHash", oh[:18] + "…")
 
     # The stale digest may appear ONLY inside the explicitly historical block.
     for path, body in docs.items():
@@ -260,6 +260,43 @@ def check_reviewer_commands() -> None:
           "both docs publish that expected commitment")
 
 
+def check_demo_video() -> None:
+    """The video's storyboard points at deck slides BY NUMBER, and the docs
+    quote its duration. Inserting a slide silently repoints every later scene:
+    on 2026-08-05 the closing "Ask" moved from page 12 to page 19 and the video
+    kept rendering page 12 — the competitor table — as its call to action.
+    Nothing failed, because nothing checked."""
+    print("\n[video] storyboard points where it claims, duration matches the docs")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        import build_demo_video as bdv                    # noqa: PLC0415
+    except Exception as e:                                # noqa: BLE001
+        check(False, "demo-video storyboard importable", str(e)); return
+    try:
+        bdv.validate_timeline()
+        check(True, "every scene points at the slide it names")
+    except SystemExit as e:
+        check(False, "every scene points at the slide it names", str(e).splitlines()[1:2])
+
+    expected = sum(hold for _src, hold, _l in bdv.TIMELINE)
+    mp4 = ROOT / "docs/DEMO_VIDEO.mp4"
+    if not mp4.exists():
+        check(False, "docs/DEMO_VIDEO.mp4 present"); return
+    import struct                                          # noqa: PLC0415
+    d = mp4.read_bytes()
+    i = d.find(b"mvhd")
+    ver = d[i + 4]
+    ts, dur = (struct.unpack(">II", d[i + 16:i + 24]) if ver == 0
+               else struct.unpack(">IQ", d[i + 24:i + 36]))
+    actual = dur / ts
+    check(abs(actual - expected) < 1.5, "video duration matches the storyboard",
+          f"{actual:.1f}s vs {expected:.1f}s")
+    for path, body in text().items():
+        for claimed in set(re.findall(r"(\d{2,3})[- ]second", body)):
+            check(abs(int(claimed) - actual) < 1.5, f"{path} claims a {claimed}s video",
+                  f"actual {actual:.1f}s")
+
+
 def check_addresses() -> None:
     """Superseded contracts may appear ONLY inside an explicit superseded block."""
     print("\n[addresses] live present, superseded quarantined")
@@ -305,6 +342,7 @@ def main() -> int:
     check_artifact_metrics()
     check_execution_binding()
     check_reviewer_commands()
+    check_demo_video()
     check_addresses()
     check_test_counts()
     if "--chain" in sys.argv:

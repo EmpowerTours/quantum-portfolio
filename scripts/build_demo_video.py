@@ -32,20 +32,63 @@ BG = (11, 16, 32)  # var(--bg) from the deck CSS — keeps screenshots blending
 PDF_RENDER_SCALE = 2.0  # 2x = crisp at 1080p
 CROSSFADE_FRAMES = 12   # 0.4 s at 30 fps
 
-# (source_key, hold_seconds)
+# (source_key, hold_seconds, expected_label)
 # source_key: ("slide", N) for PDF page N (1-indexed)
 #             ("shot",  filename) for a Streamlit screenshot
-TIMELINE: list[tuple[tuple[str, object], float]] = [
-    (("slide", 1),  6.0),   # Title
-    (("slide", 2),  9.0),   # Threat
-    (("slide", 4),  10.0),  # Stack overview
-    (("shot",  "01-run-optimizer.png"),       9.0),
-    (("shot",  "04-hardware-verification.png"), 10.0),
-    (("shot",  "05-pq-signing.png"),          9.0),
-    (("slide", 8),  10.0),  # Proof: 6 contracts / 84 tests
-    (("slide", 9),  10.0),  # Live demo TX
-    (("slide", 12), 8.0),   # The Ask
+#
+# expected_label is asserted against the deck markdown before any encoding
+# happens. Slide numbers are positional, so inserting a slide silently
+# repoints every later scene: adding the business slides on 2026-08-05 moved
+# the closing "Ask" from page 12 to page 19, and the video went on rendering
+# page 12 — the competitor table — as its call to action. Nothing failed,
+# because nothing was checking. Now it does.
+TIMELINE: list[tuple[tuple[str, object], float, str]] = [
+    (("slide", 1),  6.0,  "EmpowerTours"),          # Title
+    (("slide", 2),  9.0,  "The Threat"),
+    (("slide", 4),  10.0, "The Stack"),
+    (("shot",  "01-run-optimizer.png"),         9.0,  ""),
+    (("shot",  "04-hardware-verification.png"), 10.0, ""),
+    (("shot",  "05-pq-signing.png"),            9.0,  ""),
+    (("slide", 8),  10.0, "Proof, not promises"),   # 4 mainnet contracts, 279 tests
+    (("slide", 9),  10.0, "end-to-end demo"),       # live mainnet TXs
+    (("slide", 11), 9.0,  "Why now"),               # the 31 Dec 2031 deadline
+    (("slide", 19), 8.0,  "A 12-week paid pilot"),  # The Ask
 ]
+
+
+def slide_labels() -> dict[int, str]:
+    """Kicker + title text per deck slide, straight from the markdown."""
+    import re
+    md = (ROOT / "docs" / "PITCH_DECK.md").read_text()
+    _, body = md.split("\n---\n", 1)
+    out = {}
+    for i, sl in enumerate(body.split("\n---\n"), 1):
+        k = re.search(r"<h3>(.+?)</h3>", sl)
+        h = re.search(r"^# (.+)$", sl, re.M)
+        out[i] = " ".join(filter(None, [
+            k.group(1) if k else "",
+            re.sub(r"<br>|[*_]", " ", h.group(1)) if h else "",
+        ]))
+    return out
+
+
+def validate_timeline() -> None:
+    """Fail before encoding if a scene no longer points at what it claims."""
+    labels = slide_labels()
+    bad = []
+    for src, _secs, expect in TIMELINE:
+        kind, ref = src
+        if kind != "slide" or not expect:
+            continue
+        got = labels.get(ref, "")
+        if expect.lower() not in got.lower():
+            bad.append(f"  scene expects slide {ref} to be {expect!r}, deck has {got.strip()!r}")
+    if bad:
+        raise SystemExit(
+            "demo-video storyboard is out of sync with the deck:\n"
+            + "\n".join(bad)
+            + "\n\nA slide was inserted or reordered. Fix TIMELINE in this file."
+        )
 
 
 def render_pdf_pages(pdf_path: Path) -> dict[int, Image.Image]:
@@ -86,9 +129,10 @@ def build_frame_stream() -> list[Image.Image]:
     This function intentionally returns *scene canvases*, not frames; the
     encoder loop expands them inline.
     """
+    validate_timeline()
     pages = render_pdf_pages(DECK_PDF)
     canvases: list[tuple[Image.Image, float]] = []
-    for (kind, ref), hold in TIMELINE:
+    for (kind, ref), hold, _lbl in TIMELINE:
         if kind == "slide":
             src = pages[ref]  # type: ignore[index]
         elif kind == "shot":

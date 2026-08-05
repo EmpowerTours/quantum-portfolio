@@ -226,20 +226,34 @@ deployed remotely, place behind a reverse proxy with TLS + auth.
 
 ## Reproducing the PQ artefacts
 
+Verification needs nothing but the repository — no IBM account, no wallet, no
+keys. Start here:
+
 ```sh
-# Run the QAOA hardware demo (needs IBM Quantum credentials)
-python run_hardware.py
-
-# Sign the resulting order with ML-DSA-65
-python run_pq_demo.py
-
-# Verify the signature
+# Verify every shipped signed order against the PINNED public keys.
 python -c "from src import orders; \
-  [print('verified:', orders.verify_signed_order(s)) \
+  t = orders.TrustedKeys.load(); \
+  [print('verified:', orders.verify_signed_order(s, trusted=t)) \
    for s in orders.load_signed_orders()]"
 
-# Run the test suite
-python tests/test_pq_signing.py
+# The full suite. Three of the five modules use pytest fixtures, so running
+# them as plain scripts skips most of what they cover.
+pip install pytest && pytest tests/ -q          # 110 tests
+( cd contracts && forge test )                  # 169 tests, 0 skipped
+
+# Recompute every documented claim, on-chain checks included.
+python verify_claims.py --chain
+```
+
+Regenerating the artefacts is a separate, destructive path:
+
+```sh
+# Needs IBM Quantum credentials. Overwrites outputs/hardware_run*.json.
+python run_hardware.py
+
+# Signs a NEW order. This REPLACES outputs/signed_orders.json, which holds the
+# order anchored on Monad mainnet, so it refuses unless you mean it:
+python run_pq_demo.py --replace-shipped
 ```
 
 **Reproducibility scope.** The signature *verification* is fully
