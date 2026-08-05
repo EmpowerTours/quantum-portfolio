@@ -953,6 +953,163 @@ its nestedness, and asserts the returndata is
   rather than *eliminating*. We avoid the failure mode of pitching
   capabilities the code does not have.
 
+## Business model, market and go-to-market
+
+### Who buys this, and why 2031 is the deadline that matters
+
+The buyer is an institution that must **prove**, to a regulator or a
+counterparty, that a settlement instruction was authorised by a key a quantum
+computer cannot forge: regulated digital-asset custodians, exchanges,
+tokenisation platforms, and cross-chain bridges.
+
+The forcing function is already law, and it is specific to what we built.
+**Executive Order 14412**, "Securing the Nation Against Advanced Cryptographic
+Attacks" (22 June 2026), and **OMB Memorandum M-26-15** (24 June 2026) set a
+five-phase federal migration schedule. Two dates matter:
+
+| Deadline | Requirement |
+|---|---|
+| 31 December 2030 | most sensitive federal systems on post-quantum **encryption** |
+| **31 December 2031** | post-quantum **authentication** |
+
+Authentication is signatures. Everything in this repository sits on the 2031
+line, not the 2030 one. NIST IR 8547 independently schedules RSA and ECC for
+deprecation by 2030 and disallowance by 2035.
+
+Federal deadlines are not directly binding on a Mexican or European custodian.
+They matter because federal procurement timelines set the compliance floor that
+enterprise buyers, auditors and their counterparties converge on — and because
+the institutions we sell to already hold US-regulated assets.
+
+### The problem nobody else is solving at settlement
+
+The quantum risk to public chains is measurable, not hypothetical. Google
+Quantum AI estimates roughly **6.5–6.9 million BTC** — around 30 % of supply —
+sit in address types whose public keys are already exposed on-chain and are
+therefore vulnerable to a future cryptographically-relevant quantum computer.
+Ark Invest / Unchained put the figure near 35 % of supply.
+
+The industry response so far targets **key storage and chain migration**:
+
+| Who | What they are building | Where it leaves settlement |
+|---|---|---|
+| Coinbase (announced 23 Jul 2026) | quantum-resistant **custody** | protects the key at rest |
+| BTQ Technologies + QBits | quantum-secure custody treasury; Bitcoin Quantum chain, mainnet + migration tooling | requires migrating to a new chain |
+| PQShield, KETS, InfiniQuant | PQC primitives, hardware, embeddable libraries | components, not settlement provenance |
+
+All of that protects the key. **None of it proves, on-chain, that a specific
+settlement was authorised by that key.** That gap exists for a concrete
+engineering reason: verifying an ML-DSA-65 signature in native EVM is estimated
+at **~500 M gas** — a published literature figure we did not measure ourselves.
+Whatever its exact value, it is not merely expensive: Monad's own block gas
+limit, read from a live block, is **150 000 000**, so a native verifier
+overruns an entire block by more than 3× and cannot be included at all.
+
+**That is the gap we closed.** `MLDSAAttestation` verifies a Groth16 proof of an
+ML-DSA-65 signature on Monad mainnet for a **measured 1 196 224 gas** — an
+estimated ~420× reduction, and the difference between impossible and routine. It works on
+existing EVM chains, with no chain migration and no change to how the customer
+stores keys. It is therefore **complementary to every vendor in the table above,
+not competitive with them** — which is also the honest reading of our
+go-to-market: they are potential channel partners, not incumbents to displace.
+
+### Revenue model
+
+The billable unit is the **attestation** — one order, PQ-signed, anchored, and
+proven on-chain — because it is atomic, independently countable on-chain by both
+parties, and scales with the customer's own volume rather than with our
+headcount.
+
+| Line | Structure | Indicative price |
+|---|---|---|
+| **1. SDK licence** | annual, per institution — PQ signing, canonicalisation, anchoring, attestation | **$60–150 k / yr**, tiered by volume |
+| **2. Metered attestation** | per settled order, charged on top of the customer's gas | **$0.02–0.10** per attestation |
+| **3. Managed cosigner** | optional hosted, HSM-backed signing for customers who do not want to operate keys | monthly, volume-tiered |
+
+Line 3 is deliberately last. It is the highest-revenue and highest-risk line,
+and we will not sell it before the security audit and HSM custody described
+under "What would happen with funding" are complete. Selling a hosted signing
+service off chmod-600 key files would be malpractice.
+
+**Prices above are proposals, not observed.** We have sold nothing. They are
+anchored on comparable enterprise security SDK licensing, and the correct next
+step is to test them, not to defend them.
+
+### Market sizing — bottom-up, and why not top-down
+
+Commercial research firms put the 2026 digital-asset-custody market at
+**$0.7 T, $793 B, $834 B, $954 B and $1.05 T** depending on which report you
+buy. A ~50 % spread means they are measuring different things. Quoting the
+largest of them as our TAM would be exactly the kind of unfalsifiable number
+this submission has avoided everywhere else, so we size from the billable unit
+instead and state the assumption plainly:
+
+```
+    N institutions requiring PQ-authorised settlement by the 2031 deadline
+  × $100 k average annual SDK licence
+  + attestation volume × $0.05
+
+  N = 250   →  $25 M ARR at full penetration
+  N = 250, 4 % penetration (10 customers)  →  $1.0 M ARR
+```
+
+**We do not have a defensible value for N.** Establishing it — how many
+regulated custodians, exchanges and tokenisation platforms actually face a
+signature-authentication compliance requirement — is the first piece of
+customer research funding would buy, and it is a question with a knowable
+answer. For context on the adjacent market that *is* measured: quantum
+cryptography is projected to grow from **$1.37 B (2025) to $9.4 B (2032)**.
+
+### Traction: none, stated plainly
+
+**We have no customers, no revenue, no letters of intent, and no design
+partners.** No conversation with any institution has taken place.
+
+What exists instead is shipped, verifiable evidence: four contracts live and
+Monadscan-verified on Monad mainnet, one end-to-end run executed with real
+value, 279 tests passing with none skipped, two IBM Heron QPU runs with
+published job IDs and raw counts, and every documented reviewer command
+executed against mainnet in CI. Reaching Phase 2 of this challenge is the only
+external validation we claim.
+
+We would rather be marked down for an empty pipeline than imply one we do not
+have. The go-to-market below is therefore a **hypothesis with a validation
+plan**, not a forecast.
+
+### Go-to-market
+
+1. **Design partner (months 0–3).** One custodian or tokenisation platform,
+   unpaid or nominally paid, in exchange for a public case study and the right
+   to cite them. Objective is to establish N and to find out whether the
+   compliance buyer or the engineering buyer holds the budget.
+2. **Channel through the PQC vendors (months 3–9).** PQShield and comparable
+   firms sell primitives into exactly our buyer and have no settlement-provenance
+   story. We are the layer above their library, not a competitor for it.
+3. **Chain-level distribution (months 6–12).** Monad and comparable
+   high-throughput EVM chains have a direct interest in being the chain where
+   PQ-authorised settlement is cheapest. Co-marketing costs them nothing.
+
+Gate on 1 before spending on 2 or 3. If no design partner will sign, the
+hypothesis is wrong and we should know that in twelve weeks rather than twelve
+months.
+
+### What we are asking Santander for
+
+**A scoped, paid pilot — not only investment.**
+
+| | |
+|---|---|
+| **Scope** | PQ-authorised settlement for one defined asset flow in Santander's digital-asset or treasury operation, limited value, on a chain of their choosing |
+| **Duration** | 12 weeks |
+| **Indicative price** | $75–120 k, structured to cover the third-party security audit that gates everything else |
+| **Success criteria, agreed up front** | every settlement instruction carries a verifiable ML-DSA + SLH-DSA + Ed25519 signature; each is anchored and attested on-chain within the agreed gas and latency budget; an independent auditor confirms the on-chain record cannot be reconciled to any instruction other than the one signed; failure on any criterion means the pilot failed, and we will report it as such |
+
+A pilot is the ask rather than a cheque because our binding constraint is not
+capital — the mainnet deploy cost trivial gas and is already done. It is the
+absence of an institutional counterparty willing to state what "good" looks
+like. Santander is uniquely able to supply that, and it converts a judging
+panel into a customer.
+
 ## What would happen with funding
 
 Ordered from highest-leverage credibility uplift to lowest-leverage

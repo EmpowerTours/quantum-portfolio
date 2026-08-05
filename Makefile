@@ -34,7 +34,7 @@ DECK_PDF  := docs/PITCH_DECK.pdf
 DECK_HTML := docs/PITCH_DECK.html
 VIDEO     := docs/DEMO_VIDEO.mp4
 
-.PHONY: refresh verify test charts screenshots deck video clean-procs help
+.PHONY: refresh verify test charts screenshots deck deck-check video clean-procs help
 
 help:
 	@echo "make refresh      rebuild charts -> screenshots -> deck -> video, then verify"
@@ -70,8 +70,15 @@ $(DECK_PDF) $(DECK_HTML): docs/PITCH_DECK.md
 	@pkill -9 -f "[c]hrome-linux64" 2>/dev/null || true   # bracket: do not self-match
 	CHROME_PATH=$(CHROME) $(MARP) docs/PITCH_DECK.md --pdf  --allow-local-files -o $(DECK_PDF)
 	CHROME_PATH=$(CHROME) $(MARP) docs/PITCH_DECK.md --html --allow-local-files -o $(DECK_HTML)
+	@# marp CLIPS anything past the fixed 1280x720 frame instead of paginating,
+	@# silently dropping a slide's last point. 13 of 18 slides were losing
+	@# content before this gate existed. Fail the build rather than ship it.
+	$(PY) scripts/check_deck_overflow.py $(DECK_HTML)
 
 deck: $(DECK_PDF) $(DECK_HTML)
+
+deck-check:
+	$(PY) scripts/check_deck_overflow.py $(DECK_HTML)
 
 ## --- video --------------------------------------------------------------
 $(VIDEO): $(DECK_PDF) $(SHOTS) scripts/build_demo_video.py

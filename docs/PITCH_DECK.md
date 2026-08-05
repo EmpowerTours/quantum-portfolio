@@ -49,6 +49,25 @@ style: |
   .addrs a { color: #7fe3ff; }
   footer, header { color: var(--muted); }
   section::after { color: var(--muted); }
+  section.dense { font-size: 23px; padding: 48px 72px; }
+  section.dense h1 { font-size: 46px; line-height: 1.06; }
+  section.dense h2 { font-size: 30px; }
+  section.dense h3 { font-size: 19px; margin-bottom: 4px; }
+  section.dense table { font-size: 18px; }
+  section.dense th, section.dense td { padding: 7px 10px; }
+  section.dense ul { line-height: 1.35; }
+  section.dense pre code { font-size: 17px; line-height: 1.5; padding: 12px 16px; }
+  section.dense blockquote { padding-left: 14px; }
+  section.dense p { margin: 0.5em 0; }
+  section.xdense { font-size: 20px; padding: 40px 64px; }
+  section.xdense h1 { font-size: 38px; line-height: 1.05; }
+  section.xdense h2 { font-size: 25px; }
+  section.xdense h3 { font-size: 17px; margin-bottom: 3px; }
+  section.xdense table { font-size: 16px; }
+  section.xdense th, section.xdense td { padding: 5px 8px; }
+  section.xdense ul { line-height: 1.3; }
+  section.xdense pre code { font-size: 15px; line-height: 1.45; padding: 10px 14px; }
+  section.xdense p { margin: 0.4em 0; }
   .kicker { color: var(--accent); letter-spacing: 0.18em; text-transform: uppercase; font-size: 18px; font-weight: 600; margin-bottom: 16px; }
   .big { font-size: 88px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; color: var(--ink); }
   .big small { font-size: 22px; letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase; display: block; margin-top: 14px; font-weight: 500; }
@@ -110,6 +129,8 @@ QAOA on IBM Heron · Hedged post-quantum signatures · On-chain provenance on Mo
 
 ---
 
+<!-- _class: dense -->
+
 <h3>The Stack</h3>
 
 # Three layers. Each one<br>survives the other two.
@@ -139,6 +160,8 @@ QAOA on IBM Heron · Hedged post-quantum signatures · On-chain provenance on Mo
 
 ---
 
+<!-- _class: xdense -->
+
 <h3>The Quantum Layer</h3>
 
 # QAOA on real hardware,<br>reported with statistical honesty.
@@ -165,6 +188,8 @@ QAOA is **not** faster than the classical baseline at this size — that baselin
 
 ---
 
+<!-- _class: dense -->
+
 <h3>The Signature Layer</h3>
 
 # Don't bet on one algorithm.<br>Hedge the bet.
@@ -183,6 +208,8 @@ QAOA is **not** faster than the classical baseline at this size — that baselin
 > If ML-DSA falls to a 2028 cryptanalysis paper, SLH-DSA still authenticates the order. If both lattice and hash fall, the classical signature carries it pre-Q-Day.
 
 ---
+
+<!-- _class: xdense -->
 
 <h3>The Provenance Layer</h3>
 
@@ -212,6 +239,8 @@ QAOA is **not** faster than the classical baseline at this size — that baselin
 </div>
 
 ---
+
+<!-- _class: dense -->
 
 <h3>Proof, not promises</h3>
 
@@ -243,6 +272,8 @@ QAOA is **not** faster than the classical baseline at this size — that baselin
 </table>
 
 ---
+
+<!-- _class: xdense -->
 
 <h3>The end-to-end demo — real value, one hash</h3>
 
@@ -289,6 +320,195 @@ QAOA is **not** faster than the classical baseline at this size — that baselin
 
 ---
 
+<!-- _class: dense -->
+
+<h3>Why now</h3>
+
+# The deadline for signatures<br>is *31 December 2031*.
+
+<div class="grid">
+
+<div>
+
+**EO 14412** — "Securing the Nation Against Advanced Cryptographic Attacks", 22 June 2026
+**OMB M-26-15** — five-phase migration schedule, 24 June 2026
+
+| Date | Requirement |
+|---|---|
+| 31 Dec 2030 | post-quantum **encryption** |
+| **31 Dec 2031** | post-quantum **authentication** |
+
+</div>
+
+<div>
+
+Authentication *is* signatures.
+
+Everything we built sits on the **2031** line.
+
+<br>
+
+> NIST IR 8547 independently deprecates RSA and ECC by 2030, disallows them by 2035.
+
+</div>
+
+</div>
+
+---
+
+<!-- _class: dense -->
+
+<h3>The gap</h3>
+
+# Everyone is protecting the key.<br>Nobody proves the *settlement*.
+
+| Who | Building | Leaves |
+|---|---|---|
+| Coinbase (23 Jul 2026) | quantum-resistant custody | the key at rest |
+| BTQ + QBits | quantum-secure treasury, new chain | requires chain migration |
+| PQShield · KETS · InfiniQuant | PQC primitives + hardware | components |
+
+<br>
+
+Native EVM ML-DSA verification: **~500M gas estimated** — Monad's whole block is **150M**. It could not be included at all.
+
+**We measured 1.20M.** Existing chains, no migration, no change to key storage.
+
+> Which makes them channel partners, not incumbents.
+
+---
+
+<!-- _class: dense -->
+
+<h3>Revenue</h3>
+
+# The attestation is<br>the billable unit.
+
+<div class="grid">
+
+<div>
+
+| Line | Price |
+|---|---|
+| **SDK licence** per institution / yr | **$60–150k** |
+| **Per attestation** settled | **$0.02–0.10** |
+| **Managed cosigner** hosted, HSM | monthly |
+
+</div>
+
+<div>
+
+Atomic. Countable on-chain by *both* parties. Scales with the customer's volume, not our headcount.
+
+<br>
+
+> Hosted signing ships **after** the audit and HSM custody — not before. Selling it off chmod-600 key files would be malpractice.
+
+</div>
+
+</div>
+
+<br>
+
+**These prices are proposals, not observed. We have sold nothing.**
+
+---
+
+<!-- _class: dense -->
+
+<h3>Market</h3>
+
+# We size bottom-up,<br>because top-down is *noise*.
+
+<div class="grid">
+
+<div>
+
+2026 digital-asset custody "market size", by vendor report:
+
+<code>$0.7T · $793B · $834B · $954B · $1.05T</code>
+
+A 50% spread means they are measuring different things. We will not quote the largest one at you.
+
+</div>
+
+<div>
+
+```
+  N institutions × $100k licence
+  + attestations × $0.05
+
+  N=250, full        → $25M ARR
+  N=250, 4% (10)     → $1.0M ARR
+```
+
+**We do not have a defensible N.** Establishing it is the first thing funding buys — and it is a question with a knowable answer.
+
+</div>
+
+</div>
+
+---
+
+<!-- _class: xdense -->
+
+<h3>Traction</h3>
+
+# Zero customers.<br>Zero revenue. No LOIs.
+
+<div class="grid">
+
+<div>
+
+No conversation with any institution has happened. We would rather be marked down for an empty pipeline than imply one we do not have.
+
+</div>
+
+<div>
+
+**What does exist, and is checkable:**
+- 4 contracts live on Monad **mainnet**, Monadscan-verified
+- one end-to-end run with **real value**
+- **279 tests**, 0 skipped
+- 2 IBM Heron runs, job IDs + raw counts published
+- every documented reviewer command **executed in CI**
+
+</div>
+
+</div>
+
+---
+
+<!-- _class: dense -->
+
+<h3>Go-to-market</h3>
+
+# One design partner,<br>then two channels.
+
+<div class="grid">
+
+<div>
+
+**0–3 months** — one custodian or tokenisation platform. Unpaid, for a public case study. Establishes N and finds whether compliance or engineering holds the budget.
+
+**3–9 months** — channel through the PQC vendors. They sell into our exact buyer and have no settlement story.
+
+</div>
+
+<div>
+
+**6–12 months** — chain-level distribution. Monad and peers have a direct interest in being where PQ settlement is cheapest.
+
+<br>
+
+> Gate on the design partner before spending on either channel. If nobody will sign, the hypothesis is wrong — and we learn that in twelve weeks, not twelve months.
+
+</div>
+
+</div>
+
+---
+
 <h3>What's next</h3>
 
 # From live mainnet proof to<br>institutional pilot.
@@ -317,13 +537,31 @@ QAOA is **not** faster than the classical baseline at this size — that baselin
 
 ---
 
-<!-- _class: title -->
+<!-- _class: title dense -->
 
 <div class="pill">The Ask</div>
 
-# Pilot with Santander.
+# A 12-week paid pilot.<br>Not a cheque.
 
-## Q-Day-resistant crypto exposure for institutional treasury,<br>on rails we can prove are honest.
+## One asset flow. Agreed pass/fail criteria. **$75–120k**, structured to fund the third-party audit that gates everything else.
+
+<div class="grid">
+
+<div>
+
+**We will have failed if** any settlement instruction cannot be tied on-chain to the exact PQ-signed order that authorised it, within the agreed gas and latency budget — and we will report it that way.
+
+</div>
+
+<div>
+
+Our binding constraint is not capital. The mainnet deploy cost trivial gas and is already done.
+
+It is the absence of an institutional counterparty willing to define what *good* looks like.
+
+</div>
+
+</div>
 
 <br>
 
