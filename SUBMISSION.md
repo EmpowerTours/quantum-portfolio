@@ -1093,6 +1093,33 @@ Gate on 1 before spending on 2 or 3. If no design partner will sign, the
 hypothesis is wrong and we should know that in twelve weeks rather than twelve
 months.
 
+### Team
+
+**Earvin Gallardo Bravo** — founder, engineering. Wrote the full stack: the
+Solidity contracts, the SP1 ZK guest program, the hedged post-quantum signing
+layer, the QAOA hardware path and the Streamlit application. Every commit in
+this repository.
+
+**Brisa Mar Hernández Hernández** — operations. Runs everything outside the
+codebase: company, operations and delivery. EmpowerTours SAS de CV is
+incorporated in Mexico and qualifies under the LATAM startup criteria.
+
+**What the team does not have, stated plainly:**
+
+- **No cryptographer on staff.** The ML-DSA, SLH-DSA and Groth16 constructions
+  here follow published standards and reference implementations; they have not
+  been reviewed by a specialist. This is precisely why a third-party audit is
+  item 1 of the funding plan rather than item 6, and why the pilot price is
+  structured to cover it.
+- **No institutional sales experience.** The design-partner phase exists to
+  acquire that knowledge, not to paper over it.
+- **No dedicated security engineer** for HSM-backed key custody, which is the
+  gate on the managed-cosigner revenue line.
+
+Two people shipped four Monadscan-verified mainnet contracts, an SP1 ZK
+circuit, and 279 passing tests. That is the argument for a pilot, and the
+reason the ask is for a counterparty rather than for headcount.
+
 ### What we are asking Santander for
 
 **A scoped, paid pilot — not only investment.**
@@ -1276,4 +1303,8 @@ produced a new order, not a re-derivation of ours.
 
 ## Contact
 
-GitHub issues at https://github.com/EmpowerTours/quantum-portfolio
+**Earvin Gallardo Bravo** — founder, EmpowerTours SAS de CV (Mexico)
+empowertours@gmail.com
+
+Repository and issue tracker:
+https://github.com/EmpowerTours/quantum-portfolio

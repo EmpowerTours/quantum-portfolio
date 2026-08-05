@@ -213,6 +213,15 @@ def check_reviewer_commands() -> None:
         check("python tests/test_" not in body,
               f"{path} does not tell reviewers to run test modules as scripts")
 
+    # Placeholders must never reach a judge. A slide that reads
+    # "FOUNDER_NAME_TBD" is worse than no team slide, and the only reliable way
+    # to guarantee it is filled in is to fail the build while it is not.
+    for f in ("docs/PITCH_DECK.md", "README.md", "SUBMISSION.md"):
+        body = (ROOT / f).read_text()
+        for token in ("_TBD", "TODO:", "FIXME", "XXX_"):
+            check(token not in body, f"{f} free of placeholder {token!r}",
+                  "" if token not in body else "unfilled placeholder would ship")
+
     # The deck pins a commit; it may lag HEAD but must exist in this history.
     deck = (ROOT / "docs/PITCH_DECK.md").read_text()
     m = re.search(r"commit <code>([0-9a-f]{7,40})</code>", deck)

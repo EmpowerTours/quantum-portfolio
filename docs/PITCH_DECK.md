@@ -509,6 +509,42 @@ No conversation with any institution has happened. We would rather be marked dow
 
 ---
 
+<!-- _class: xdense -->
+
+<h3>Team</h3>
+
+# Two people.<br>One ships it, one runs it.
+
+<div class="grid">
+
+<div>
+
+**Earvin Gallardo Bravo** — *Founder, engineering*
+Wrote the full stack: the Solidity contracts, the SP1 ZK guest program, the hedged PQ signing layer, the QAOA hardware path and the app. Every commit in this repository.
+
+**Brisa Mar Hernández Hernández** — *Operations*
+Runs everything outside the codebase — company, operations and delivery. EmpowerTours SAS de CV is incorporated in Mexico.
+
+</div>
+
+<div>
+
+**What we do not have, plainly:**
+
+- no cryptographer on staff — which is why a third-party audit is item **1** of the funding plan, not item 6
+- no institutional sales experience — the design-partner phase exists to buy that knowledge, not to fake it
+- no dedicated security engineer for HSM key custody
+
+<br>
+
+> Two people shipped four verified mainnet contracts, a ZK circuit, and 279 passing tests. That is the argument for a pilot — and the reason the ask is a counterparty, not headcount.
+
+</div>
+
+</div>
+
+---
+
 <h3>What's next</h3>
 
 # From live mainnet proof to<br>institutional pilot.
