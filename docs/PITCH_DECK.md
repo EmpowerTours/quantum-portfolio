@@ -193,8 +193,8 @@ QAOA is **not** faster than the classical baseline at this size — that baselin
 <div>
 
 1. Agent builds order. PQ-signs it.
-2. <code>AuditAnchor.anchor(orderHash)</code> on Monad. Links to caller's previous hash.
-3. <code>RoutingVault.executeAndRoute(orderHash, …)</code> refuses execution unless <code>ANCHOR.lastHash[msg.sender] == orderHash</code>.
+2. <code>AuditAnchorV2.anchor(orderHash, execCommitment, seq)</code> on Monad mainnet. Commits the order <em>and the one execution it authorises</em>.
+3. <code>UniswapRoutingVault.executeAndRoute(orderHash, …)</code> recomputes the commitment from its own calldata and reverts unless it equals <code>ANCHOR.execCommitmentOf[msg.sender][orderHash]</code>. Anchoring an order is not enough — the trade must be <em>the</em> trade that was signed for.
 
 </div>
 
@@ -327,4 +327,4 @@ QAOA is **not** faster than the classical baseline at this size — that baselin
 
 <br>
 
-<code>github.com/EmpowerTours/quantum-portfolio</code> · commit <code>33b69dd</code>
+<code>github.com/EmpowerTours/quantum-portfolio</code> · commit <code>9727322</code>

@@ -105,9 +105,15 @@ def check_test_counts() -> None:
     nfo = int(m.group(1)) if m else -1
     total = npy + nfo
     print(f"    actual: {npy} Python + {nfo} Foundry = {total}")
+    # A document may legitimately cite a per-suite count ("169 tests, 0
+    # skipped" next to `forge test`) as well as the combined total. Only a
+    # number matching none of the three is a stale claim. Without this the
+    # checker flags true statements, which trains people to ignore it.
+    valid = {total, npy, nfo}
     for path, s in text().items():
         for claimed in set(int(x) for x in re.findall(r"(\d{2,4}) tests(?:,| passing| total)", s)):
-            check(claimed == total, f"{path} claims {claimed} tests", f"actual {total}")
+            check(claimed in valid, f"{path} test count {claimed}",
+                  f"expected one of {sorted(valid)} (total {total})")
 
 
 def check_execution_binding() -> None:
@@ -160,6 +166,77 @@ def check_execution_binding() -> None:
         check(got == want, f"{name} chainId", f"{got} (expected {want})")
 
 
+ANCHORER   = "0x8df64bacf6b70f7787f8d14429b258b3ff958ec1"
+STALE_HASH = "fe44195b36463e33da7156285383a4fe735093ecadb1abb87684435552814ba9"
+
+
+def check_reviewer_commands() -> None:
+    """Run the commands the docs tell a reviewer to run, and diff the outputs.
+
+    Every other check here verifies the artefacts. None of them verified the
+    INSTRUCTIONS, and that is where the damage was: SUBMISSION.md and README.md
+    told reviewers to expect `fe44195b...`, the shipped order hashed to
+    `d8bf1551...`, and following the documented steps produced a mismatch
+    against a system that was working correctly. A reviewer who did as asked
+    would conclude the artefacts do not reconcile.
+
+    The deeper cause was the accessor, not the value: the docs compared against
+    `lastHash[anchorer]`, which is last-write-wins and legitimately moved on as
+    soon as a second order was anchored. `execCommitmentOf[anchorer][orderHash]`
+    is keyed by the order and cannot be overwritten, so it is what the docs now
+    use and what this check exercises.
+    """
+    print("\n[reviewer] the documented commands, executed")
+    sys.path.insert(0, str(ROOT))
+    from src import monad_tx, orders as _o          # noqa: PLC0415
+
+    so = _o.load_signed_orders()[0]
+    oh = "0x" + monad_tx.order_sha256(so).hex()
+    cm = "0x" + monad_tx.route_commitment(
+        so.order.execution, monad_tx.order_sha256(so)).hex()
+
+    docs = text(["README.md", "SUBMISSION.md"])
+    for path, body in docs.items():
+        check(oh[2:] in body, f"{path} documents the real orderHash", oh[:18] + "…")
+
+    # The stale digest may appear ONLY inside the explicitly historical block.
+    for path, body in docs.items():
+        if STALE_HASH not in body:
+            check(True, f"{path} free of the superseded digest"); continue
+        before = body.split(STALE_HASH)[0][-1500:]
+        ok = "<details>" in before and "Historical" in before
+        check(ok, f"{path} quarantines the superseded digest",
+              "" if ok else "appears outside the historical block")
+
+    # Modules using pytest fixtures silently do nothing when run as scripts.
+    for path, body in docs.items():
+        check("python tests/test_" not in body,
+              f"{path} does not tell reviewers to run test modules as scripts")
+
+    # The deck pins a commit; it may lag HEAD but must exist in this history.
+    deck = (ROOT / "docs/PITCH_DECK.md").read_text()
+    m = re.search(r"commit <code>([0-9a-f]{7,40})</code>", deck)
+    if m:
+        r = subprocess.run(["git", "merge-base", "--is-ancestor", m.group(1), "HEAD"],
+                           cwd=ROOT, capture_output=True)
+        check(r.returncode == 0, f"deck commit {m.group(1)} is in this history")
+
+    if "--chain" not in sys.argv:
+        print("    (skipping the on-chain half; pass --chain to run it)")
+        return
+
+    fo = f"{Path.home()}/.foundry/bin"
+    r = subprocess.run(
+        [f"{fo}/cast", "call", LIVE["AuditAnchorV2"],
+         "execCommitmentOf(address,bytes32)(bytes32)", ANCHORER, oh,
+         "--rpc-url", RPC], capture_output=True, text=True, timeout=120)
+    onchain = r.stdout.strip()
+    check(onchain == cm, "documented cast call returns the recomputed commitment",
+          f"{onchain[:18]}… vs {cm[:18]}…")
+    check(cm in docs["README.md"] and cm in docs["SUBMISSION.md"],
+          "both docs publish that expected commitment")
+
+
 def check_addresses() -> None:
     """Superseded contracts may appear ONLY inside an explicit superseded block."""
     print("\n[addresses] live present, superseded quarantined")
@@ -204,6 +281,7 @@ def main() -> int:
     print("Verifying documented claims against chain, artefacts and tests.")
     check_artifact_metrics()
     check_execution_binding()
+    check_reviewer_commands()
     check_addresses()
     check_test_counts()
     if "--chain" in sys.argv:

@@ -45,11 +45,14 @@ End-to-end pipeline for autonomous DeFi yield-pool selection that uses
 hybrid quantum-classical optimisation and signs every rebalance order
 with post-quantum cryptography.
 
-- **Quantum**: portfolio QUBO solved with **depth-2 QAOA** (budget
-  enforced as a quadratic penalty in the cost Hamiltonian) on a real
-  IBM Heron QPU (`ibm_marrakesh`), raw and with XY4 dynamical
-  decoupling + gate and measurement twirling for error suppression.
-  Verifiable job IDs are baked into the artefacts.
+- **Quantum**: portfolio QUBO solved with **reps-3 QAOA under an XY-ring
+  mixer** (`src/xy_qaoa.py` — the mixer conserves Hamming weight, so the
+  budget constraint holds by construction instead of via a penalty term) on
+  real IBM Heron QPUs — `ibm_fez` for the stocks universe, `ibm_marrakesh`
+  for the DeFi universe — raw and with XY4 dynamical decoupling + gate and
+  measurement twirling for error suppression. Verifiable job IDs are baked
+  into the artefacts. A penalty-mixer implementation remains in
+  `src/qaoa_hw.py` for comparison; it is not what produced the shipped runs.
 - **AI**: per-asset Ridge regression with technical features, trained
   walk-forward (no lookahead), feeds the QUBO's expected-return vector.
   Covariance is Ledoit-Wolf shrunk.
@@ -89,9 +92,12 @@ English).
 
 ## Verifiable hardware results
 
-Two real-hardware runs on `ibm_marrakesh` (IBM Heron r2, 156 qubits) —
-both depth-2 penalty-QAOA on 8 qubits at 4096 shots. Hardware error
-suppression: XY4 dynamical decoupling + gate and measurement twirling.
+Two real-hardware runs, both **XY-ring-mixer QAOA at reps=3**, 8 qubits,
+4096 shots — the stocks universe on `ibm_fez` and the DeFi universe on
+`ibm_marrakesh` (IBM Heron, 156 qubits). Hardware error suppression: XY4
+dynamical decoupling + gate and measurement twirling. Every figure below
+recomputes from the raw counts shipped in `outputs/hardware_run*.json`;
+`backend`, `mixer` and `reps` are recorded in those files.
 Both runs find the same best 3-of-8 portfolio as the classical exact
 solver, which is consistency at this scale (not advantage).
 
@@ -115,16 +121,21 @@ solver, which is consistency at this scale (not advantage).
 > anything in it. The dense all-to-all penalty transpiles to ~250 two-qubit
 > gates on heavy-hex Heron, and at DeFi yield scale the covariance term is
 > ~10⁻⁴ of the return term, so the instance degenerates towards a
-> cardinality-constrained sort. `src/xy_qaoa.py` — a budget-preserving XY
-> mixer with feasible-subspace initialisation — is the fix, and is **not yet
-> on the hardware path**. The stocks run below sits ~2.8σ above chance and is
-> the stronger of the two. Full detail in SUBMISSION.md.
+> cardinality-constrained sort. This run already used the budget-preserving
+> XY-ring mixer with feasible-subspace initialisation (`src/xy_qaoa.py`), so
+> the mixer is not the missing piece here — the instance itself is close to
+> degenerate at DeFi yield scale. The stocks run below, same mixer and same
+> depth on a different backend, sits ~2.8σ above chance and is the stronger of
+> the two. Full detail in SUBMISSION.md.
 
 ### Stocks universe — the strongest result
 
 XY-ring mixer, reps=3, `ibm_fez`. Raw counts shipped in
 `outputs/hardware_run.json`, so every figure below recomputes without an IBM
 account.
+
+Raw job ID `d9n20fmij12s73ftcat0` · mitigated job ID `d9n20h8qs0bc73e2tlog`
+(both on `ibm_fez`; the IDs are recorded in `outputs/hardware_run.json`).
 
 | | sim | hw raw | hw **mitigated** |
 |---|---|---|---|
@@ -172,11 +183,11 @@ curl -L https://foundry.paradigm.xyz | bash && foundryup
 ### Path A — verify the shipped artefact
 
 ```sh
-# 1. Python tests (29 pipeline/PQ + 23 Monad-TX)
-python tests/test_pq_signing.py
-python tests/test_monad_tx.py
+# 1. Python tests (110). Three of the five modules use pytest fixtures, so
+#    they must run under pytest — as plain scripts they error out.
+pip install pytest && pytest tests/ -q
 
-# 2. Foundry tests (48 across 6 suites: AuditAnchor, MonadAllocationVault, RoutingVault, UniswapRoutingVault + fork, MorphoSupplyAdapter fork)
+# 2. Foundry tests (169 across 23 suites, 0 skipped)
 ( cd contracts && forge test )
 
 # 3. Re-derive the canonical-bytes SHA-256 of the shipped signed order:
@@ -185,8 +196,20 @@ import sys, hashlib; sys.path.insert(0,'.')
 from src import orders, pq_signing as pq
 print(hashlib.sha256(pq.canonical_bytes(orders.load_signed_orders()[0].order.to_dict())).hexdigest())
 "
-# Expected: fe44195b36463e33da7156285383a4fe735093ecadb1abb87684435552814ba9
-# This must match AuditAnchor.lastHash[deployer] - see SUBMISSION.md for cast call.
+# Expected: d8bf15515669ef1f1d912c6d505d056b1f4ccd5cc6aebcae1b223c05cb8915f9
+
+# 4. Ask Monad MAINNET what that order authorised. Keyed by orderHash, so no
+#    later anchor can move it (V1's lastHash was last-write-wins, which is
+#    why this instruction used to rot — see SUBMISSION.md).
+cast call --rpc-url https://rpc.monad.xyz \
+  0x8422b555DCE11913A4657C2f47C839637FC71ffd \
+  "execCommitmentOf(address,bytes32)(bytes32)" \
+  0x8df64bacf6b70f7787f8d14429b258b3ff958ec1 \
+  0xd8bf15515669ef1f1d912c6d505d056b1f4ccd5cc6aebcae1b223c05cb8915f9
+# Expected: 0x1a920f302c870dbb450bae2565e7dc45103fc9420576681d35d95fb7f3b31187
+
+# 5. Recompute every documented claim, including the commands above:
+python verify_claims.py --chain
 ```
 
 ### Path B — exercise the pipeline from scratch
@@ -224,9 +247,9 @@ python run_backtest.py
 │   ├── orders.py                RebalanceOrder + audit log
 │   ├── pq_signing.py            Hedged signing: ML-DSA + SLH-DSA + Ed25519
 │   ├── problem.py               Portfolio QUBO builder
-│   ├── qaoa_hw.py               Penalty-QAOA on hardware (raw / mitigated)
+│   ├── qaoa_hw.py               Hardware sampling + mitigation (penalty mixer, kept for comparison)
 │   ├── solvers.py               Classical exact + QAOA-sim solvers
-│   └── xy_qaoa.py               XY-mixer QAOA reference implementation (not in current HW path)
+│   └── xy_qaoa.py               XY-ring-mixer QAOA — produced BOTH shipped hardware runs
 ├── contracts/                   Foundry sub-project (solc 0.8.28)
 │   ├── foundry.toml
 │   │  --- LIVE on Monad mainnet, Monadscan-verified ---
@@ -268,9 +291,9 @@ python run_backtest.py
 ## Acknowledgements
 
 QAOA comes from Farhi et al. (2014). The portfolio formulation follows
-Mugel et al. (2022). The XY-mixer reference implementation in
-`src/xy_qaoa.py` follows Hadfield et al. (2017) but is not on the
-current hardware path. ML-DSA-65 follows NIST FIPS 204 (2024) and
+Mugel et al. (2022). The XY-mixer implementation in
+`src/xy_qaoa.py` follows Hadfield et al. (2017) and is what produced both
+shipped hardware runs. ML-DSA-65 follows NIST FIPS 204 (2024) and
 SLH-DSA-SHAKE-256s follows NIST FIPS 205 (2024); both are provided by
 `quantcrypt` (PQClean precompiled bindings). The Ed25519 classical leg
 uses pyca's `cryptography` library. The triple-sign hedge construction

@@ -600,9 +600,11 @@ equals the seq-2 anchor's orderHash, so the on-chain JSONL-mirroring
 chain is intact across all four anchors.)
 
 Both TXs reference the same `orderHash = 0xfe44195b…14ba9`, both from
-the same wallet `0xe67e…e8D9`, three blocks apart. Off-chain
-`outputs/signed_orders.json` contains the order whose canonical
-SHA-256 equals that exact hash, signed under all three PQ schemes.
+the same wallet `0xe67e…e8D9`, three blocks apart. That digest belongs to
+the **historical testnet** order this section describes. The order shipped in
+`outputs/signed_orders.json` today is the **mainnet** one, digest
+`0xd8bf1551…15f9` — see "Now live on Monad mainnet" above and the reviewer
+block that follows it.
 
 **Q-Day caveat on the on-chain leg.** The two on-chain TXs above are
 signed with secp256k1 ECDSA (Monad's native scheme). A Shor-capable
@@ -695,30 +697,67 @@ path, proven end to end.
 A reviewer verifies the full chain with:
 
 ```sh
-# 1. Confirm the on-chain anchor's last hash for the agent's wallet.
-cast call --rpc-url https://testnet-rpc.monad.xyz \
-  0x0e649C383CFA6be1998445D0A7a8E1cc7540D239 \
-  "lastHash(address)(bytes32)" 0xe67e13D545C76C2b4e28DFE27Ad827E1FC18e8D9
-# → 0xfe44195b36463e33da7156285383a4fe735093ecadb1abb87684435552814ba9
+# 1. From the shipped artefact ALONE, recompute the order digest and the
+#    execution commitment it authorises. No RPC, no keys, no IBM account.
+python -c "
+import sys; sys.path.insert(0, '.')
+from src import orders, monad_tx
+so = orders.load_signed_orders()[0]
+oh = monad_tx.order_sha256(so)
+print('orderHash      = 0x' + oh.hex())
+print('execCommitment = 0x' + monad_tx.route_commitment(so.order.execution, oh).hex())
+"
+# → orderHash      = 0xd8bf15515669ef1f1d912c6d505d056b1f4ccd5cc6aebcae1b223c05cb8915f9
+# → execCommitment = 0x1a920f302c870dbb450bae2565e7dc45103fc9420576681d35d95fb7f3b31187
 
-# 2. Confirm the same hash credited a vault deposit.
+# 2. Ask Monad MAINNET what that exact order was permitted to do.
+#    execCommitmentOf is keyed BY orderHash, so no later anchor can move it.
+cast call --rpc-url https://rpc.monad.xyz \
+  0x8422b555DCE11913A4657C2f47C839637FC71ffd \
+  "execCommitmentOf(address,bytes32)(bytes32)" \
+  0x8df64bacf6b70f7787f8d14429b258b3ff958ec1 \
+  0xd8bf15515669ef1f1d912c6d505d056b1f4ccd5cc6aebcae1b223c05cb8915f9
+# → 0x1a920f302c870dbb450bae2565e7dc45103fc9420576681d35d95fb7f3b31187
+#   Identical to step 1: the order in this repository is the order the
+#   chain authorised, and the trade it authorised is the trade that ran.
+
+# 3. Confirm the anchor transaction itself succeeded.
+cast receipt 0x8702d6a99fa070ed97032e73351e7167f8ef278da20b7b9ce3d1730866d40a7d \
+  --rpc-url https://rpc.monad.xyz | grep -E "^(status|blockNumber|gasUsed)"
+# → blockNumber  91696262
+# → gasUsed      110879
+# → status       1 (success)
+```
+
+> **Why `execCommitmentOf` and not `lastHash`.** V1 exposed only
+> `lastHash[anchorer]` — last-write-wins. An earlier revision of this document
+> told reviewers to compare against it, and the value legitimately moved on as
+> soon as a second order was anchored, so the instructions failed against a
+> system that was working correctly. `execCommitmentOf` is keyed by orderHash
+> and is therefore permanent. `verify_claims.py` now executes the commands in
+> this block and fails if their documented outputs drift.
+
+<details>
+<summary>Historical: the superseded testnet V1 trail (still queryable)</summary>
+
+The first version of this pipeline ran on Monad **testnet** against
+`AuditAnchor` V1 and `MonadAllocationVault`. Neither has code on mainnet. The
+deposit that trail produced is still readable, keyed by the order hash that was
+current then:
+
+```sh
 cast call --rpc-url https://testnet-rpc.monad.xyz \
   0xC39e298ce89cDfc934c697c9Fe0CC4BAA80B87f5 \
   "deposits(address,bytes32)(uint256)" \
   0xe67e13D545C76C2b4e28DFE27Ad827E1FC18e8D9 \
   0xfe44195b36463e33da7156285383a4fe735093ecadb1abb87684435552814ba9
 # → 10000000000000000  (= 0.01 MON)
-
-# 3. Verify the shipped off-chain artefact reconstructs the same hash.
-python -c "
-import sys, hashlib
-sys.path.insert(0,'.')
-from src import orders, pq_signing as pq
-o = orders.load_signed_orders()[0]
-print(hashlib.sha256(pq.canonical_bytes(o.order.to_dict())).hexdigest())
-"
-# → fe44195b36463e33da7156285383a4fe735093ecadb1abb87684435552814ba9
 ```
+
+`0xfe44195b…` is that historical order's digest. It is **not** the digest of
+the order shipped in `outputs/signed_orders.json` today — see step 1 above.
+
+</details>
 
 The agent's PQ-signed decision is byte-linked through the off-chain
 hash-chain → AuditAnchor → MonadAllocationVault, end-to-end auditable
@@ -924,10 +963,14 @@ bounty + HSM steps below before it protects institutional value.
 
 1. **Commission a security audit by a reputable firm.** Trail of Bits,
    OpenZeppelin, Spearbit, ConsenSys Diligence, Cyfrin, Zellic — or an
-   audit firm of comparable reputation — on the full stack:
-   AuditAnchor.sol + MonadAllocationVault.sol + `src/pq_signing.py`
+   audit firm of comparable reputation — on the **live mainnet stack**:
+   `AuditAnchorV2.sol` + `UniswapRoutingVault.sol` +
+   `MorphoSupplyAdapter.sol` + `MLDSAAttestation.sol` (including the SP1
+   guest program and its vkey binding) + `src/pq_signing.py`
    canonicalisation + `src/orders.py` audit-chain + `src/monad_tx.py`
-   ABI encoders. Engagement budget: **$50–200K** depending on scope
+   ABI encoders. The superseded testnet contracts (`AuditAnchor.sol` V1,
+   `MonadAllocationVault.sol`, `RoutingVault.sol`) are out of scope —
+   they hold no value and have no mainnet code. Engagement budget: **$50–200K** depending on scope
    and timeline. Output: a public audit report referenced from this
    repo's README.
 
@@ -1004,18 +1047,22 @@ different outputs by design.
 ### Path A — verify the shipped state against the on-chain anchors
 
 This is what the `cast call` block in the on-chain-anchor section above
-walks through, end-to-end. You do **not** need to run `run_pq_demo.py`.
-The shipped `outputs/signed_orders.json` contains the order whose
-canonical SHA-256 is `0xfe44195b…14ba9`, and the on-chain
-`AuditAnchor.lastHash[deployer]` returns the same hash. Every Foundry
-+ Python test passes against the shipped repo.
+walks through, end-to-end. You do **not** need to run `run_pq_demo.py` — and
+should not, because it replaces the shipped order (it refuses without
+`--replace-shipped` for exactly that reason). The shipped
+`outputs/signed_orders.json` holds the order whose canonical SHA-256 is
+`0xd8bf1551…15f9`, and `AuditAnchorV2.execCommitmentOf` on Monad **mainnet**
+returns the execution commitment that order authorises.
 
 ```sh
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python tests/test_pq_signing.py
-python tests/test_monad_tx.py
-( cd contracts && forge test )
+pip install pytest
+
+# Three of the five test modules use pytest fixtures and parametrisation, so
+# they must be run under pytest — invoking them as plain scripts skips them.
+pytest tests/ -q                    # 110 tests
+( cd contracts && forge test )      # 169 tests, 0 skipped
 
 # Re-derive the canonical-bytes digest of the shipped order:
 python -c "
@@ -1023,7 +1070,11 @@ import sys, hashlib; sys.path.insert(0,'.')
 from src import orders, pq_signing as pq
 print(hashlib.sha256(pq.canonical_bytes(orders.load_signed_orders()[0].order.to_dict())).hexdigest())
 "
-# Expected: fe44195b36463e33da7156285383a4fe735093ecadb1abb87684435552814ba9
+# Expected: d8bf15515669ef1f1d912c6d505d056b1f4ccd5cc6aebcae1b223c05cb8915f9
+
+# Recompute every documented number against the chain, the artefacts and the
+# test suites — including the reviewer commands in this document:
+python verify_claims.py --chain
 ```
 
 ### Path B — exercise the pipeline from scratch (new keys, new TXs)
