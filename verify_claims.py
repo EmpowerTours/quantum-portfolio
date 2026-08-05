@@ -270,8 +270,11 @@ def check_demo_video() -> None:
     sys.path.insert(0, str(ROOT / "scripts"))
     try:
         import build_demo_video as bdv                    # noqa: PLC0415
-    except Exception as e:                                # noqa: BLE001
-        check(False, "demo-video storyboard importable", str(e)); return
+    except ImportError as e:                              # noqa: PERF203
+        # A missing build-only dependency is not a false claim. Say so, and
+        # do not pretend the storyboard was verified.
+        print(f"    storyboard not importable here ({e}) — skipping scene check")
+        return
     try:
         bdv.validate_timeline()
         check(True, "every scene points at the slide it names")

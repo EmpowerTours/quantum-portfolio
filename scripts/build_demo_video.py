@@ -17,8 +17,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import imageio_ffmpeg
-import pypdfium2 as pdfium
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -93,6 +91,7 @@ def validate_timeline() -> None:
 
 def render_pdf_pages(pdf_path: Path) -> dict[int, Image.Image]:
     """Return {page_number_1indexed: PIL.Image} for every page of the deck."""
+    import pypdfium2 as pdfium  # heavy; only needed to render
     doc = pdfium.PdfDocument(str(pdf_path))
     pages: dict[int, Image.Image] = {}
     for i in range(len(doc)):
@@ -144,6 +143,7 @@ def build_frame_stream() -> list[Image.Image]:
 
 
 def encode(scenes: list[tuple[Image.Image, float]], out: Path) -> None:
+    import imageio_ffmpeg  # heavy; only needed to encode
     ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
     cmd = [
         ffmpeg, "-y",
