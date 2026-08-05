@@ -89,7 +89,13 @@ jobs:
     name: documented claims match the artefacts
     runs-on: ubuntu-latest
     steps:
+      # Full history: the claims check verifies that the commit pinned on the
+      # pitch deck's closing slide is actually in this repository's history.
+      # The default depth-1 clone does not contain it, which fails the check
+      # for want of history rather than for a bad pin.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

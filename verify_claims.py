@@ -217,9 +217,23 @@ def check_reviewer_commands() -> None:
     deck = (ROOT / "docs/PITCH_DECK.md").read_text()
     m = re.search(r"commit <code>([0-9a-f]{7,40})</code>", deck)
     if m:
-        r = subprocess.run(["git", "merge-base", "--is-ancestor", m.group(1), "HEAD"],
-                           cwd=ROOT, capture_output=True)
-        check(r.returncode == 0, f"deck commit {m.group(1)} is in this history")
+        sha = m.group(1)
+        # A shallow clone genuinely does not contain the parent commit, and
+        # "absent" must not be reported as "bogus" — CI checks out depth 1 by
+        # default, which failed this check for lack of history rather than for
+        # a bad pin. Distinguish the two instead of silently passing either.
+        present = subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"],
+                                 cwd=ROOT, capture_output=True).returncode == 0
+        shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"],
+                                 cwd=ROOT, capture_output=True,
+                                 text=True).stdout.strip() == "true"
+        if not present and shallow:
+            print(f"    deck commit {sha}: shallow clone, cannot verify "
+                  "(CI fetches full history for this job)")
+        else:
+            r = subprocess.run(["git", "merge-base", "--is-ancestor", sha, "HEAD"],
+                               cwd=ROOT, capture_output=True)
+            check(r.returncode == 0, f"deck commit {sha} is in this history")
 
     if "--chain" not in sys.argv:
         print("    (skipping the on-chain half; pass --chain to run it)")
