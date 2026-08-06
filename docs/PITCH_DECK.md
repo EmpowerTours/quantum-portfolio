@@ -240,6 +240,42 @@ QAOA is **not** faster than the classical baseline at this size — that baselin
 
 ---
 
+<!-- _class: xdense -->
+
+<h3>The obvious objection</h3>
+
+# Yes — the chain transaction<br>is still signed with *ECDSA*.
+
+<div class="grid">
+
+<div>
+
+**What we do NOT protect**
+
+A quantum computer that breaks ECDSA does not need to forge our order. It takes the wallet key and moves the funds directly.
+
+We do not claim otherwise. `SECURITY.md` states this before anyone asks — it is the first item under *What the code does not protect*.
+
+</div>
+
+<div>
+
+**What we DO protect — today, no quantum computer required**
+
+- **The instruction.** The vault recomputes the commitment from its own calldata and reverts unless the trade *is* the trade that was signed for. Anchoring is not enough.
+- **The audit trail past Q-Day.** Signatures over the order stay unforgeable even after ECDSA falls.
+- **The upgrade path.** When chains add post-quantum transaction signatures, the layer above them already exists.
+
+</div>
+
+</div>
+
+<br>
+
+> We protect the *instruction*, not the *key*. Key custody is the custodian's job — which is exactly why HSM custody gates our own managed-signing revenue rather than launching with it.
+
+---
+
 <!-- _class: dense -->
 
 <h3>Proof, not promises</h3>
