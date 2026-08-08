@@ -14,9 +14,11 @@ struct PublicValuesStruct {
 ///         with a valid post-quantum ML-DSA-65 (FIPS 204) signature.
 ///
 ///         This closes the "Q-Day on the on-chain leg" gap: instead of the
-///         ~500M-gas cost of verifying ML-DSA directly in the EVM (infeasible),
-///         the lattice verification runs off-chain in the zkVM and this contract
-///         checks a ~230k-gas Groth16 proof. A successful call is a permanent
+///         ~500M-gas estimate for verifying ML-DSA directly in the EVM (which
+///         exceeds Monad's 150M block gas limit, so it cannot be included at
+///         all), the lattice verification runs off-chain in the zkVM and this
+///         contract checks a Groth16 proof for a measured 1,196,224 gas.
+///         A successful call is a permanent
 ///         on-chain attestation that `orderHash` carries a valid PQ signature —
 ///         which the AuditAnchor / vault / adapter can gate on for
 ///         quantum-safe settlement.

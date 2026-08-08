@@ -311,6 +311,34 @@ def check_demo_video() -> None:
                   f"actual {actual:.1f}s")
 
 
+def check_source_comments() -> None:
+    """Stale figures hide in source comments, where no doc check looks.
+
+    The ~230k gas overclaim survived a week in zk-mldsa/README.md AND in
+    MLDSAAttestation.sol and program/src/main.rs — the .sol being the source
+    verified on Monadscan, so a judge reads it on the block explorer. It was
+    corrected in the four markdown files someone happened to open, and
+    "corrected in the repo" was then asserted without ever grepping for the
+    term. Every consumer of a changed value has to be found, not assumed.
+    """
+    print("\n[source] no stale figures in code comments")
+    tracked = subprocess.run(["git", "ls-files", "*.sol", "*.rs", "*.py"],
+                             cwd=ROOT, capture_output=True, text=True).stdout.split()
+    stale = re.compile(r"~?\s*230\s*[k,]|230,000|\b105 tests\b|\b84 tests\b|81[- ]second")
+    # Lines that EXPLAIN the stale figure are the fix, not the defect.
+    excuse = re.compile(r"still reads|was never measured|earlier draft|overclaim|"
+                        r"Match BOTH|abbreviated|# ", re.I)
+    hits = []
+    for f in tracked:
+        if f.startswith("zk-mldsa/vendor/") or f.endswith("verify_claims.py"):
+            continue
+        for i, line in enumerate((ROOT / f).read_text(errors="ignore").splitlines(), 1):
+            if stale.search(line) and not excuse.search(line):
+                hits.append(f"{f}:{i}")
+    check(not hits, "source comments carry no stale figures",
+          "" if not hits else ", ".join(hits[:4]))
+
+
 def check_doc_coverage() -> None:
     """Every live .md must be under the gate, or explicitly excused.
 
@@ -408,6 +436,7 @@ def main() -> int:
     check_reviewer_commands()
     check_demo_video()
     check_doc_coverage()
+    check_source_comments()
     check_addresses()
     check_test_counts()
     if "--chain" in sys.argv:

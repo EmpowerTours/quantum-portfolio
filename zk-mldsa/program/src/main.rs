@@ -7,7 +7,7 @@
 //! anchored on-chain by AuditAnchor.
 //! This is the buildable path to on-chain PQ settlement: the ~500M-gas EVM
 //! ML-DSA verification is moved off-chain into the zkVM and replaced by a
-//! ~230k-gas Groth16 proof check.
+//! Groth16 proof check, measured at 1,196,224 gas on Monad mainnet.
 
 #![no_main]
 sp1_zkvm::entrypoint!(main);
