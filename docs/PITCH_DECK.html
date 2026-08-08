@@ -307,7 +307,7 @@ section.xdense p { margin: 0.4em 0; }
 <h1 id="every-ecdsa-signature-youbrpublish-today-is-a-hostagebrto-tomorrows-qpu">Every ECDSA signature you<br />publish today is <em>a hostage</em><br />to tomorrow's QPU.</h1>
 <br />
 <blockquote>
-<p>Harvest now. Decrypt later. The adversary already has your 2026 trade orders — they just haven't broken the curve yet.</p>
+<p>This is <em>not</em> harvest-now-decrypt-later — signatures aren't secret, and your orders are already public. It is worse in one specific way: the day the curve falls, every signature ever made with it becomes <strong>forgeable</strong>, so a genuine 2026 authorisation and one fabricated in 2035 are no longer distinguishable. Your audit trail stops proving anything. And on an EVM chain every transaction you have ever sent already exposes the public key that a QPU turns into your private key.</p>
 </blockquote>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="3" data-paginate="true" data-theme="default" data-style=":root {
@@ -786,14 +786,15 @@ section.xdense p { margin: 0.4em 0; }
 <div class="grid">
 <div>
 <ul>
-<li><strong>IBM Heron r2</strong>, XY-mixer QAOA. Raw counts shipped — recompute it yourself.</li>
-<li><strong>Mitigation rescues the signal: 13 → 39</strong> hits — <strong>×2.19</strong> vs random,<br />
-raw <strong>×0.76</strong> (below chance). Fisher <strong>p = 0.00039</strong>, <strong>n = 1</strong> per arm.</li>
+<li><strong>IBM Heron</strong>, XY-ring-mixer QAOA, reps=3. Raw counts shipped — recompute it yourself.</li>
+<li><strong>Stocks universe</strong> (<code>ibm_fez</code>): mitigation rescues the signal, <strong>13 → 39</strong> hits — <strong>×2.19</strong> vs random, raw <strong>×0.76</strong> (below chance). Fisher <strong>p = 0.00039</strong>, <strong>n = 1</strong> per arm.</li>
+<li><strong>DeFi universe</strong> (<code>ibm_marrakesh</code>) — the one this product actually optimises: <strong>22 → 22</strong>, <strong>p = 1.000</strong>. <em>No mitigation effect at all.</em></li>
 </ul>
 </div>
 <div class="card">
 <h3>What this is, honestly</h3>
-<p>QAOA is <strong>not</strong> faster than the classical baseline at this size — that baseline is <code>NumPyMinimumEigensolver</code> (brute-force exact, <code>src/solvers.py:33</code>), which is optimal and instant on 8 assets. We measure the <strong>gap</strong> honestly rather than claim it is closed.</p>
+<p>QAOA is <strong>not</strong> faster than the classical baseline at this size — that baseline is <code>NumPyMinimumEigensolver</code> (brute-force exact, <code>src/solvers.py:33</code>), which is optimal and instant on 8 assets.</p>
+<p><strong>And our strongest quantum result is not on our own universe.</strong> We report the discrepancy rather than lead with the number that flatters us.</p>
 </div>
 </div>
 </section>

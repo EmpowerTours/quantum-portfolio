@@ -98,7 +98,7 @@ QAOA on IBM Heron · Hedged post-quantum signatures · On-chain provenance on Mo
 
 <br>
 
-> Harvest now. Decrypt later. The adversary already has your 2026 trade orders — they just haven't broken the curve yet.
+> This is *not* harvest-now-decrypt-later — signatures aren't secret, and your orders are already public. It is worse in one specific way: the day the curve falls, every signature ever made with it becomes **forgeable**, so a genuine 2026 authorisation and one fabricated in 2035 are no longer distinguishable. Your audit trail stops proving anything. And on an EVM chain every transaction you have ever sent already exposes the public key that a QPU turns into your private key.
 
 ---
 
@@ -170,9 +170,9 @@ QAOA on IBM Heron · Hedged post-quantum signatures · On-chain provenance on Mo
 
 <div>
 
-- **IBM Heron r2**, XY-mixer QAOA. Raw counts shipped — recompute it yourself.
-- **Mitigation rescues the signal: 13 → 39** hits — **×2.19** vs random,
-  raw **×0.76** (below chance). Fisher **p = 0.00039**, **n = 1** per arm.
+- **IBM Heron**, XY-ring-mixer QAOA, reps=3. Raw counts shipped — recompute it yourself.
+- **Stocks universe** (`ibm_fez`): mitigation rescues the signal, **13 → 39** hits — **×2.19** vs random, raw **×0.76** (below chance). Fisher **p = 0.00039**, **n = 1** per arm.
+- **DeFi universe** (`ibm_marrakesh`) — the one this product actually optimises: **22 → 22**, **p = 1.000**. *No mitigation effect at all.*
 
 </div>
 
@@ -180,7 +180,9 @@ QAOA on IBM Heron · Hedged post-quantum signatures · On-chain provenance on Mo
 
 <h3>What this is, honestly</h3>
 
-QAOA is **not** faster than the classical baseline at this size — that baseline is `NumPyMinimumEigensolver` (brute-force exact, `src/solvers.py:33`), which is optimal and instant on 8 assets. We measure the **gap** honestly rather than claim it is closed.
+QAOA is **not** faster than the classical baseline at this size — that baseline is `NumPyMinimumEigensolver` (brute-force exact, `src/solvers.py:33`), which is optimal and instant on 8 assets.
+
+**And our strongest quantum result is not on our own universe.** We report the discrepancy rather than lead with the number that flatters us.
 
 </div>
 
