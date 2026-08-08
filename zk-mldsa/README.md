@@ -2,9 +2,10 @@
 
 The Q-Day gap in the on-chain leg was: the audit trail is post-quantum
 (ML-DSA-65) but the on-chain settlement TX is secp256k1, and verifying ML-DSA
-directly in the EVM costs ~500M gas (infeasible). This closes that gap the
-**buildable** way — run the lattice verification off-chain in the **SP1 zkVM**
-and check a ~230k-gas Groth16 proof on-chain.
+directly in the EVM is estimated at ~500M gas — more than three times Monad's
+entire 150M block gas limit, so it cannot be included at all. This closes that
+gap the **buildable** way: run the lattice verification off-chain in the **SP1
+zkVM** and check a Groth16 proof on-chain for a **measured 1 196 224 gas**.
 
 ## What it does
 
@@ -129,12 +130,15 @@ proving box.
    deployed contract afterwards — so a bricked deployment fails loudly at
    deploy time rather than on first use.
 3. Call `attest(publicValues, proofBytes)` -> the proof verifies on-chain
-   (~230k gas) and the orderHash is recorded as PQ-attested.
+   (**1 196 224 gas measured**, from the receipt of tx `0x3ec51f36…d56de`)
+   and the orderHash is recorded as PQ-attested.
 
 ## Numbers for the pitch (independently citeable)
 
 - Prior art (SP1 Dilithium verifier): ~22 s proofs, ~260-byte on-chain proof.
 - This build: real ML-DSA-65 verification of the **mainnet-settled order** runs
-  provably in the zkVM (3.04M cycles); on-chain check ~230k gas via Groth16.
+  provably in the zkVM (3.04M cycles); the on-chain check is a Groth16 proof at
+  a **measured 1 196 224 gas**. Earlier drafts of this file said ~230k, which
+  was never measured — the figure above comes from the transaction receipt.
 - Honest: no quantum advantage anywhere here; this is the PQ-*settlement* path,
   moving a 500M-gas EVM verification into a succinct proof.

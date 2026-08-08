@@ -24,8 +24,19 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+# Every LIVE judge-facing document. The AUDIT_*.md files are deliberately
+# excluded: they are dated snapshots, and a figure that was correct on the day
+# of the audit should stay as written.
+#
+# This list was five entries long until 2026-08-08, and zk-mldsa/README.md was
+# not one of them — so it sat for a week claiming the on-chain proof cost
+# "~230k gas" in three places while quoting the measured 1 196 224 in a table
+# on the same page. The gas check had been passing the whole time, on the
+# files it happened to know about.
 DOCS = ["README.md", "SUBMISSION.md", "SECURITY.md",
-        "docs/PITCH_DECK.md", "docs/DEMO_VIDEO_SCRIPT.md"]
+        "docs/PITCH_DECK.md", "docs/DEMO_VIDEO_SCRIPT.md",
+        "DEPLOY_RUNBOOK.md",
+        "zk-mldsa/README.md", "zk-mldsa/contracts/README.md"]
 RPC = "https://rpc.monad.xyz"
 
 LIVE = {
@@ -300,6 +311,24 @@ def check_demo_video() -> None:
                   f"actual {actual:.1f}s")
 
 
+def check_doc_coverage() -> None:
+    """Every live .md must be under the gate, or explicitly excused.
+
+    The gas check cannot catch a stale figure in a file it never opens. Rather
+    than trust that DOCS stays complete, enumerate what git tracks and fail on
+    anything unaccounted for."""
+    print("\n[coverage] every live document is under the gate")
+    tracked = subprocess.run(["git", "ls-files", "*.md"], cwd=ROOT,
+                             capture_output=True, text=True).stdout.split()
+    excused_prefix = ("AUDIT_",)          # dated snapshots, frozen on purpose
+    excused_dir = ("zk-mldsa/vendor/",)   # third-party
+    for f in tracked:
+        if f.startswith(excused_prefix) or f.startswith(excused_dir):
+            continue
+        check(f in DOCS, f"{f} is checked by this script",
+              "" if f in DOCS else "add it to DOCS or excuse it explicitly")
+
+
 def check_addresses() -> None:
     """Superseded contracts may appear ONLY inside an explicit superseded block."""
     print("\n[addresses] live present, superseded quarantined")
@@ -332,12 +361,44 @@ def check_chain() -> None:
             g = re.search(r"^gasUsed\s+(\d+)", r.stdout, re.M)
             if g:
                 gas = int(g.group(1))
-                for path, s in text().items():
-                    for c in re.findall(r"([\d,\s]{3,12})\s*gas", s):
-                        v = c.replace(",", "").replace(" ", "")
-                        if v.isdigit() and 100_000 < int(v) < 10_000_000:
-                            check(abs(int(v) - gas) < 1000,
-                                  f"{path} gas figure {v}", f"actual {gas}")
+                # Only figures presented as the ATTEST cost. A deploy-cost
+                # estimate or a block gas limit is a different, legitimate
+                # number, and flagging those trained the reader to ignore this
+                # check — the same failure as the test-count false positive.
+                ctx = re.compile(r"(attest|groth16|zk|proof|on-chain (?:pq|post-quantum|"
+                                 r"signature|verification)|ml-dsa verification)", re.I)
+                # Match BOTH "1,196,224 gas" and abbreviated "~230k gas" /
+                # "1.2M gas". The original defect was written in the
+                # abbreviated form, so a checker that only understood full
+                # figures would have sailed straight past the very bug it
+                # exists to catch. Verified by mutation.
+                num = re.compile(r"([\d,\s]{3,12}|\d+(?:\.\d+)?\s*[kKmM])\s*gas")
+                for path, body in text().items():
+                    for m in re.finditer(num, body):
+                        raw = m.group(1).strip().replace(",", "")
+                        if raw[-1] in "kK":
+                            v = str(int(float(raw[:-1].strip()) * 1_000))
+                        elif raw[-1] in "mM":
+                            v = str(int(float(raw[:-1].strip()) * 1_000_000))
+                        else:
+                            v = raw.replace(" ", "")
+                        if not (v.isdigit() and 100_000 < int(v) < 10_000_000):
+                            continue
+                        window = body[max(0, m.start() - 260):m.end() + 120]
+                        # Negative guard first: a deployment cost or a block
+                        # gas limit is a different number that legitimately
+                        # sits near attest vocabulary — including in a label
+                        # that exists precisely to say "this is NOT that".
+                        if re.search(r"deploy\w*\s+cost|block gas limit|"
+                                     r"not the attest|deployment estimate|"
+                                     r"nativ\w+|literature|estimated at|"
+                                     r"pure-solidity|would cost",
+                                     window, re.I):
+                            continue
+                        if not ctx.search(window):
+                            continue
+                        check(abs(int(v) - gas) < 1000,
+                              f"{path} attest gas figure {v}", f"actual {gas}")
 
 
 def main() -> int:
@@ -346,6 +407,7 @@ def main() -> int:
     check_execution_binding()
     check_reviewer_commands()
     check_demo_video()
+    check_doc_coverage()
     check_addresses()
     check_test_counts()
     if "--chain" in sys.argv:

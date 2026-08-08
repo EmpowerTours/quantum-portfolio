@@ -11,8 +11,9 @@
 > | MorphoSupplyAdapter | `0x8d5AE2f23E5d20bFb7915168d6b2a3Ce753fE49E` |
 >
 > Anchor deploy tx `0xdb194edf208b64ce5f67b62344a3722f7c95d5983e121b17f0789340e3f20310`.
-> Total cost 0.2998 MON. The deployer key is in `~/projects/fcempowertours/.env`
-> (NOT this repo's `.env`, which holds only the IBM token).
+> Total cost 0.2998 MON. The deployer key is held outside this repository and
+> its location is deliberately not recorded here. This repo's `.env` holds only
+> the IBM Quantum token and is gitignored.
 
 Deploys the three core contracts. **The ZK attestation leg is deliberately not
 included** — its Groth16 fixture is stale (see `zk-mldsa/README.md`), and
@@ -27,10 +28,10 @@ Pre-flight verified 2026-07-30 at block 91684549:
 | Balance | 0.989160532 MON |
 | Nonce | 394 |
 | Gas price | 102 gwei (forge pads its estimate to ~202) |
-| Tests | 142 Solidity, 85 Python, 0 skipped |
+| Tests *(as of the 2026-07-30 deploy)* | 142 Solidity, 85 Python, 0 skipped |
 | External env | SwapRouter02 / WMON / USDC / Morpho Blue / V3Factory all unchanged; USDC not paused |
 
-Cost: **~2,308,043 gas ≈ 0.235 MON** at 102 gwei, **≈0.466 MON** at forge's
+Deployment cost *(estimate at the time — not the attest-tx gas)*: **~2,308,043 gas ≈ 0.235 MON** at 102 gwei, **≈0.466 MON** at forge's
 padded 202 gwei. Either way it fits, and the deployer additionally holds
 501 WMON unwrappable 1:1 if you want headroom.
 
@@ -50,8 +51,8 @@ argument, so just use whatever step 1 actually printed.
 
 ## Step 0 — wallet
 
-**Preferred: the encrypted keystore.** There is already one named `deployer`
-(`~/.foundry/keystores/deployer`, aes-128-ctr + scrypt). Using it keeps the key
+**Preferred: the encrypted keystore.** Use a forge keystore
+(aes-128-ctr + scrypt) rather than a raw key. Using it keeps the key
 out of the process environment entirely — forge prompts for the passphrase and
 holds the key only in memory. Confirm it is the right account first:
 
