@@ -191,8 +191,12 @@ pip install -r requirements.txt
 # Foundry (if not installed):
 curl -L https://foundry.paradigm.xyz | bash && foundryup
 
-# Forge-std (needed for `forge test`; not vendored in the repo):
-( cd contracts && forge install foundry-rs/forge-std --shallow --no-git )
+# Contract dependencies — PINNED to the versions the live mainnet contracts
+# were compiled against on 2026-07-30. Unpinned, these resolve to whatever is
+# on the default branch today, which is not the same build.
+( cd contracts \
+  && forge install foundry-rs/forge-std@v1.16.1 --shallow --no-git \
+  && forge install OpenZeppelin/openzeppelin-contracts@v5.6.1 --shallow --no-git )
 ```
 
 ### Path A — verify the shipped artefact

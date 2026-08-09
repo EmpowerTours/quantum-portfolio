@@ -16,7 +16,11 @@ requests>=2.31
 python-dotenv>=1.0
 # PQ signing: ML-DSA-65 (FIPS 204) and SLH-DSA-SHAKE-256s (FIPS 205) via
 # quantcrypt's precompiled PQClean bindings — no C toolchain at install.
-quantcrypt>=1.0.1
+# PINNED: quantcrypt provides the ML-DSA-65 and SLH-DSA implementations that
+# verify the SHIPPED signed orders. A different build here is the one dependency
+# change that could alter whether the artefacts in this repository verify, so it
+# is the one that must not float.
+quantcrypt==1.0.1
 # Classical Ed25519 leg of the hedged signature (already a transitive dep
 # via several others, listed explicitly to make the security stack obvious).
 cryptography>=44.0
