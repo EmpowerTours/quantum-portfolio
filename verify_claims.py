@@ -311,32 +311,75 @@ def check_demo_video() -> None:
                   f"actual {actual:.1f}s")
 
 
-def check_source_comments() -> None:
-    """Stale figures hide in source comments, where no doc check looks.
+# ---------------------------------------------------------------------------
+# Superseded values: the registry that replaces "remember to grep for it".
+#
+# Every corrected figure goes here, permanently. The check below scans EVERY
+# tracked file — not just the docs someone thought to list — so a value cannot
+# be fixed in the four files that happen to be open and declared done.
+#
+# This exists because prose did not work. The rules "after a find-and-replace,
+# grep for the TERM" and "changing a shared value means finding EVERY consumer"
+# were already written down after a previous session. The 230k gas overclaim was
+# then corrected in four markdown files and asserted fixed repo-wide, while it
+# survived in zk-mldsa/README.md, MLDSAAttestation.sol and the zkVM guest. A
+# rule you have to remember is not a control. A check that runs is.
+#
+# To add one: append (regex, correct_value, why_it_was_wrong). Never delete.
+SUPERSEDED_VALUES: list[tuple[str, str, str]] = [
+    (r"~?\s*230\s*[k,]\s*(?:-\s*)?gas|230,000\s*gas",
+     "1,196,224 gas", "never measured; the attest receipt says 1196224"),
+    (r"\b105 (?:tests|automated)\b|\b84 tests\b",
+     "279 tests", "pre-audit test counts"),
+    (r"81[- ]second",
+     "90-second", "the demo video gained a scene and is now 90.0s"),
+    (r"fe44195b",
+     "d8bf1551…", "superseded order digest; the shipped order is the mainnet one"),
+    (r"not yet on the hardware path|not in current HW path",
+     "xy_qaoa IS the hardware path", "the XY mixer produced both shipped runs"),
+    (r"depth-2 (?:QAOA|penalty)",
+     "reps=3 XY-ring mixer", "both shipped runs are reps=3 XY"),
+    (r"lastHash\[(?:deployer|anchorer)\]\s*(?:returns|==)",
+     "execCommitmentOf[anchorer][orderHash]",
+     "lastHash is last-write-wins and rots; execCommitmentOf is keyed by order"),
+]
 
-    The ~230k gas overclaim survived a week in zk-mldsa/README.md AND in
-    MLDSAAttestation.sol and program/src/main.rs — the .sol being the source
-    verified on Monadscan, so a judge reads it on the block explorer. It was
-    corrected in the four markdown files someone happened to open, and
-    "corrected in the repo" was then asserted without ever grepping for the
-    term. Every consumer of a changed value has to be found, not assumed.
-    """
-    print("\n[source] no stale figures in code comments")
-    tracked = subprocess.run(["git", "ls-files", "*.sol", "*.rs", "*.py"],
-                             cwd=ROOT, capture_output=True, text=True).stdout.split()
-    stale = re.compile(r"~?\s*230\s*[k,]|230,000|\b105 tests\b|\b84 tests\b|81[- ]second")
-    # Lines that EXPLAIN the stale figure are the fix, not the defect.
-    excuse = re.compile(r"still reads|was never measured|earlier draft|overclaim|"
-                        r"Match BOTH|abbreviated|# ", re.I)
-    hits = []
-    for f in tracked:
-        if f.startswith("zk-mldsa/vendor/") or f.endswith("verify_claims.py"):
-            continue
-        for i, line in enumerate((ROOT / f).read_text(errors="ignore").splitlines(), 1):
-            if stale.search(line) and not excuse.search(line):
+# A line may legitimately mention a superseded value when it is EXPLAINING the
+# correction, or inside a dated snapshot that should stay as written.
+SUPERSEDED_EXCUSED_FILES = ("AUDIT_", "zk-mldsa/vendor/", "verify_claims.py")
+SUPERSEDED_EXCUSED_LINE = re.compile(
+    r"earlier draft|was never measured|superseded|historical|as of the|"
+    r"no longer|used to|previously|deprecated|# ", re.I)
+
+
+def check_superseded_values() -> None:
+    """No corrected value may reappear anywhere in the tree."""
+    print("\n[superseded] corrected values have not crept back")
+    tracked = subprocess.run(["git", "ls-files"], cwd=ROOT,
+                             capture_output=True, text=True).stdout.split()
+    binary = (".png", ".pdf", ".mp4", ".jsonl", ".json", ".webp", ".ico")
+    for pattern, correct, why in SUPERSEDED_VALUES:
+        rx = re.compile(pattern, re.I)
+        hits = []
+        for f in tracked:
+            if f.startswith(SUPERSEDED_EXCUSED_FILES) or f.endswith(binary):
+                continue
+            try:
+                lines = (ROOT / f).read_text(errors="ignore").splitlines()
+            except (OSError, IsADirectoryError):
+                continue
+            for i, line in enumerate(lines, 1):
+                if not rx.search(line):
+                    continue
+                # Judge the CONTEXT, not the line. An explanation of why a
+                # value is superseded usually sits on the following line, and
+                # a historical block is marked once at its top.
+                window = "\n".join(lines[max(0, i - 4):i + 4])
+                if SUPERSEDED_EXCUSED_LINE.search(window) or "<details>" in window:
+                    continue
                 hits.append(f"{f}:{i}")
-    check(not hits, "source comments carry no stale figures",
-          "" if not hits else ", ".join(hits[:4]))
+        check(not hits, f"superseded {pattern[:34]!r} -> {correct}",
+              f"{why}; found at {', '.join(hits[:3])}" if hits else why)
 
 
 def check_doc_coverage() -> None:
@@ -436,7 +479,7 @@ def main() -> int:
     check_reviewer_commands()
     check_demo_video()
     check_doc_coverage()
-    check_source_comments()
+    check_superseded_values()
     check_addresses()
     check_test_counts()
     if "--chain" in sys.argv:

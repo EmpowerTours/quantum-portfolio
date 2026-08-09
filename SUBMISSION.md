@@ -56,9 +56,12 @@ addresses both inside one coherent pipeline.
 
 ### Verifiable quantum hardware execution
 
-A **depth-2 QAOA** with the budget constraint enforced as a quadratic
-penalty in the cost Hamiltonian runs on IBM Heron silicon
-(`ibm_marrakesh`). Hardware error is suppressed at the sampler level
+A **reps-3 QAOA under an XY-ring mixer** — which conserves Hamming weight, so
+the budget constraint holds by construction rather than through a penalty term
+— runs on IBM Heron silicon: `ibm_fez` for the stocks universe and
+`ibm_marrakesh` for the DeFi universe. `backend`, `mixer` and `reps` are
+recorded in each `outputs/hardware_run*.json`. Hardware error is suppressed at
+the sampler level
 with **XY4 dynamical decoupling, gate twirling, and measurement
 twirling** (Qiskit Runtime sampler options; see
 `src/qaoa_hw.py:140-148`).
