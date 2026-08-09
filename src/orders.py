@@ -43,7 +43,17 @@ from typing import Any, Iterable
 
 from . import pq_signing as pq
 
-SCHEMA_VERSION    = 2
+SCHEMA_VERSION    = 3
+
+#: Sentinel for RouteExecution/SupplyExecution.exec_commitment. A dataclass
+#: cannot tell "argument omitted" from "argument passed equal to the default",
+#: and the difference matters: constructing a NEW execution should derive the
+#: commitment, while REBUILDING a historical one from JSON must preserve
+#: exactly what was signed. A v2 order has no exec_commitment key at all, so
+#: deriving one on reconstruction silently rewrote its canonical bytes and the
+#: shipped mainnet order stopped verifying. Caught only by checking the
+#: artefact directly — the 154-test suite passed throughout.
+_DERIVE = "\x00derive"
 DEFAULT_AGENT_ID  = "empowertours-quantum-portfolio-v0.1"
 SIGNED_ORDERS_PATH = Path("outputs/signed_orders.json")
 AUDIT_LOG_PATH     = Path("outputs/audit_log.jsonl")
@@ -78,7 +88,26 @@ class RouteExecution:
     amount_in_wei: int
     amount_out_min: list[int]
     deadline: int
+    #: keccak256 over the fields above, EXCLUDING the order hash. Schema v3.
+    #: The post-quantum signature covers this value, so the exact execution is
+    #: inside the signed bytes rather than chosen later by whoever anchors.
+    #: Empty string on a v2 order; executors that require binding reject those.
+    exec_commitment: str = _DERIVE
     kind: str = "route"
+
+    def __post_init__(self) -> None:
+        """Derive `exec_commitment` rather than accept it.
+
+        A caller-supplied value could disagree with the fields beside it, and
+        the whole point is that the post-quantum signature covers the exact
+        execution. Deriving it here means the signed bytes and the value the
+        executor recomputes cannot diverge. Recomputed even if one was passed,
+        so a stale or hostile value is overwritten rather than trusted.
+        """
+        if self.exec_commitment != _DERIVE:
+            return                      # reconstruction: preserve what was signed
+        from .monad_tx import route_params_hash          # local import: monad_tx imports us
+        object.__setattr__(self, "exec_commitment", "0x" + route_params_hash(self).hex())
 
 
 @dataclass
@@ -99,7 +128,23 @@ class SupplyExecution:
     irm: str
     lltv: int
     max_assets: int
+    #: See RouteExecution.exec_commitment. Schema v3.
+    exec_commitment: str = _DERIVE
     kind: str = "supply"
+
+    def __post_init__(self) -> None:
+        """Derive `exec_commitment` rather than accept it.
+
+        A caller-supplied value could disagree with the fields beside it, and
+        the whole point is that the post-quantum signature covers the exact
+        execution. Deriving it here means the signed bytes and the value the
+        executor recomputes cannot diverge. Recomputed even if one was passed,
+        so a stale or hostile value is overwritten rather than trusted.
+        """
+        if self.exec_commitment != _DERIVE:
+            return                      # reconstruction: preserve what was signed
+        from .monad_tx import supply_params_hash          # local import: monad_tx imports us
+        object.__setattr__(self, "exec_commitment", "0x" + supply_params_hash(self).hex())
 
 
 @dataclass
@@ -169,6 +214,15 @@ class RebalanceOrder:
         d = asdict(self)
         if d.get("execution") is None:
             d.pop("execution", None)
+        elif not d["execution"].get("exec_commitment"):
+            # Same failure, one schema later. Adding exec_commitment made
+            # asdict emit `"exec_commitment":""` for every v2 execution, so
+            # their canonical bytes stopped matching what was signed and the
+            # shipped mainnet order failed verification. v2 orders had no such
+            # key; omit it when empty so they canonicalise byte-identically.
+            # schema_version is itself signed, so v2 and v3 stay
+            # distinguishable. (Audit M-2, recurrence.)
+            d["execution"].pop("exec_commitment", None)
         return d
 
 
@@ -606,8 +660,10 @@ def load_signed_orders(path: Path = SIGNED_ORDERS_PATH) -> list[SignedOrder]:
             # ran. Fail closed with a typed error instead.
             try:
                 if kind == "route":
+                    ex.setdefault("exec_commitment", "")   # v2 had none
                     od["execution"] = RouteExecution(**ex)
                 elif kind == "supply":
+                    ex.setdefault("exec_commitment", "")   # v2 had none
                     od["execution"] = SupplyExecution(**ex)
                 else:
                     raise ValueError(f"unknown execution kind: {kind!r}")
