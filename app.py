@@ -272,7 +272,7 @@ with tab_hw:
             "Method": "Classical (exact)",
             "Best objective": round(data["optimal"]["objective"], 4),
             "P(optimal)": 1.0,
-            "Job ID": "—",
+            "Job ID": "",   # blank, not None: pandas renders None as the text "None"
         }]
         for r in data["results"]:
             jid = r.get("job_id")
@@ -280,17 +280,23 @@ with tab_hw:
                 "Method": r["method"],
                 "Best objective": round(r["best_objective"], 4),
                 "P(optimal)": round(r["p_optimal"], 4),
-                "Job ID": (
-                    f"[{jid}](https://quantum.ibm.com/jobs/{jid})"
-                    if jid else "—"
-                ),
+                # LinkColumn expects a BARE URL, not markdown. Passing
+                # "[id](url)" here rendered the raw markdown, and pairing it
+                # with a display_text regex that had NO capture group made
+                # Streamlit fall back to printing the pattern itself — so this
+                # column showed the literal string "d[a-z0-9]+" in every row,
+                # on the tab whose whole claim is that the job IDs are
+                # checkable. display_text needs a capturing group; the docs
+                # example is r"https://(.*?)\.streamlit\.app".
+                "Job ID": (f"https://quantum.ibm.com/jobs/{jid}"
+                           if jid else ""),
             })
         st.dataframe(
             pd.DataFrame(rows), use_container_width=True, hide_index=True,
             column_config={
                 "Job ID": st.column_config.LinkColumn(
                     "Job ID",
-                    display_text=r"d[a-z0-9]+",
+                    display_text=r"jobs/([a-z0-9]+)",
                     help="Click to verify the job on IBM Quantum",
                 ),
             },
