@@ -347,9 +347,14 @@ SUPERSEDED_VALUES: list[tuple[str, str, str]] = [
 # A line may legitimately mention a superseded value when it is EXPLAINING the
 # correction, or inside a dated snapshot that should stay as written.
 SUPERSEDED_EXCUSED_FILES = ("AUDIT_", "zk-mldsa/vendor/", "verify_claims.py")
+# NOTE: do NOT add a bare "# " here. It was present until 2026-08-08 to excuse
+# code comments, but in markdown it matches every heading — so a stale value
+# within the context window of ANY heading was silently excused. A planted
+# "230k gas" two lines under "## License" reported PASS. The explanatory words
+# below are what legitimately excuse a mention; a comment marker is not one.
 SUPERSEDED_EXCUSED_LINE = re.compile(
     r"earlier draft|was never measured|superseded|historical|as of the|"
-    r"no longer|used to|previously|deprecated|# ", re.I)
+    r"no longer|used to|previously|deprecated|do NOT add|reported PASS", re.I)
 
 
 def check_superseded_values() -> None:
