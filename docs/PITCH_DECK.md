@@ -408,9 +408,9 @@ Everything we built sits on the **2031** line.
 
 <br>
 
-Native EVM ML-DSA verification: **~500M gas estimated** — Monad's whole block is **150M**. It could not be included at all.
+Native EVM ML-DSA verification is estimated at **~500M gas**. Monad's whole block is **150M** — that is **3.3 blocks**, so a native verifier can never be included at all.
 
-**We measured 1.20M.** Existing chains, no migration, no change to key storage.
+**We measured 1.20M — 0.8% of one block.** It fits, it ran, and it needs no chain migration and no change to key storage.
 
 > Which makes them channel partners, not incumbents.
 

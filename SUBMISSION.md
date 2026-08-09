@@ -1023,7 +1023,9 @@ limit, read from a live block, is **150 000 000**, so a native verifier
 overruns an entire block by more than 3× and cannot be included at all.
 
 **That is the gap we closed.** `MLDSAAttestation` verifies a Groth16 proof of an
-ML-DSA-65 signature on Monad mainnet for a **measured 1 196 224 gas** — an
+ML-DSA-65 signature on Monad mainnet for a **measured 1 196 224 gas — 0.8 % of
+a single 150 M block**, which is the concrete way to read the number: it fits
+comfortably, and it executed in block 91 769 186. That is an
 estimated ~420× reduction, and the difference between impossible and routine. It works on
 existing EVM chains, with no chain migration and no change to how the customer
 stores keys. It is therefore **complementary to every vendor in the table above,
