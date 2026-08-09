@@ -329,8 +329,10 @@ def check_demo_video() -> None:
 SUPERSEDED_VALUES: list[tuple[str, str, str]] = [
     (r"~?\s*230\s*[k,]\s*(?:-\s*)?gas|230,000\s*gas",
      "1,196,224 gas", "never measured; the attest receipt says 1196224"),
-    (r"\b105 (?:tests|automated)\b|\b84 tests\b",
-     "279 tests", "pre-audit test counts"),
+    (r"\b105 (?:tests|automated)\b|\b84 tests\b|\b279 tests\b|"
+     r"\b110 Python tests\b|Two hundred seventy-nine",
+     "323 tests (154 Python + 169 Foundry)",
+     "counts before the verifier's own 44 self-tests were added"),
     (r"81[- ]second",
      "90-second", "the demo video gained a scene and is now 90.0s"),
     (r"fe44195b",
@@ -346,7 +348,12 @@ SUPERSEDED_VALUES: list[tuple[str, str, str]] = [
 
 # A line may legitimately mention a superseded value when it is EXPLAINING the
 # correction, or inside a dated snapshot that should stay as written.
-SUPERSEDED_EXCUSED_FILES = ("AUDIT_", "zk-mldsa/vendor/", "verify_claims.py")
+# tests/test_verify_claims.py necessarily CONTAINS every superseded value —
+# they are the probes. Excused explicitly rather than left to survive on
+# incidental excuse words happening to sit nearby, which is what it was
+# doing until 2026-08-08.
+SUPERSEDED_EXCUSED_FILES = ("AUDIT_", "zk-mldsa/vendor/", "verify_claims.py",
+                            "tests/test_verify_claims.py")
 # NOTE: do NOT add a bare "# " here. It was present until 2026-08-08 to excuse
 # code comments, but in markdown it matches every heading — so a stale value
 # within the context window of ANY heading was silently excused. A planted
@@ -357,32 +364,51 @@ SUPERSEDED_EXCUSED_LINE = re.compile(
     r"no longer|used to|previously|deprecated|do NOT add|reported PASS", re.I)
 
 
+def find_superseded(text: str, pattern: str) -> list[int]:
+    """Return 1-indexed line numbers where `pattern` appears un-excused.
+
+    Pure and filesystem-free so the TEST SUITE can exercise it directly. That
+    matters: this gate silently stopped working once already. A bare "# " in
+    the excuse regex matched every markdown heading, and because the excuse is
+    judged over a context window, any stale value within four lines of any
+    heading was waved through — 1 of 7 probes caught. Nothing noticed until a
+    human asked what had actually been run. tests/test_verify_claims.py now
+    plants every registry value next to a heading and asserts it is caught, so
+    the verifier is verified on every commit rather than on request.
+    """
+    rx = re.compile(pattern, re.I)
+    lines = text.splitlines()
+    out = []
+    for i, line in enumerate(lines, 1):
+        if not rx.search(line):
+            continue
+        # Judge the CONTEXT, not the line: the sentence explaining why a value
+        # is superseded usually sits on the following line, and a historical
+        # block is marked once at its top.
+        window = "\n".join(lines[max(0, i - 4):i + 4])
+        if SUPERSEDED_EXCUSED_LINE.search(window) or "<details>" in window:
+            continue
+        out.append(i)
+    return out
+
+
 def check_superseded_values() -> None:
     """No corrected value may reappear anywhere in the tree."""
     print("\n[superseded] corrected values have not crept back")
     tracked = subprocess.run(["git", "ls-files"], cwd=ROOT,
                              capture_output=True, text=True).stdout.split()
     binary = (".png", ".pdf", ".mp4", ".jsonl", ".json", ".webp", ".ico")
+    readable = []
+    for f in tracked:
+        if f.startswith(SUPERSEDED_EXCUSED_FILES) or f.endswith(binary):
+            continue
+        try:
+            readable.append((f, (ROOT / f).read_text(errors="ignore")))
+        except (OSError, IsADirectoryError):
+            continue
     for pattern, correct, why in SUPERSEDED_VALUES:
-        rx = re.compile(pattern, re.I)
-        hits = []
-        for f in tracked:
-            if f.startswith(SUPERSEDED_EXCUSED_FILES) or f.endswith(binary):
-                continue
-            try:
-                lines = (ROOT / f).read_text(errors="ignore").splitlines()
-            except (OSError, IsADirectoryError):
-                continue
-            for i, line in enumerate(lines, 1):
-                if not rx.search(line):
-                    continue
-                # Judge the CONTEXT, not the line. An explanation of why a
-                # value is superseded usually sits on the following line, and
-                # a historical block is marked once at its top.
-                window = "\n".join(lines[max(0, i - 4):i + 4])
-                if SUPERSEDED_EXCUSED_LINE.search(window) or "<details>" in window:
-                    continue
-                hits.append(f"{f}:{i}")
+        hits = [f"{f}:{n}" for f, body in readable
+                for n in find_superseded(body, pattern)]
         check(not hits, f"superseded {pattern[:34]!r} -> {correct}",
               f"{why}; found at {', '.join(hits[:3])}" if hits else why)
 

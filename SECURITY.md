@@ -238,7 +238,7 @@ python -c "from src import orders; \
 
 # The full suite. Three of the five modules use pytest fixtures, so running
 # them as plain scripts skips most of what they cover.
-pip install pytest && pytest tests/ -q          # 110 tests
+pip install pytest && pytest tests/ -q          # 154 tests
 ( cd contracts && forge test )                  # 169 tests, 0 skipped
 
 # Recompute every documented claim, on-chain checks included.

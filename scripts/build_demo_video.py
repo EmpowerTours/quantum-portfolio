@@ -47,7 +47,7 @@ TIMELINE: list[tuple[tuple[str, object], float, str]] = [
     (("shot",  "01-run-optimizer.png"),         9.0,  ""),
     (("shot",  "04-hardware-verification.png"), 10.0, ""),
     (("shot",  "05-pq-signing.png"),            9.0,  ""),
-    (("slide", 9),  10.0, "Proof, not promises"),   # 4 mainnet contracts, 279 tests
+    (("slide", 9),  10.0, "Proof, not promises"),   # 4 mainnet contracts, 323 tests
     (("slide", 10), 10.0, "end-to-end demo"),       # live mainnet TXs
     (("slide", 12), 9.0,  "Why now"),               # the 31 Dec 2031 deadline
     (("slide", 20), 8.0,  "A 12-week paid pilot"),  # The Ask
