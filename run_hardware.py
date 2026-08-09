@@ -203,6 +203,16 @@ def main() -> None:
         "xy_topology": args.xy_topology if args.mixer == "xy" else None,
         "tickers": list(market.tickers),
         "budget": args.budget,
+        # The problem INPUTS, so the stated optimum can be checked rather than
+        # trusted. Without these, P(optimal) is only verifiable relative to an
+        # optimum the reader has to take on faith — and market data is fetched
+        # over a window relative to *today* (`period="2y"`, DeFi "last N days"),
+        # so it slides and cannot be reconstructed after the fact.
+        # verify_claims.check_artifact_metrics brute-forces the optimum from
+        # these whenever they are present.
+        "risk_factor": RISK_FACTOR,
+        "mu": [float(x) for x in market.mu],
+        "sigma": [[float(x) for x in row] for row in market.sigma],
         "optimal": {"selection": exact.selection, "objective": exact.objective},
         "random_baseline_objective": random_obj,
         "mixer": args.mixer,

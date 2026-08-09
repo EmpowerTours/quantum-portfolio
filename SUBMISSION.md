@@ -66,6 +66,24 @@ with **XY4 dynamical decoupling, gate twirling, and measurement
 twirling** (Qiskit Runtime sampler options; see
 `src/qaoa_hw.py:140-148`).
 
+**One limit on reproducibility, stated rather than discovered.** The shipped
+`outputs/hardware_run*.json` contain the raw measurement counts, so P(optimal)
+and the feasible fraction recompute exactly — `verify_claims.py` does this on
+every commit. They do **not** contain `mu` and `sigma`, the problem inputs. So
+the *optimum itself* — the bitstring those probabilities are measured against —
+can be checked for internal consistency but not independently re-derived. Market
+data is fetched over a window relative to the run date (`period="2y"` for
+equities, a trailing window for DeFi pools), so the inputs slide and cannot be
+reconstructed after the fact even by us.
+
+We have added `risk_factor`, `mu` and `sigma` to the artefact schema, and
+`verify_claims.py` now brute-forces the optimum from them and asserts it matches
+whenever they are present. The two runs shipped here predate that change, so for
+these two the optimum is trusted rather than proven. Re-running on hardware
+would produce a fresh artefact carrying its inputs; we would rather disclose the
+gap than quietly re-run and present the result as though it had always been
+checkable.
+
 **Verifiability.** Qiskit Runtime job results are scoped to the owning IBM
 account, so a job ID alone is *not* third-party verifiable — an earlier
 revision claimed the runs were "verifiable on quantum.ibm.com", which a

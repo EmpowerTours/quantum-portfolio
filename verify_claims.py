@@ -79,6 +79,27 @@ def check_artifact_metrics() -> None:
         d = json.loads(p.read_text())
         n, k = len(d["tickers"]), d["budget"]
         opt = set(d["optimal"]["selection"])
+
+        # Is the stated optimum ACTUALLY optimal? Everything below measures
+        # P(optimal) *relative to* this selection, so if it is wrong every
+        # quantum number in the submission is measuring the wrong bitstring.
+        # Brute-force it from the problem inputs when they are shipped.
+        if "mu" in d and "sigma" in d:
+            import itertools                                  # noqa: PLC0415
+            mu, sig = d["mu"], d["sigma"]
+            q = d.get("risk_factor", 0.5)
+            def obj(sel):
+                return (q * sum(sig[i][j] for i in sel for j in sel)
+                        - sum(mu[i] for i in sel))
+            best = min(itertools.combinations(range(n), k), key=obj)
+            check(set(best) == opt, f"{Path(f).stem}: stated optimum IS optimal",
+                  f"brute force says {sorted(best)}, artefact says {sorted(opt)}")
+            check(abs(obj(best) - d["optimal"]["objective"]) < 1e-6,
+                  f"{Path(f).stem}: optimal objective recomputes",
+                  f"{obj(best):.6f} vs {d['optimal']['objective']:.6f}")
+        else:
+            print(f"    {Path(f).stem}: mu/sigma NOT shipped — the stated "
+                  "optimum cannot be checked, only trusted")
         for r in d["results"]:
             c = r.get("counts")
             if not c:
