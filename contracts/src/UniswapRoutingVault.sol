@@ -6,6 +6,7 @@ import { SafeERC20 }      from "@openzeppelin/contracts/token/ERC20/utils/SafeER
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { IV3SwapRouter }  from "./interfaces/IV3SwapRouter.sol";
 import { IWrappedNative } from "./interfaces/IWrappedNative.sol";
+import { IPQAttestation } from "./IPQAttestation.sol";
 import { AuditAnchorV2 }  from "./AuditAnchorV2.sol";
 
 /// @title  UniswapRoutingVault — agent-driven executor that routes native
@@ -50,6 +51,15 @@ contract UniswapRoutingVault is ReentrancyGuard {
     IV3SwapRouter  public immutable ROUTER;
     AuditAnchorV2  public immutable ANCHOR;
 
+    /// @notice Post-quantum attestation registry. Settlement REQUIRES a
+    ///         verified ML-DSA-65 signature over the orderHash.
+    /// @dev    Before this existed, `attest()` recorded `pqAttested` and
+    ///         nothing read it — the post-quantum leg was demonstrated but not
+    ///         load-bearing, and value moved identically whether or not a PQ
+    ///         signature had ever been verified. Immutable and set at deploy:
+    ///         a gate an owner can switch off is not a guarantee.
+    IPQAttestation public immutable PQ;
+
     /// @notice Output tokens this vault is permitted to route into. Frozen
     ///         at construction to keep the trust boundary immutable — to
     ///         add a token, deploy a new vault.
@@ -93,17 +103,20 @@ contract UniswapRoutingVault is ReentrancyGuard {
     error ZeroWeightBps(uint256 idx);
     error ZeroSlippageFloor(uint256 idx);
     error WMonDustResidual(uint256 amount);
+    error NotPQAttested(bytes32 orderHash);
 
     constructor(
         address _wmon,
         address _router,
         address _anchor,
+        address _pqAttestation,
         address[] memory _approvedTokens,
         uint24[]  memory _approvedFeeTiers
     ) {
         WRAPPED_MON = IWrappedNative(_wmon);
         ROUTER      = IV3SwapRouter(_router);
         ANCHOR      = AuditAnchorV2(_anchor);
+        PQ          = IPQAttestation(_pqAttestation);
         for (uint256 i = 0; i < _approvedTokens.length; ++i) {
             isApprovedToken[_approvedTokens[i]] = true;
         }
@@ -194,6 +207,11 @@ contract UniswapRoutingVault is ReentrancyGuard {
         ) {
             revert LengthMismatch(n);
         }
+        // No value moves without a post-quantum signature verified on-chain.
+        // Checked BEFORE the anchor lookup so the cheapest rejection is the
+        // one that says "this order was never PQ-authorised".
+        if (!PQ.pqAttested(orderHash)) revert NotPQAttested(orderHash);
+
         // Provenance: the caller must have anchored this exact order AND the
         // anchor must commit to exactly these execution parameters.
         bytes32 anchored = ANCHOR.execCommitmentOf(msg.sender, orderHash);

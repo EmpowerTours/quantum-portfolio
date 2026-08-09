@@ -723,9 +723,32 @@ builders, which such an attacker would simply not run.
 
 So this closes the *cost* barrier to on-chain PQ verification — the part
 that was previously infeasible — and demonstrates the primitive end to end.
-It does not yet make PQ authorisation mandatory for settlement. Wiring the
-executors to require `pqAttested[orderHash]` is the step that would, and it
-is a contract change, not a research problem. Honest scope
+**That wiring is now done in the source.** `UniswapRoutingVault` and
+`MorphoSupplyAdapter` each hold an immutable `IPQAttestation PQ` and open with
+
+```solidity
+if (!PQ.pqAttested(orderHash)) revert NotPQAttested(orderHash);
+```
+
+so the guarantee is no longer *"a post-quantum signature can be verified
+on-chain"* but *"no value moves without one"*. The registry address is
+immutable with no setter, because a gate an owner can switch off is not a
+guarantee. `contracts/test/PQAttestationGate.t.sol` asserts that an unattested
+order reverts on both executors, that attesting a *different* order does not
+open the gate, and that once attested the PQ check is no longer the blocker —
+execution proceeds to fail on the next check instead, which proves the gate
+opened rather than that everything reverts for one reason.
+
+**Deployment status, stated plainly: this is in the repository, not yet on
+mainnet.** The live `UniswapRoutingVault`
+[`0x06F233…1e56`](https://monadscan.com/address/0x06f233062ee23590e5cc873df511024f3d981e56)
+and `MorphoSupplyAdapter`
+[`0x8d5AE2…E49E`](https://monadscan.com/address/0x8d5ae2f23e5d20bfb7915168d6b2a3ce753fe49e)
+are immutable with no owner and no upgrade path — by design — so the gate
+cannot be added to them. Shipping it means deploying new instances at new
+addresses and re-running the end-to-end demonstration against them. We have
+not done that yet, and would rather say so than let the source imply the
+mainnet contracts enforce something they do not. Honest scope
 unchanged: no quantum advantage anywhere; this is the PQ-*settlement*
 path, proven end to end.
 
@@ -868,7 +891,7 @@ Monadscan as evidence of the bug-fix process, not for active use.
 
 ## Test coverage and CI
 
-**323 tests, none skipped** (`pytest tests/ && forge test`), re-run
+**328 tests, none skipped** (`pytest tests/ && forge test`), re-run
 2026-07-31 against live Monad mainnet.
 
 **154 Python tests**
@@ -896,7 +919,7 @@ Monadscan as evidence of the bug-fix process, not for active use.
   no execution block is rejected by default; and `canonical_bytes` refuses
   non-string dict keys (L-4).
 
-**169 Foundry tests**, of which **70 are an adversarial red-team suite**
+**174 Foundry tests**, of which **70 are an adversarial red-team suite**
 (`contracts/test/redteam/`, RT01–RT11) that reproduces each audit finding
 and then asserts it closed — several against the real Uniswap v3 and
 Morpho Blue deployments on a mainnet fork. Largest suites:
@@ -937,11 +960,11 @@ its nestedness, and asserts the returndata is
 - **Area 3 (primary) — Digital Infrastructure Secured Against Quantum
   Computing.** The PQ signing layer is not narrative — it is verified by
   **154 Python tests** (32 PQ-signing, 35 Monad-TX encoding, 18 live-quote,
-  17 key-pinning/hedge-policy, 8 audit-chain, 44 verifier self-tests) and **169 Foundry tests**, of which **70 are an adversarial
+  17 key-pinning/hedge-policy, 8 audit-chain, 44 verifier self-tests) and **174 Foundry tests**, of which **70 are an adversarial
   red-team suite** (`contracts/test/redteam/`) that reproduces each
   vulnerability found in the July 2026 audit and then asserts it is closed —
   several against the real Uniswap and Morpho deployments on a mainnet fork.
-  323 tests, none skipped. The artefacts are tamper-evident and a reviewer can
+  328 tests, none skipped. The artefacts are tamper-evident and a reviewer can
   audit them without running the code. **The full loop is LIVE on Monad
   mainnet (chainId 143), all contracts Monadscan-verified**:
   [AuditAnchorV2](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd),
@@ -1104,7 +1127,7 @@ partners.** No conversation with any institution has taken place.
 
 What exists instead is shipped, verifiable evidence: four contracts live and
 Monadscan-verified on Monad mainnet, one end-to-end run executed with real
-value, 323 tests passing with none skipped, two IBM Heron QPU runs with
+value, 328 tests passing with none skipped, two IBM Heron QPU runs with
 published job IDs and raw counts, and every documented reviewer command
 executed against mainnet in CI. Reaching Phase 2 of this challenge is the only
 external validation we claim.
@@ -1154,7 +1177,7 @@ incorporated in Mexico and qualifies under the LATAM startup criteria.
   gate on the managed-cosigner revenue line.
 
 Two people shipped four Monadscan-verified mainnet contracts, an SP1 ZK
-circuit, and 323 passing tests. That is the argument for a pilot, and the
+circuit, and 328 passing tests. That is the argument for a pilot, and the
 reason the ask is for a counterparty rather than for headcount.
 
 ### What we are asking Santander for
@@ -1283,7 +1306,7 @@ pip install pytest
 # Three of the five test modules use pytest fixtures and parametrisation, so
 # they must be run under pytest — invoking them as plain scripts skips them.
 pytest tests/ -q                    # 154 tests
-( cd contracts && forge test )      # 169 tests, 0 skipped
+( cd contracts && forge test )      # 174 tests, 0 skipped
 
 # Re-derive the canonical-bytes digest of the shipped order:
 python -c "

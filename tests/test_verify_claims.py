@@ -31,7 +31,7 @@ import verify_claims as vc  # noqa: E402
 PROBES: dict[str, str] = {
     r"~?\s*230\s*[k,]\s*(?:-\s*)?gas|230,000\s*gas": "The attest call costs 230k gas.",
     (r"\b105 (?:tests|automated)\b|\b84 tests\b|\b279 tests\b|"
-     r"\b110 Python tests\b|Two hundred seventy-nine"): "The suite has 279 tests.",
+     r"\b110 Python tests\b|Two hundred seventy-nine|\b323 tests\b|Three hundred twenty-three"): "The suite has 279 tests.",
     r"81[- ]second": "Watch the 81-second walkthrough.",
     r"fe44195b": "orderHash 0xfe44195b36463e33da7156285383a4fe735093ecadb1abb87684435552814ba9",
     r"not yet on the hardware path|not in current HW path": (

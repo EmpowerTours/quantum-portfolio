@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
+import { MockPQAttestation } from "../mocks/MockPQAttestation.sol";
 import { IERC20 }  from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { WMON }          from "../../src/dex/WMON.sol";
 import { MockToken }     from "../../src/dex/MockToken.sol";
@@ -72,12 +73,12 @@ contract RT02_ProvenanceGate is Test {
         uint24[] memory tiers = new uint24[](1);
         tiers[0] = FEE;
         vault = new UniswapRoutingVault(
-            address(wmon), address(router), address(anchor), approved, tiers
+            address(wmon), address(router), address(anchor), address(new MockPQAttestation()), approved, tiers
         );
 
         bytes32[] memory markets = new bytes32[](1);
         markets[0] = keccak256(abi.encode(_market()));
-        adapter = new MorphoSupplyAdapter(address(morpho), address(anchor), approved, markets);
+        adapter = new MorphoSupplyAdapter(address(morpho), address(anchor), address(new MockPQAttestation()), approved, markets);
 
         router.setRate(2000, 1);
         usdc.faucet(100_000 ether);

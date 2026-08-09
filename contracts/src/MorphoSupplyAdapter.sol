@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import { IERC20 }          from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 }       from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { IPQAttestation } from "./IPQAttestation.sol";
 import { AuditAnchorV2 }   from "./AuditAnchorV2.sol";
 import { IMorpho, MarketParams } from "./interfaces/IMorpho.sol";
 
@@ -34,6 +35,11 @@ contract MorphoSupplyAdapter is ReentrancyGuard {
 
     IMorpho     public immutable MORPHO;
     AuditAnchorV2 public immutable ANCHOR;
+
+    /// @notice Post-quantum attestation registry. Supplying REQUIRES a
+    ///         verified ML-DSA-65 signature over the orderHash. Immutable:
+    ///         a gate an owner can switch off is not a guarantee.
+    IPQAttestation public immutable PQ;
 
     /// @notice Loan tokens this adapter is permitted to supply. Frozen at deploy.
     mapping(address => bool) public isApprovedLoanToken;
@@ -67,15 +73,18 @@ contract MorphoSupplyAdapter is ReentrancyGuard {
     error LoanTokenNotApproved(address token);
     error MarketNotApproved(bytes32 marketId);
     error DustResidual(uint256 amount);
+    error NotPQAttested(bytes32 orderHash);
 
     constructor(
         address _morpho,
         address _anchor,
+        address _pqAttestation,
         address[] memory _approvedLoanTokens,
         bytes32[] memory _approvedMarkets
     ) {
         MORPHO = IMorpho(_morpho);
         ANCHOR = AuditAnchorV2(_anchor);
+        PQ     = IPQAttestation(_pqAttestation);
         for (uint256 i = 0; i < _approvedLoanTokens.length; ++i) {
             isApprovedLoanToken[_approvedLoanTokens[i]] = true;
         }
@@ -131,6 +140,9 @@ contract MorphoSupplyAdapter is ReentrancyGuard {
         if (assets > maxAssets) revert AssetsExceedAuthorised(assets, maxAssets);
 
         // Provenance: the anchor must commit to exactly this market and ceiling.
+        // No value moves without a post-quantum signature verified on-chain.
+        if (!PQ.pqAttested(orderHash)) revert NotPQAttested(orderHash);
+
         bytes32 anchored = ANCHOR.execCommitmentOf(msg.sender, orderHash);
         if (anchored == bytes32(0)) revert AnchorNotFound(orderHash);
         bytes32 expected = supplyCommitment(orderHash, msg.sender, params, maxAssets);

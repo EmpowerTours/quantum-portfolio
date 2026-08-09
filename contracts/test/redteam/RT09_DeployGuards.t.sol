@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test }   from "forge-std/Test.sol";
+import { MockPQAttestation } from "../mocks/MockPQAttestation.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { WMON }                from "../../src/dex/WMON.sol";
 import { MockToken }           from "../../src/dex/MockToken.sol";
@@ -135,7 +136,7 @@ contract RT09_DeployGuards is Test {
         uint24[] memory tiers = new uint24[](1);
         tiers[0] = FEE;
         UniswapRoutingVault dead = new UniswapRoutingVault(
-            address(wmon), address(router), address(v1), approved, tiers
+            address(wmon), address(router), address(v1), address(new MockPQAttestation()), approved, tiers
         );
 
         address[] memory t = new address[](1); t[0] = address(usdc);
@@ -161,7 +162,7 @@ contract RT09_DeployGuards is Test {
         bytes32[] memory markets = new bytes32[](1);
         markets[0] = keccak256(abi.encode(_market()));
         MorphoSupplyAdapter dead =
-            new MorphoSupplyAdapter(address(morpho), address(v1), approved, markets);
+            new MorphoSupplyAdapter(address(morpho), address(v1), address(new MockPQAttestation()), approved, markets);
 
         vm.startPrank(agent);
         usdc.faucet(10 ether);
@@ -217,7 +218,7 @@ contract RT09_DeployGuards is Test {
         address[] memory approved = new address[](1);
         approved[0] = address(usdc);
         UniswapRoutingVault v = new UniswapRoutingVault(
-            address(wmon), address(router), address(new AuditAnchorV2()), approved, tiers
+            address(wmon), address(router), address(new AuditAnchorV2()), address(new MockPQAttestation()), approved, tiers
         );
         assertTrue(v.isApprovedFeeTier(100), "the constructor takes what it is given");
         assertFalse(_feeTierAccepted(100),   "only the script stops it reaching here");

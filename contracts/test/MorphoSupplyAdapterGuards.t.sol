@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
+import { MockPQAttestation } from "./mocks/MockPQAttestation.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { MockToken } from "../src/dex/MockToken.sol";
 import { AuditAnchorV2 } from "../src/AuditAnchorV2.sol";
@@ -85,7 +86,7 @@ contract MorphoSupplyAdapterGuardsTest is Test {
         bytes32[] memory markets = new bytes32[](1);
         markets[0] = keccak256(abi.encode(_market(address(usdc))));
 
-        adapter = new MorphoSupplyAdapter(address(morpho), address(anchor), tokens, markets);
+        adapter = new MorphoSupplyAdapter(address(morpho), address(anchor), address(new MockPQAttestation()), tokens, markets);
 
         usdc.faucet(1_000_000);
         usdc.transfer(user, 500_000);
@@ -234,7 +235,7 @@ contract MorphoSupplyAdapterGuardsTest is Test {
         bytes32[] memory markets = new bytes32[](1);
         markets[0] = id;
         MorphoSupplyAdapter iso =
-            new MorphoSupplyAdapter(address(morpho), address(anchor), tokens, markets);
+            new MorphoSupplyAdapter(address(morpho), address(anchor), address(new MockPQAttestation()), tokens, markets);
 
         rogue.faucet(10_000);
         rogue.transfer(user, 5_000);
@@ -272,7 +273,7 @@ contract MorphoSupplyAdapterGuardsTest is Test {
         bytes32[] memory markets = new bytes32[](1);
         markets[0] = keccak256(abi.encode(m));
         MorphoSupplyAdapter reAdapter =
-            new MorphoSupplyAdapter(address(evil), address(anchor), tokens, markets);
+            new MorphoSupplyAdapter(address(evil), address(anchor), address(new MockPQAttestation()), tokens, markets);
 
         usdc.transfer(user, 10_000);
         vm.prank(user);

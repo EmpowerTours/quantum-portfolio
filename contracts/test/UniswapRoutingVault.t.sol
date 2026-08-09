@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
+import { MockPQAttestation } from "./mocks/MockPQAttestation.sol";
 import { Vm }   from "forge-std/Vm.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { WMON }      from "../src/dex/WMON.sol";
@@ -36,7 +37,7 @@ contract UniswapRoutingVaultTest is Test {
         uint24[] memory fees = new uint24[](1);
         fees[0] = FEE;
         vault = new UniswapRoutingVault(
-            address(wmon), address(router), address(anchor), approved, fees
+            address(wmon), address(router), address(anchor), address(new MockPQAttestation()), approved, fees
         );
 
         // Rate: 1 WMON -> 2000 tokenOut (18-dec test tokens).

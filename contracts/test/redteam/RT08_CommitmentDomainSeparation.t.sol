@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test }   from "forge-std/Test.sol";
+import { MockPQAttestation } from "../mocks/MockPQAttestation.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { WMON }                from "../../src/dex/WMON.sol";
 import { MockToken }           from "../../src/dex/MockToken.sol";
@@ -78,16 +79,16 @@ contract RT08_CommitmentDomainSeparation is Test {
         tiers[0] = FEE;
 
         vaultV1 = new UniswapRoutingVault(
-            address(wmon), address(router), address(anchor), approved, tiers
+            address(wmon), address(router), address(anchor), address(new MockPQAttestation()), approved, tiers
         );
         vaultV2 = new UniswapRoutingVault(
-            address(wmon), address(router), address(anchor), approved, tiers
+            address(wmon), address(router), address(anchor), address(new MockPQAttestation()), approved, tiers
         );
 
         bytes32[] memory markets = new bytes32[](1);
         markets[0] = keccak256(abi.encode(_market()));
-        adapterV1 = new MorphoSupplyAdapter(address(morpho), address(anchor), approved, markets);
-        adapterV2 = new MorphoSupplyAdapter(address(morpho), address(anchor), approved, markets);
+        adapterV1 = new MorphoSupplyAdapter(address(morpho), address(anchor), address(new MockPQAttestation()), approved, markets);
+        adapterV2 = new MorphoSupplyAdapter(address(morpho), address(anchor), address(new MockPQAttestation()), approved, markets);
 
         for (uint256 i = 0; i < 5; ++i) usdc.faucet(100_000 ether);
         usdc.transfer(address(router), 400_000 ether);

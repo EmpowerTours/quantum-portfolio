@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test }      from "forge-std/Test.sol";
+import { MockPQAttestation } from "../mocks/MockPQAttestation.sol";
 import { IERC20 }    from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { ERC20 }     from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -215,7 +216,7 @@ contract RT03_DustInvariantAttacks is Test {
         uint24[] memory tiers = new uint24[](1);
         tiers[0] = FEE;
         vault = new UniswapRoutingVault(
-            address(wmon), address(router), address(anchor), approved, tiers
+            address(wmon), address(router), address(anchor), address(new MockPQAttestation()), approved, tiers
         );
 
         usdc.faucet(100_000 ether);
@@ -226,6 +227,12 @@ contract RT03_DustInvariantAttacks is Test {
         address[] memory loans = new address[](1);
         loans[0] = address(usdc);
 
+        // Deployed BEFORE the prediction below on purpose: this test predicts a
+        // CREATE address from the deployer nonce, so any deployment between the
+        // prediction and `new EvilIrm` shifts it. Constructing the attestation
+        // mock inline in the adapter's argument list did exactly that.
+        MockPQAttestation pqMock = new MockPQAttestation();
+
         // Predict the EvilIrm address so the hostile market can be put on the
         // (M-4) market allowlist. This deliberately models the WORST case for
         // the allowlist: an operator who vets a market whose IRM later turns
@@ -233,7 +240,7 @@ contract RT03_DustInvariantAttacks is Test {
         address predictedIrm = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
         bytes32[] memory markets = new bytes32[](1);
         markets[0] = keccak256(abi.encode(_params(predictedIrm)));
-        adapter = new MorphoSupplyAdapter(address(morpho), address(anchor), loans, markets);
+        adapter = new MorphoSupplyAdapter(address(morpho), address(anchor), address(pqMock), loans, markets);
         evilIrm = new EvilIrm(adapter, morpho, IERC20(address(usdc)));
         assertEq(address(evilIrm), predictedIrm, "irm address prediction");
 

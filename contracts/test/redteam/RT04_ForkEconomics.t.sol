@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test }   from "forge-std/Test.sol";
+import { MockPQAttestation } from "../mocks/MockPQAttestation.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { AuditAnchorV2 }       from "../../src/AuditAnchorV2.sol";
 import { UniswapRoutingVault } from "../../src/UniswapRoutingVault.sol";
@@ -71,7 +72,7 @@ contract RT04_ForkEconomics is Test {
         approved[0] = tokenOut;
         uint24[] memory tiers = new uint24[](1);
         tiers[0] = fee;
-        vault = new UniswapRoutingVault(WMON, ROUTER, address(anchor), approved, tiers);
+        vault = new UniswapRoutingVault(WMON, ROUTER, address(anchor), address(new MockPQAttestation()), approved, tiers);
 
         vm.deal(victim, 1_000 ether);
         vm.deal(attacker, 2_000_000 ether);

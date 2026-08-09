@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
+import { MockPQAttestation } from "./mocks/MockPQAttestation.sol";
 import { IERC20 }    from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { WMON }       from "../src/dex/WMON.sol";
@@ -123,10 +124,10 @@ contract AuditPoCDustDoSTest is Test {
 
         uint24[] memory fees = new uint24[](1); fees[0] = FEE;
         vault   = new UniswapRoutingVault(
-            address(wmon), address(router), address(anchor), approved, fees
+            address(wmon), address(router), address(anchor), address(new MockPQAttestation()), approved, fees
         );
         adapter = new MorphoSupplyAdapter(
-            address(morpho), address(anchor), approved, _markets(address(usdc))
+            address(morpho), address(anchor), address(new MockPQAttestation()), approved, _markets(address(usdc))
         );
 
         router.setRate(2000, 1);
@@ -247,7 +248,7 @@ contract AuditPoCDustDoSTest is Test {
         approved[0] = address(usdc);
         uint24[] memory fees = new uint24[](1); fees[0] = FEE;
         UniswapRoutingVault v2 = new UniswapRoutingVault(
-            address(wmon), address(badRouter), address(anchor), approved, fees
+            address(wmon), address(badRouter), address(anchor), address(new MockPQAttestation()), approved, fees
         );
         usdc.transfer(address(badRouter), 50_000 ether);
 
@@ -275,7 +276,7 @@ contract AuditPoCDustDoSTest is Test {
         approved[0] = address(usdc);
         uint24[] memory fees = new uint24[](1); fees[0] = FEE;
         UniswapRoutingVault v2 = new UniswapRoutingVault(
-            address(wmon), address(greedy), address(anchor), approved, fees
+            address(wmon), address(greedy), address(anchor), address(new MockPQAttestation()), approved, fees
         );
         usdc.transfer(address(greedy), 50_000 ether);
 
@@ -325,7 +326,7 @@ contract AuditPoCDustDoSTest is Test {
         address[] memory approved = new address[](1);
         approved[0] = address(usdc);
         MorphoSupplyAdapter a2 = new MorphoSupplyAdapter(
-            address(greedy), address(anchor), approved, _markets(address(usdc))
+            address(greedy), address(anchor), address(new MockPQAttestation()), approved, _markets(address(usdc))
         );
 
         usdc.transfer(alice, 1_000 ether);
@@ -348,7 +349,7 @@ contract AuditPoCDustDoSTest is Test {
         address[] memory approved = new address[](1);
         approved[0] = address(usdc);
         MorphoSupplyAdapter a2 = new MorphoSupplyAdapter(
-            address(badMorpho), address(anchor), approved, _markets(address(usdc))
+            address(badMorpho), address(anchor), address(new MockPQAttestation()), approved, _markets(address(usdc))
         );
 
         usdc.transfer(alice, 1_000 ether);

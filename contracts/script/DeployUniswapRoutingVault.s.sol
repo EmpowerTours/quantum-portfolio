@@ -43,6 +43,14 @@ contract DeployUniswapRoutingVault is Script {
         // fork tests keep working. `vm.startBroadcast()` with no argument
         // uses whatever wallet the CLI supplied.
         uint256 pk = vm.envOr("DEPLOYER_PRIVATE_KEY", uint256(0));
+        // The LIVE MLDSAAttestation. Settlement now requires a verified
+        // ML-DSA-65 signature, so this must be the real registry — a
+        // permissive stand-in would silently disable the guarantee.
+        address pqAttestation = vm.envOr(
+            "PQ_ATTESTATION",
+            address(0xb0aADaFe68647578520E988b4444e556c300b4Da)
+        );
+        require(pqAttestation.code.length > 0, "PQ_ATTESTATION has no code");
         address anchor = vm.envAddress("AUDIT_ANCHOR_ADDR");
         address[] memory approved = vm.envAddress("APPROVED_TOKENS", ",");
         uint256[] memory feeRaw  = vm.envUint("APPROVED_FEE_TIERS", ",");
@@ -104,7 +112,7 @@ contract DeployUniswapRoutingVault is Script {
 
         if (pk != 0) { vm.startBroadcast(pk); } else { vm.startBroadcast(); }
         UniswapRoutingVault v = new UniswapRoutingVault(
-            WMON_MAINNET, ROUTER_MAINNET, anchor, approved, feeTiers
+            WMON_MAINNET, ROUTER_MAINNET, anchor, pqAttestation, approved, feeTiers
         );
         vm.stopBroadcast();
 

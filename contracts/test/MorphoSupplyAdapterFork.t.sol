@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test }   from "forge-std/Test.sol";
+import { MockPQAttestation } from "./mocks/MockPQAttestation.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { AuditAnchorV2 }      from "../src/AuditAnchorV2.sol";
 import { MorphoSupplyAdapter } from "../src/MorphoSupplyAdapter.sol";
@@ -41,7 +42,7 @@ contract MorphoSupplyAdapterForkTest is Test {
         approved[0] = USDC;
         bytes32[] memory markets = new bytes32[](1);
         markets[0] = keccak256(abi.encode(_market()));   // live USDC/WBTC market
-        adapter = new MorphoSupplyAdapter(MORPHO, address(anchor), approved, markets);
+        adapter = new MorphoSupplyAdapter(MORPHO, address(anchor), address(new MockPQAttestation()), approved, markets);
     }
 
     function _market() internal pure returns (MarketParams memory) {

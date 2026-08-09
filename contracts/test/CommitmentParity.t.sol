@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
+import { MockPQAttestation } from "./mocks/MockPQAttestation.sol";
 import { AuditAnchorV2 }       from "../src/AuditAnchorV2.sol";
 import { UniswapRoutingVault } from "../src/UniswapRoutingVault.sol";
 import { MorphoSupplyAdapter } from "../src/MorphoSupplyAdapter.sol";
@@ -63,13 +64,13 @@ contract CommitmentParityTest is Test {
         tokens[0] = USDC; tokens[1] = WETH;
         uint24[] memory fees = new uint24[](2);
         fees[0] = 3000; fees[1] = 500;
-        vault = new UniswapRoutingVault(address(0xAAA1), address(0xBBB2), address(anchor), tokens, fees);
+        vault = new UniswapRoutingVault(address(0xAAA1), address(0xBBB2), address(anchor), address(new MockPQAttestation()), tokens, fees);
 
         bytes32[] memory markets = new bytes32[](1);
         markets[0] = keccak256(abi.encode(_market()));
         address[] memory loans = new address[](1);
         loans[0] = USDC;
-        adapter = new MorphoSupplyAdapter(address(0xCCC3), address(anchor), loans, markets);
+        adapter = new MorphoSupplyAdapter(address(0xCCC3), address(anchor), address(new MockPQAttestation()), loans, markets);
 
         // Pin chain id and executor addresses so the goldens are reproducible.
         vm.chainId(GOLDEN_CHAIN_ID);
