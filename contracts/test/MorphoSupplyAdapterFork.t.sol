@@ -89,7 +89,7 @@ contract MorphoSupplyAdapterForkTest is Test {
     /// M-4: a market the adapter was not deployed against must be rejected,
     /// even when the loan token is approved and the order is anchored.
     function test_RevertsOnUnapprovedMarket() public {
-        if (!forked) return;
+        if (!forked) { vm.skip(true); return; }
 
         // Same loan token, attacker-chosen oracle -> different market id.
         MarketParams memory hostile = MarketParams({
@@ -119,7 +119,7 @@ contract MorphoSupplyAdapterForkTest is Test {
     }
 
     function test_RevertsWithoutAnchor() public {
-        if (!forked) return;
+        if (!forked) { vm.skip(true); return; }
         MarketParams memory m = _market();
         vm.startPrank(trader);
         deal(USDC, trader, 1_000_000);

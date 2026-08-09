@@ -282,7 +282,7 @@ We do not claim otherwise. `SECURITY.md` states this before anyone asks — it i
 
 <h3>Proof, not promises</h3>
 
-# Live on Monad MAINNET.<br>328 tests. ZK-verified.
+# Live on Monad MAINNET.<br>331 tests. ZK-verified.
 
 <div class="grid-3">
 
@@ -291,7 +291,7 @@ We do not claim otherwise. `SECURITY.md` states this before anyone asks — it i
 </div>
 
 <div>
-<div class="big">279<small>tests passing<br>154 Python + 174 Foundry</small></div>
+<div class="big">279<small>tests passing<br>154 Python + 177 Foundry</small></div>
 </div>
 
 <div>
@@ -507,7 +507,7 @@ No conversation with any institution has happened. We would rather be marked dow
 **What does exist, and is checkable:**
 - 4 contracts live on Monad **mainnet**, Monadscan-verified
 - one end-to-end run with **real value**
-- **328 tests**, 0 skipped
+- **331 tests**, 0 skipped
 - 2 IBM Heron runs, job IDs + raw counts published
 - every documented reviewer command **executed in CI**
 
@@ -575,7 +575,7 @@ Runs everything outside the codebase — company, operations and delivery. Empow
 
 <br>
 
-> Two people shipped four verified mainnet contracts, a ZK circuit, and 328 passing tests. That is the argument for a pilot — and the reason the ask is a counterparty, not headcount.
+> Two people shipped four verified mainnet contracts, a ZK circuit, and 331 passing tests. That is the argument for a pilot — and the reason the ask is a counterparty, not headcount.
 
 </div>
 

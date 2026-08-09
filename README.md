@@ -11,13 +11,13 @@ the shipped demonstration.
 1. **[Open the interactive Streamlit demo](https://quantum-portfolio-awhfbfwtbqmp2swgpsvxwf.streamlit.app/)** — run the cached optimizer, inspect AI forecasts and backtesting, verify the real IBM hardware artefacts, and exercise PQ signing/tamper detection.
 2. **[Watch the 90-second product walkthrough](docs/DEMO_VIDEO.mp4)**.
 3. **[Review the Santander submission narrative](SUBMISSION.md)** and the linked IBM Quantum jobs and Monad transactions.
-4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 154 Python tests plus 174 Foundry tests (328 total, none skipped) are documented below.
+4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 154 Python tests plus 177 Foundry tests (331 total, none skipped) are documented below.
 5. **[Read the business case](SUBMISSION.md#business-model-market-and-go-to-market)** — who buys this, why the 31 December 2031 deadline is the forcing function, how it is priced, and what we are asking Santander for.
 
 **Traction, stated up front so it is not a discovery:** we have no customers, no
 revenue and no letters of intent. What we have is shipped and checkable — four
 Monadscan-verified contracts on Monad mainnet, one end-to-end run executed with
-real value, 328 passing tests, and two IBM Heron QPU runs with published job IDs
+real value, 331 passing tests, and two IBM Heron QPU runs with published job IDs
 and raw counts.
 
 ## Live on Monad mainnet (chainId 143)
@@ -202,11 +202,11 @@ curl -L https://foundry.paradigm.xyz | bash && foundryup
 ### Path A — verify the shipped artefact
 
 ```sh
-# 1. Python tests (110). Three of the five modules use pytest fixtures, so
+# 1. Python tests (154). Three of the five modules use pytest fixtures, so
 #    they must run under pytest — as plain scripts they error out.
 pip install pytest && pytest tests/ -q
 
-# 2. Foundry tests (169 across 23 suites, 0 skipped)
+# 2. Foundry tests (177 across 25 suites, 0 skipped)
 ( cd contracts && forge test )
 
 # 3. Re-derive the canonical-bytes SHA-256 of the shipped signed order:
@@ -300,7 +300,7 @@ python run_backtest.py
 │   └── test_verify_claims.py    44 tests OF THE VERIFIER — plants every retired
 │                                figure next to a heading and asserts the gate
 │                                catches it (it silently stopped catching once)
-│   (Plus 174 Foundry tests in contracts/test/ above — 328 tests total)
+│   (Plus 177 Foundry tests in contracts/test/ above — 331 tests total)
 ├── outputs/
 │   ├── hardware_run.json        Cached IBM-QPU result
 │   ├── backtest.json            Walk-forward metrics

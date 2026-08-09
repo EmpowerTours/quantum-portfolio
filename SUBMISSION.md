@@ -712,9 +712,17 @@ estimated ~500M-gas cost of verifying ML-DSA natively in the EVM. Measured repla
 
 **Precisely what this does and does not do.** `pqAttested[orderHash]` is an
 on-chain *record* that a valid ML-DSA-65 signature by the pinned key exists
-over that order. It is **not** a *gate*: `grep -rn pqAttested contracts/src/`
-returns nothing, and `AuditAnchorV2`, `UniswapRoutingVault` and
-`MorphoSupplyAdapter` never read it. Settlement is authorised by
+over that order.
+
+> **This paragraph described the state before 2026-08-09.** It said
+> `grep -rn pqAttested contracts/src/` returned nothing. It now returns four
+> hits: the executors gate on it, as described under "That wiring is now done
+> in the source" below. Kept because the reasoning about what a *record*
+> guarantees versus what a *gate* guarantees is what motivated the change —
+> but note that on the **deployed** mainnet contracts the paragraph is still
+> literally true, because the gate has not shipped.
+
+As deployed, settlement is authorised by
 `execCommitmentOf[user][orderHash]`, which is written by an ordinary
 secp256k1 ECDSA transaction. An attacker holding the deployer key could
 anchor a commitment and execute a trade having broken no post-quantum
@@ -738,6 +746,37 @@ order reverts on both executors, that attesting a *different* order does not
 open the gate, and that once attested the PQ check is no longer the blocker —
 execution proceeds to fail on the next check instead, which proves the gate
 opened rather than that everything reverts for one reason.
+
+**A limitation the gate does NOT close: the execution commitment is not bound
+on-chain to the signed order.** The ZK guest commits `(orderHash, pkHash)` and
+nothing more, so the proof establishes *"the pinned ML-DSA key signed some order
+hashing to X"* — not *what X authorises*. The execution binding lives in
+`AuditAnchorV2.execCommitmentOf`, and that value is chosen by whoever calls
+`anchor()`. `AlreadyAnchored` is keyed per-caller, so any address — including
+the agent's own ECDSA key — can bind an arbitrary execution to an
+already-attested orderHash and execute it, producing an on-chain record that
+passes every check while describing a trade the signature never authorised.
+
+It is not theft: the caller funds `msg.value` and the router pays out to
+`msg.sender`. The damage is to provenance, in a system whose product is the
+audit trail — and it defeats the two-key custody property this repository
+asserts elsewhere, under the exact threat model that property names (ECDSA key
+compromised, post-quantum key not).
+
+`contracts/test/redteam/RT12_ExecCommitmentUnbound.t.sol` demonstrates both
+paths. **Those tests pass, and a pass means the weakness is present**; they are
+pinned so it cannot be lost, and must be inverted when the fix lands.
+
+What this means for a reviewer working purely on-chain: you can conclude that a
+PQ signature exists for orderHash X, that address A committed to execution E
+under X, and that E executed exactly once. You **cannot** conclude from the
+chain alone that E is what the signature authorised — for that you also need
+`outputs/signed_orders.json` and the recomputation `verify_claims.py` performs.
+Two candidate fixes are under evaluation: committing the execution commitment
+inside the ZK guest, or passing the signed order preimage to the executor so
+the binding is checked in Solidity. The second preserves the deployed
+`MLDSAAttestation` and its measured 1 196 224-gas attestation; the first does
+not.
 
 **Deployment status, stated plainly: this is in the repository, not yet on
 mainnet.** The live `UniswapRoutingVault`
@@ -891,7 +930,7 @@ Monadscan as evidence of the bug-fix process, not for active use.
 
 ## Test coverage and CI
 
-**328 tests, none skipped** (`pytest tests/ && forge test`), re-run
+**331 tests, none skipped** (`pytest tests/ && forge test`), re-run
 2026-07-31 against live Monad mainnet.
 
 **154 Python tests**
@@ -919,7 +958,7 @@ Monadscan as evidence of the bug-fix process, not for active use.
   no execution block is rejected by default; and `canonical_bytes` refuses
   non-string dict keys (L-4).
 
-**174 Foundry tests**, of which **70 are an adversarial red-team suite**
+**177 Foundry tests**, of which **70 are an adversarial red-team suite**
 (`contracts/test/redteam/`, RT01–RT11) that reproduces each audit finding
 and then asserts it closed — several against the real Uniswap v3 and
 Morpho Blue deployments on a mainnet fork. Largest suites:
@@ -960,11 +999,11 @@ its nestedness, and asserts the returndata is
 - **Area 3 (primary) — Digital Infrastructure Secured Against Quantum
   Computing.** The PQ signing layer is not narrative — it is verified by
   **154 Python tests** (32 PQ-signing, 35 Monad-TX encoding, 18 live-quote,
-  17 key-pinning/hedge-policy, 8 audit-chain, 44 verifier self-tests) and **174 Foundry tests**, of which **70 are an adversarial
+  17 key-pinning/hedge-policy, 8 audit-chain, 44 verifier self-tests) and **177 Foundry tests**, of which **70 are an adversarial
   red-team suite** (`contracts/test/redteam/`) that reproduces each
   vulnerability found in the July 2026 audit and then asserts it is closed —
   several against the real Uniswap and Morpho deployments on a mainnet fork.
-  328 tests, none skipped. The artefacts are tamper-evident and a reviewer can
+  331 tests, none skipped. The artefacts are tamper-evident and a reviewer can
   audit them without running the code. **The full loop is LIVE on Monad
   mainnet (chainId 143), all contracts Monadscan-verified**:
   [AuditAnchorV2](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd),
@@ -1127,7 +1166,7 @@ partners.** No conversation with any institution has taken place.
 
 What exists instead is shipped, verifiable evidence: four contracts live and
 Monadscan-verified on Monad mainnet, one end-to-end run executed with real
-value, 328 tests passing with none skipped, two IBM Heron QPU runs with
+value, 331 tests passing with none skipped, two IBM Heron QPU runs with
 published job IDs and raw counts, and every documented reviewer command
 executed against mainnet in CI. Reaching Phase 2 of this challenge is the only
 external validation we claim.
@@ -1177,7 +1216,7 @@ incorporated in Mexico and qualifies under the LATAM startup criteria.
   gate on the managed-cosigner revenue line.
 
 Two people shipped four Monadscan-verified mainnet contracts, an SP1 ZK
-circuit, and 328 passing tests. That is the argument for a pilot, and the
+circuit, and 331 passing tests. That is the argument for a pilot, and the
 reason the ask is for a counterparty rather than for headcount.
 
 ### What we are asking Santander for
@@ -1306,7 +1345,7 @@ pip install pytest
 # Three of the five test modules use pytest fixtures and parametrisation, so
 # they must be run under pytest — invoking them as plain scripts skips them.
 pytest tests/ -q                    # 154 tests
-( cd contracts && forge test )      # 174 tests, 0 skipped
+( cd contracts && forge test )      # 177 tests, 0 skipped with an RPC endpoint (11 fork tests skip without one)
 
 # Re-derive the canonical-bytes digest of the shipped order:
 python -c "

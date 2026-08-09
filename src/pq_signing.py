@@ -135,6 +135,23 @@ def _assert_nfc(obj: Any, _path: str = "") -> None:
                 "orders share one signature."
             )
         return
+    # A tuple serialises to a JSON array exactly as a list does, so it both
+    # (a) collides with the equivalent list — two distinct payloads, one
+    # signature — and (b) used to slip past this whole function, because the
+    # recursion below only descended into str/list/dict. Everything this guard
+    # exists to stop (the Z-1 Unicode-confusable attack, the L-4 non-string
+    # dict key collision) was skippable by wrapping the payload in a tuple, and
+    # `dataclasses.asdict` preserves tuples, so `RebalanceOrder(pools=(...))`
+    # reached it. Refuse rather than normalise: silently coercing to a list
+    # would hide the collision instead of reporting it.
+    if isinstance(obj, tuple):
+        raise ValueError(
+            f"tuple at {_path or '<root>'}: JSON serialises it identically to a "
+            f"list, so this payload would canonicalise to the same bytes as one "
+            f"using list({obj!r}) — two different values sharing one signature. "
+            f"Convert to a list explicitly."
+        )
+
     if isinstance(obj, list):
         for i, x in enumerate(obj):
             _assert_nfc(x, f"{_path}[{i}]")

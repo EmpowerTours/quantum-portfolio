@@ -339,7 +339,7 @@ contract RT09_ThinTierFork is Test {
     /// The spread is the loss an operator's typo in APPROVED_FEE_TIERS would
     /// have locked into an immutable contract.
     function test_RT09h_ForkMeasuresTheThinTierLoss() public {
-        if (!forked) { emit log("SKIP: no MONAD_RPC_URL"); return; }
+        if (!forked) { vm.skip(true); return; }   // reports as SKIPPED, not PASSED
 
         (bool ok3000, uint256 out3000) = _quote(3000, 1 ether);
         (bool ok500,  uint256 out500)  = _quote(500,  1 ether);

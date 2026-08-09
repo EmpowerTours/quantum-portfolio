@@ -155,7 +155,7 @@ contract RT04_ForkEconomics is Test {
     /// — the attacker can only deny service, and denial is free to recover
     /// from because a failed execution does not consume the anchor.
     function test_RT04a_SandwichCannotLandAgainstABoundFloor() public {
-        if (!forked) { emit log("SKIP: no MONAD_RPC_URL"); return; }
+        if (!forked) { vm.skip(true); return; }   // reports as SKIPPED, not PASSED
 
         uint256 fair = _measureFair(keccak256("baseline"));
 
@@ -193,7 +193,7 @@ contract RT04_ForkEconomics is Test {
     /// floor the agent picks is now the whole defence, so a sloppy generous
     /// floor is the remaining exposure.
     function test_RT04c_ResidualMevIsBoundedByTheAnchoredTolerance() public {
-        if (!forked) { emit log("SKIP: no MONAD_RPC_URL"); return; }
+        if (!forked) { vm.skip(true); return; }   // reports as SKIPPED, not PASSED
 
         uint256 fair = _measureFair(keccak256("baseline2"));
 
@@ -224,7 +224,7 @@ contract RT04_ForkEconomics is Test {
     /// derivation. Create a market on real Morpho and check the adapter's
     /// keccak256(abi.encode(params)) indexes it.
     function test_RT04b_MarketIdDerivationMatchesRealMorpho() public {
-        if (!forked) { emit log("SKIP: no MONAD_RPC_URL"); return; }
+        if (!forked) { vm.skip(true); return; }   // reports as SKIPPED, not PASSED
 
         IMorphoFull mo = IMorphoFull(MORPHO);
         address irm = address(new DummyIrm());

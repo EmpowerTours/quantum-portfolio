@@ -437,7 +437,7 @@ contract RT07_SentinelBypassFork is Test {
     ///
     /// The guard now fires against the real router, before any swap.
     function test_RT07f_ForkGuardNowFiresOnARoundedToZeroLeg() public {
-        if (!forked) { emit log("SKIP: no MONAD_RPC_URL"); return; }
+        if (!forked) { vm.skip(true); return; }   // reports as SKIPPED, not PASSED
 
         vm.startPrank(victimLP);
         IWrappedNative(WMON).deposit{ value: 5 ether }();

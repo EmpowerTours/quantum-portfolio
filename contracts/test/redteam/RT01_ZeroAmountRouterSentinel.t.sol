@@ -109,7 +109,7 @@ contract RT01_ZeroAmountRouterSentinel is Test {
     /// calling the router DIRECTLY with amountIn == 0 spends the ROUTER's own
     /// balance and pays out to `recipient`, with no approval and no balance.
     function test_RT01a_RouterTreatsZeroAmountInAsSweepItsOwnBalance() public {
-        if (!forked) { emit log("SKIP: no MONAD_RPC_URL"); return; }
+        if (!forked) { vm.skip(true); return; }   // reports as SKIPPED, not PASSED
 
         _strandWmonInRouter(1 ether);
         assertEq(IERC20(WMON).balanceOf(ROUTER), 1 ether, "setup");
@@ -142,7 +142,7 @@ contract RT01_ZeroAmountRouterSentinel is Test {
     /// draining 3 WMON from the router; the vault now refuses the zero-weight
     /// leg before any swap, and the router's balance is untouched.
     function test_RT01b_ZeroWeightLegNowRevertsInsteadOfSweepingRouter() public {
-        if (!forked) { emit log("SKIP: no MONAD_RPC_URL"); return; }
+        if (!forked) { vm.skip(true); return; }   // reports as SKIPPED, not PASSED
 
         _strandWmonInRouter(3 ether);
         uint256 routerBefore = IERC20(WMON).balanceOf(ROUTER);
@@ -173,7 +173,7 @@ contract RT01_ZeroAmountRouterSentinel is Test {
     /// balance into a hash-anchored trade record. Now no Routed event can be
     /// emitted at all for such an allocation.
     function test_RT01e_NoRoutedEventCanBeEmittedForAZeroWeightLeg() public {
-        if (!forked) { emit log("SKIP: no MONAD_RPC_URL"); return; }
+        if (!forked) { vm.skip(true); return; }   // reports as SKIPPED, not PASSED
 
         _strandWmonInRouter(2 ether);
 
@@ -210,7 +210,7 @@ contract RT01_ZeroAmountRouterSentinel is Test {
     /// vault boundary with a named error that tells the agent exactly which
     /// leg to drop before signing.
     function test_RT01d_ZeroWeightLegFailsFastWithNamedError() public {
-        if (!forked) { emit log("SKIP: no MONAD_RPC_URL"); return; }
+        if (!forked) { vm.skip(true); return; }   // reports as SKIPPED, not PASSED
 
         assertEq(IERC20(WMON).balanceOf(ROUTER), 0, "precondition: router empty");
 
