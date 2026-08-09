@@ -791,6 +791,72 @@ def _dyn_addr_array(vals: list[str]) -> bytes:
     return _word(len(vals)) + b"".join(_addr_word(a) for a in vals)
 
 
+def route_params_hash(ex: RouteExecution) -> bytes:
+    """keccak256 over the route parameters, WITHOUT the order hash.
+
+    This is the value embedded in the signed order as `exec_commitment`, so
+    that the post-quantum signature itself covers the exact execution. The
+    executor recomputes it from its own calldata and compares.
+
+    The order hash is deliberately EXCLUDED. `order_hash = sha256(canonical
+    order bytes)`, and those bytes will now contain this value — including the
+    order hash here would make the two mutually recursive and unsatisfiable.
+    Nothing is lost: the executor is handed the order preimage and checks
+    `sha256(preimage) == orderHash` itself, so the order binding is
+    established directly rather than by inclusion.
+
+    Mirrors `PQExecBinding.routeParamsHash` in Solidity byte for byte.
+    """
+    if any(f < 0 or f > 0xFFFFFF for f in ex.fee_tiers):
+        raise ValueError("each fee tier must fit in uint24")
+    if any(w < 0 or w > 0xFFFF for w in ex.weights_bps):
+        raise ValueError("each weight must fit in uint16")
+
+    tails = [
+        _dyn_addr_array(ex.token_outs),
+        _dyn_uint_array(ex.fee_tiers),
+        _dyn_uint_array(ex.weights_bps),
+        _dyn_uint_array(ex.amount_out_min),
+    ]
+    head_size = 9 * 32          # one word fewer than route_commitment: no orderHash
+    offs, running = [], head_size
+    for t in tails:
+        offs.append(running)
+        running += len(t)
+
+    head = (
+        _word(ex.chain_id)
+        + _addr_word(ex.vault)
+        + _addr_word(ex.user)
+        + _word(offs[0])
+        + _word(offs[1])
+        + _word(offs[2])
+        + _word(ex.amount_in_wei)
+        + _word(offs[3])
+        + _word(ex.deadline)
+    )
+    return _keccak256(head + b"".join(tails))
+
+
+def supply_params_hash(ex: "SupplyExecution") -> bytes:
+    """keccak256 over the supply parameters, WITHOUT the order hash.
+
+    Same construction and same reasoning as `route_params_hash`. Mirrors
+    `PQExecBinding.supplyParamsHash`.
+    """
+    return _keccak256(
+        _word(ex.chain_id)
+        + _addr_word(ex.adapter)
+        + _addr_word(ex.user)
+        + _addr_word(ex.loan_token)
+        + _addr_word(ex.collateral_token)
+        + _addr_word(ex.oracle)
+        + _addr_word(ex.irm)
+        + _word(ex.lltv)
+        + _word(ex.max_assets)
+    )
+
+
 def route_commitment(ex: RouteExecution, order_hash: bytes) -> bytes:
     """keccak256 of the ABI encoding UniswapRoutingVault.routeCommitment builds.
 
