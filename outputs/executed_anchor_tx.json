@@ -1,23 +1,23 @@
 {
   "_comment": "The anchor transaction that ACTUALLY EXECUTED on Monad mainnet, fetched from chain rather than constructed. Its calldata carries the SHA-256 and execution commitment of outputs/signed_orders.json; verify with verify_claims.py --chain, or decode the fields below by hand.",
-  "txHash": "0x8702d6a99fa070ed97032e73351e7167f8ef278da20b7b9ce3d1730866d40a7d",
-  "explorer": "https://monadscan.com/tx/0x8702d6a99fa070ed97032e73351e7167f8ef278da20b7b9ce3d1730866d40a7d",
+  "txHash": "0xcf0cdd9f8790eebf1522bb4b36c445d46e15b4e5aa3377038bae941cd5f5a8e7",
+  "explorer": "https://monadscan.com/tx/0xcf0cdd9f8790eebf1522bb4b36c445d46e15b4e5aa3377038bae941cd5f5a8e7",
   "chainId": 143,
   "type": 2,
   "from": "0x8df64bacf6b70f7787f8d14429b258b3ff958ec1",
   "to": "0x8422b555dce11913a4657c2f47c839637fc71ffd",
-  "nonce": 397,
-  "gas": 110879,
-  "gasUsed": 110879,
+  "nonce": 428,
+  "gas": 90000,
+  "gasUsed": 90000,
   "status": 1,
-  "blockNumber": 91696262,
+  "blockNumber": 94694907,
   "value": 0,
-  "data": "0x15954b2cd8bf15515669ef1f1d912c6d505d056b1f4ccd5cc6aebcae1b223c05cb8915f91a920f302c870dbb450bae2565e7dc45103fc9420576681d35d95fb7f3b311870000000000000000000000000000000000000000000000000000000000000000",
+  "data": "0x15954b2caee5fdf0e3ec0fcb68617877692b2e959061514da3757f91caf3bc3a229b3ee9a0499d9315573f7644d91c059c7b8ffc27464482407b61cf82407b86282caa000000000000000000000000000000000000000000000000000000000000000002",
   "decoded": {
     "selector": "0x15954b2c",
     "function": "anchor(bytes32 orderHash, bytes32 execCommitment, uint64 seq)",
-    "orderHash": "0xd8bf15515669ef1f1d912c6d505d056b1f4ccd5cc6aebcae1b223c05cb8915f9",
-    "execCommitment": "0x1a920f302c870dbb450bae2565e7dc45103fc9420576681d35d95fb7f3b31187",
-    "seq": 0
+    "orderHash": "0xaee5fdf0e3ec0fcb68617877692b2e959061514da3757f91caf3bc3a229b3ee9",
+    "execCommitment": "0xa0499d9315573f7644d91c059c7b8ffc27464482407b61cf82407b86282caa00",
+    "seq": 2
   }
 }

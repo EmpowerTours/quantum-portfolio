@@ -282,7 +282,7 @@ We do not claim otherwise. `SECURITY.md` states this before anyone asks — it i
 
 <h3>Proof, not promises</h3>
 
-# Live on Monad MAINNET.<br>335 tests. ZK-verified.
+# Live on Monad MAINNET.<br>342 tests. ZK-verified.
 
 <div class="grid-3">
 
@@ -304,8 +304,8 @@ We do not claim otherwise. `SECURITY.md` states this before anyone asks — it i
 
 <table class="addrs">
 <tr><td class="cn">AuditAnchorV2</td><td><a href="https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd">0x8422b555dce11913a4657c2f47c839637fc71ffd</a></td></tr>
-<tr><td class="cn">UniswapRoutingVault</td><td><a href="https://monadscan.com/address/0x06f233062ee23590e5cc873df511024f3d981e56">0x06f233062ee23590e5cc873df511024f3d981e56</a></td></tr>
-<tr><td class="cn">MorphoSupplyAdapter</td><td><a href="https://monadscan.com/address/0x8d5ae2f23e5d20bfb7915168d6b2a3ce753fe49e">0x8d5ae2f23e5d20bfb7915168d6b2a3ce753fe49e</a></td></tr>
+<tr><td class="cn">UniswapRoutingVault</td><td><a href="https://monadscan.com/address/0xdaea22d6dcb37fbf1462d6d08ade40a8fac05144">0xdaea22d6dcb37fbf1462d6d08ade40a8fac05144</a></td></tr>
+<tr><td class="cn">MorphoSupplyAdapter</td><td><a href="https://monadscan.com/address/0xe3de921790d04656f2640fa1edd75492e911ffa6">0xe3de921790d04656f2640fa1edd75492e911ffa6</a></td></tr>
 <tr><td class="cn">MLDSAAttestation</td><td><a href="https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da">0xb0aadafe68647578520e988b4444e556c300b4da</a></td></tr>
 </table>
 
@@ -321,9 +321,9 @@ We do not claim otherwise. `SECURITY.md` states this before anyone asks — it i
 
 <tr><th>Step</th><th>Contract</th><th>What happened (Monad mainnet)</th></tr>
 <tr><td>1. Attest</td><td><a href="https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da"><code>MLDSAAttestation</code></a></td><td>Order's <strong>ML-DSA-65 signature verified on-chain via ZK proof</strong> (1.20M gas measured, vs ~500M estimated for native EVM ML-DSA); <code>pqAttested = true</code></td></tr>
-<tr><td>2. Anchor</td><td><a href="https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd"><code>AuditAnchorV2</code></a></td><td>Hash <code>0xd8bf1551…15f9</code> committed, immutable</td></tr>
-<tr><td>3. Swap</td><td><a href="https://monadscan.com/address/0x06f233062ee23590e5cc873df511024f3d981e56"><code>UniswapRoutingVault</code></a></td><td>0.1 MON → <strong>2,123 micro-USDC</strong> (0.002123 USDC ≈ $0.002 — a deliberately tiny live-value demo) via live Uniswap v3, anchor-gated</td></tr>
-<tr><td>4. Yield</td><td><a href="https://monadscan.com/address/0x8d5ae2f23e5d20bfb7915168d6b2a3ce753fe49e"><code>MorphoSupplyAdapter</code></a></td><td>USDC supplied into a live <strong>Morpho</strong> market (~4.75% APY), non-custodial</td></tr>
+<tr><td>2. Anchor</td><td><a href="https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd"><code>AuditAnchorV2</code></a></td><td>Hash <code>0xaee5fdf0…3ee9</code> committed, immutable</td></tr>
+<tr><td>3. Swap</td><td><a href="https://monadscan.com/address/0xdaea22d6dcb37fbf1462d6d08ade40a8fac05144"><code>UniswapRoutingVault</code></a></td><td>0.1 MON → <strong>2,123 micro-USDC</strong> (0.002123 USDC ≈ $0.002 — a deliberately tiny live-value demo) via live Uniswap v3, anchor-gated</td></tr>
+<tr><td>4. Yield</td><td><a href="https://monadscan.com/address/0xe3de921790d04656f2640fa1edd75492e911ffa6"><code>MorphoSupplyAdapter</code></a></td><td>USDC supplied into a live <strong>Morpho</strong> market (~4.75% APY), non-custodial</td></tr>
 
 </table>
 
@@ -507,7 +507,7 @@ No conversation with any institution has happened. We would rather be marked dow
 **What does exist, and is checkable:**
 - 4 contracts live on Monad **mainnet**, Monadscan-verified
 - one end-to-end run with **real value**
-- **335 tests**, 0 skipped
+- **342 tests**, 0 skipped with an RPC endpoint
 - 2 IBM Heron runs, job IDs + raw counts published
 - every documented reviewer command **executed in CI**
 
@@ -575,7 +575,7 @@ Runs everything outside the codebase — company, operations and delivery. Empow
 
 <br>
 
-> Two people shipped four verified mainnet contracts, a ZK circuit, and 335 passing tests. That is the argument for a pilot — and the reason the ask is a counterparty, not headcount.
+> Two people shipped four verified mainnet contracts, a ZK circuit, and 342 passing tests. That is the argument for a pilot — and the reason the ask is a counterparty, not headcount.
 
 </div>
 

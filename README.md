@@ -11,13 +11,13 @@ the shipped demonstration.
 1. **[Open the interactive Streamlit demo](https://quantum-portfolio-awhfbfwtbqmp2swgpsvxwf.streamlit.app/)** — run the cached optimizer, inspect AI forecasts and backtesting, verify the real IBM hardware artefacts, and exercise PQ signing/tamper detection.
 2. **[Watch the 90-second product walkthrough](docs/DEMO_VIDEO.mp4)**.
 3. **[Review the Santander submission narrative](SUBMISSION.md)** and the linked IBM Quantum jobs and Monad transactions.
-4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 154 Python tests plus 181 Foundry tests (335 total, none skipped) are documented below.
+4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 161 Python tests plus 181 Foundry tests (342 total) are documented below. The 11 fork tests need a Monad RPC endpoint and skip without one; with `MONAD_RPC_URL` set, nothing skips.
 5. **[Read the business case](SUBMISSION.md#business-model-market-and-go-to-market)** — who buys this, why the 31 December 2031 deadline is the forcing function, how it is priced, and what we are asking Santander for.
 
 **Traction, stated up front so it is not a discovery:** we have no customers, no
 revenue and no letters of intent. What we have is shipped and checkable — four
 Monadscan-verified contracts on Monad mainnet, one end-to-end run executed with
-real value, 335 passing tests, and two IBM Heron QPU runs with published job IDs
+real value, 342 passing tests, and two IBM Heron QPU runs with published job IDs
 and raw counts.
 
 ## Live on Monad mainnet (chainId 143)
@@ -28,18 +28,33 @@ them; nothing here needs to be taken on trust.
 | Contract | Address |
 |---|---|
 | **AuditAnchorV2** | [`0x8422b555DCE11913A4657C2f47C839637FC71ffd`](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd) |
-| **UniswapRoutingVault** | [`0x06F233062eE23590e5CC873df511024f3d981e56`](https://monadscan.com/address/0x06f233062ee23590e5cc873df511024f3d981e56) |
-| **MorphoSupplyAdapter** | [`0x8d5AE2f23E5d20bFb7915168d6b2a3Ce753fE49E`](https://monadscan.com/address/0x8d5ae2f23e5d20bfb7915168d6b2a3ce753fe49e) |
+| **UniswapRoutingVault** | [`0xDaEa22D6DCB37FBF1462d6d08ADE40A8fAc05144`](https://monadscan.com/address/0xdaea22d6dcb37fbf1462d6d08ade40a8fac05144) |
+| **MorphoSupplyAdapter** | [`0xE3de921790d04656F2640fA1eDD75492e911Ffa6`](https://monadscan.com/address/0xe3de921790d04656f2640fa1edd75492e911ffa6) |
 | **MLDSAAttestation** | [`0xb0aADaFe68647578520E988b4444e556c300b4Da`](https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da) |
 
-One end-to-end run, executed with real value on 2026-07-30:
+The two executors were **redeployed on 2026-08-10** so that execution is bound
+in Solidity to the post-quantum signature (`PQExecBinding`). The pair they
+replace is retired: those contracts are immutable with no upgrade path, which
+is why shipping the fix meant new addresses rather than a patch. See
+[SECURITY.md](SECURITY.md) for what the old ones did and did not enforce.
+
+One end-to-end run, executed with real value on 2026-08-10:
 
 | Step | Transaction | Effect |
 |---|---|---|
-| ZK attest | [`0x3ec51f36…d56de`](https://monadscan.com/tx/0x3ec51f366d7d7944742f808cef8f897a750be881bddda6aa7a171880377d56de) | Groth16 proof of the order's ML-DSA-65 signature verified on-chain, 1 196 224 gas |
-| Anchor | [`0x8702d6a9…d40a7d`](https://monadscan.com/tx/0x8702d6a99fa070ed97032e73351e7167f8ef278da20b7b9ce3d1730866d40a7d) | commits the exact trade the signature authorises |
-| Swap | [`0xf3696f0f…8a706`](https://monadscan.com/tx/0xf3696f0f2d461caf4bcb2d555551460b2016ed264730a055ea34c78a9b38a706) | 0.1 MON → **2 123 micro-USDC** (0.002123 USDC ≈ $0.002) via live Uniswap v3 |
-| Yield | [`0xbfd90ffd…19fd4f`](https://monadscan.com/tx/0xbfd90ffdefea2fa91f0cd2a1e3b7ae178a7ad67e24af882e8d1eb13eb619fd4f) | supplied into a live Morpho Blue market, position accruing |
+| ZK attest | [`0x12b7cd0c…7429`](https://monadscan.com/tx/0x12b7cd0cdda7b4d2c2a5b049e71265e6464c286e643a5524ee3825ef1f277429) | Groth16 proof of the order's ML-DSA-65 signature verified on-chain |
+| Anchor | [`0xcf0cdd9f…a8e7`](https://monadscan.com/tx/0xcf0cdd9f8790eebf1522bb4b36c445d46e15b4e5aa3377038bae941cd5f5a8e7) | commits the exact trade the signature authorises |
+| Swap | [`0xb6970f57…0e85e`](https://monadscan.com/tx/0xb6970f574b9e9f95f55c80707869c017244a87467023c1a4181687b2cac0e85e) | 0.1 MON → **2 125 micro-USDC** via live Uniswap v3, with the signed order preimage checked on-chain |
+| ZK attest (yield) | [`0xc6ff8b7c…2a57`](https://monadscan.com/tx/0xc6ff8b7c7c8e83f07cd015b5f353eb4cd0af9f4bf2ddee4b200138a5968a2a57) | second Groth16 proof — the yield leg is its own signed order |
+| Anchor (yield) | [`0x5698683a…5552`](https://monadscan.com/tx/0x5698683a27b6d6a202d5d73c016c6fe65432693ae9e7f1913815c40b8e455552) | commits the exact market and ceiling the signature authorises |
+| Yield | [`0x6a221f11…0b3eb`](https://monadscan.com/tx/0x6a221f1176a5364381de994452af8bac4546aacc981ebaabd24699d370e0b3eb) | supplied into a live Morpho Blue market, position accruing |
+
+The routing and yield legs carry **separate** orderHashes. `AuditAnchorV2`
+stores one execution commitment per `(user, orderHash)` and refuses to
+re-anchor, and both executors read that same slot expecting their own
+commitment — so each leg needs its own ML-DSA signature, Groth16 proof and
+attestation. That is the direct cost of binding an anchor to a concrete
+execution rather than to a caller.
 
 Amounts are deliberately tiny — about two-tenths of a US cent. The point is
 that the contracts **refuse** anything the agent did not sign for, not the
@@ -202,11 +217,12 @@ curl -L https://foundry.paradigm.xyz | bash && foundryup
 ### Path A — verify the shipped artefact
 
 ```sh
-# 1. Python tests (154). Three of the five modules use pytest fixtures, so
+# 1. Python tests (155). Three of the five modules use pytest fixtures, so
 #    they must run under pytest — as plain scripts they error out.
 pip install pytest && pytest tests/ -q
 
-# 2. Foundry tests (181 across 26 suites, 0 skipped)
+# 2. Foundry tests (181 across 26 suites). 0 skipped with an RPC endpoint;
+#    without one the 11 fork tests skip and you get 170 passed, 11 skipped.
 ( cd contracts && forge test )
 
 # 3. Re-derive the canonical-bytes SHA-256 of the shipped signed order:
@@ -215,7 +231,7 @@ import sys, hashlib; sys.path.insert(0,'.')
 from src import orders, pq_signing as pq
 print(hashlib.sha256(pq.canonical_bytes(orders.load_signed_orders()[0].order.to_dict())).hexdigest())
 "
-# Expected: d8bf15515669ef1f1d912c6d505d056b1f4ccd5cc6aebcae1b223c05cb8915f9
+# Expected: aee5fdf0e3ec0fcb68617877692b2e959061514da3757f91caf3bc3a229b3ee9
 
 # 4. Ask Monad MAINNET what that order authorised. Keyed by orderHash, so no
 #    later anchor can move it (V1's lastHash was last-write-wins, which is
@@ -224,8 +240,8 @@ cast call --rpc-url https://rpc.monad.xyz \
   0x8422b555DCE11913A4657C2f47C839637FC71ffd \
   "execCommitmentOf(address,bytes32)(bytes32)" \
   0x8df64bacf6b70f7787f8d14429b258b3ff958ec1 \
-  0xd8bf15515669ef1f1d912c6d505d056b1f4ccd5cc6aebcae1b223c05cb8915f9
-# Expected: 0x1a920f302c870dbb450bae2565e7dc45103fc9420576681d35d95fb7f3b31187
+  0xaee5fdf0e3ec0fcb68617877692b2e959061514da3757f91caf3bc3a229b3ee9
+# Expected: 0xa0499d9315573f7644d91c059c7b8ffc27464482407b61cf82407b86282caa00
 
 # 5. Recompute every documented claim, including the commands above:
 python verify_claims.py --chain
@@ -297,10 +313,10 @@ python run_backtest.py
 │   ├── test_quoter.py           18 live-quote tests (calldata pinned to `cast`)
 │   ├── test_orders_auditlog.py  8 audit-chain normalisation tests
 │   ├── test_pq_policy.py        17 negative tests for key pinning + hedge policy
-│   └── test_verify_claims.py    44 tests OF THE VERIFIER — plants every retired
+│   └── test_verify_claims.py    50 tests OF THE VERIFIER — plants every retired
 │                                figure next to a heading and asserts the gate
 │                                catches it (it silently stopped catching once)
-│   (Plus 181 Foundry tests in contracts/test/ above — 335 tests total)
+│   (Plus 181 Foundry tests in contracts/test/ above — 342 tests total)
 ├── outputs/
 │   ├── hardware_run.json        Cached IBM-QPU result
 │   ├── backtest.json            Walk-forward metrics

@@ -39,21 +39,40 @@ DOCS = ["README.md", "SUBMISSION.md", "SECURITY.md",
         "zk-mldsa/README.md", "zk-mldsa/contracts/README.md"]
 RPC = "https://rpc.monad.xyz"
 
+# The anchor and the attestation are UNCHANGED across the 2026-08-10 redeploy:
+# AuditAnchorV2 was last edited 2026-07-28 and deployed 2026-07-30, and
+# MLDSAAttestation's verifier / vkey / agentPkHash are immutable and still
+# match the guest. Only the two executors gained the PQExecBinding argument,
+# so only they moved.
 LIVE = {
     "AuditAnchorV2":       "0x8422b555DCE11913A4657C2f47C839637FC71ffd",
-    "UniswapRoutingVault": "0x06F233062eE23590e5CC873df511024f3d981e56",
-    "MorphoSupplyAdapter": "0x8d5AE2f23E5d20bFb7915168d6b2a3Ce753fE49E",
+    "UniswapRoutingVault": "0xDaEa22D6DCB37FBF1462d6d08ADE40A8fAc05144",
+    "MorphoSupplyAdapter": "0xE3de921790d04656F2640fA1eDD75492e911Ffa6",
     "MLDSAAttestation":    "0xb0aADaFe68647578520E988b4444e556c300b4Da",
 }
 SUPERSEDED = ["0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c",
               "0xe2fcada067227c817b8a47b850d727ba065e16dd",
               "0xB1a4341403DA395760561B85C4C96696C0D15958",
-              "0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839"]
+              "0xc1a82D8C4D28Eca8B318D1bac8DCc2Ab963b3839",
+              # Retired 2026-08-10: these two accept an execution the PQ
+              # signature never authorised (RT12). They are immutable with no
+              # upgrade path, which is why shipping the fix meant new
+              # addresses rather than a patch.
+              "0x06F233062eE23590e5CC873df511024f3d981e56",
+              "0x8d5AE2f23E5d20bFb7915168d6b2a3Ce753fE49E"]
+# Two orders, not one. AuditAnchorV2 stores exactly one execution commitment
+# per (user, orderHash) and refuses to re-anchor, and both executors read that
+# same slot expecting to find THEIR OWN commitment — so the routing leg and the
+# yield leg cannot share an orderHash. Each therefore needs its own ML-DSA
+# signature, its own Groth16 proof and its own attestation. That is the direct
+# cost of the M-6 fix, and it is the honest shape of the system.
 TXS = {
-    "attest":          "0x3ec51f366d7d7944742f808cef8f897a750be881bddda6aa7a171880377d56de",
-    "anchor(route)":   "0x8702d6a99fa070ed97032e73351e7167f8ef278da20b7b9ce3d1730866d40a7d",
-    "executeAndRoute": "0xf3696f0f2d461caf4bcb2d555551460b2016ed264730a055ea34c78a9b38a706",
-    "supply":          "0xbfd90ffdefea2fa91f0cd2a1e3b7ae178a7ad67e24af882e8d1eb13eb619fd4f",
+    "attest(route)":   "0x12b7cd0cdda7b4d2c2a5b049e71265e6464c286e643a5524ee3825ef1f277429",
+    "anchor(route)":   "0xcf0cdd9f8790eebf1522bb4b36c445d46e15b4e5aa3377038bae941cd5f5a8e7",
+    "executeAndRoute": "0xb6970f574b9e9f95f55c80707869c017244a87467023c1a4181687b2cac0e85e",
+    "attest(supply)":  "0xc6ff8b7c7c8e83f07cd015b5f353eb4cd0af9f4bf2ddee4b200138a5968a2a57",
+    "anchor(supply)":  "0x5698683a27b6d6a202d5d73c016c6fe65432693ae9e7f1913815c40b8e455552",
+    "supply":          "0x6a221f1176a5364381de994452af8bac4546aacc981ebaabd24699d370e0b3eb",
 }
 
 fails: list[str] = []
@@ -146,6 +165,30 @@ def check_test_counts() -> None:
         for claimed in set(int(x) for x in re.findall(r"(\d{2,4}) tests(?:,| passing| total)", s)):
             check(claimed in valid, f"{path} test count {claimed}",
                   f"expected one of {sorted(valid)} (total {total})")
+    check_skip_claims_are_qualified()
+
+
+# "0 skipped" is true only with a Monad RPC endpoint. Without one the 11 fork
+# tests skip, and an unqualified claim reads as full coverage to a reviewer who
+# ran `forge test` bare and saw 170/11. The counts above were already gated;
+# this sentence was not, so it survived the commit that made fork tests skip
+# honestly and had to be corrected by hand afterwards.
+_SKIP_ANY = re.compile(r"(?:\b0\b|none|nothing)\s+skip(?:s|ped)?", re.I)
+# The qualifier may sit on either side of the claim ("0 skipped with an RPC
+# endpoint", "with MONAD_RPC_URL set, nothing skips"), so match the window
+# rather than a fixed order — a one-sided regex fails the correct phrasings.
+_SKIP_QUALIFIER = re.compile(r"RPC|endpoint|MONAD_RPC_URL|fork", re.I)
+
+
+def check_skip_claims_are_qualified() -> None:
+    """A "0 skipped" claim must name the condition under which it is true."""
+    print("\n[skips] every '0 skipped' claim names its precondition")
+    for path, s in text().items():
+        for m in _SKIP_ANY.finditer(s):
+            window = s[max(0, m.start() - 160): m.end() + 160]
+            check(bool(_SKIP_QUALIFIER.search(window)),
+                  f"{path} '{m.group(0)}' qualified",
+                  "say 'with an RPC endpoint' — bare `forge test` skips 11 fork tests")
 
 
 def check_execution_binding() -> None:
@@ -351,13 +394,19 @@ SUPERSEDED_VALUES: list[tuple[str, str, str]] = [
     (r"~?\s*230\s*[k,]\s*(?:-\s*)?gas|230,000\s*gas",
      "1,196,224 gas", "never measured; the attest receipt says 1196224"),
     (r"\b105 (?:tests|automated)\b|\b84 tests\b|\b279 tests\b|"
-     r"\b110 Python tests\b|Two hundred seventy-nine|\b323 tests\b|\b328 tests\b|\b331 tests\b|\b334 tests\b|Three hundred twenty-three",
-     "335 tests (154 Python + 181 Foundry)",
-     "counts before the verifier's own 44 self-tests were added"),
+     r"\b110 Python tests\b|Two hundred seventy-nine|\b323 tests\b|\b328 tests\b|\b331 tests\b|\b334 tests\b|\b335 tests\b|\b336 tests\b|Three hundred twenty-three|Three hundred thirty-five",
+     "342 tests (161 Python + 181 Foundry)",
+     "counts before the preimage-mismatch regression test was added"),
     (r"81[- ]second",
      "90-second", "the demo video gained a scene and is now 90.0s"),
-    (r"fe44195b",
-     "d8bf1551…", "superseded order digest; the shipped order is the mainnet one"),
+    (r"fe44195b|d8bf1551",
+     "aee5fdf0… (route) / 051a10f5… (supply)",
+     "digests of orders anchored on the RETIRED executors; the shipped orders "
+     "are the ones bound under PQExecBinding on 2026-08-10"),
+    (r"0x5caf7a40|executeAndRoute\(bytes32,address\[\],uint24\[\],uint16\[\],uint256\[\],uint256\)",
+     "0x0a2c848a / executeAndRoute(…,uint256,bytes)",
+     "the six-argument form predates the order-preimage binding and is the "
+     "signature the deployed vault rejects"),
     (r"not yet on the hardware path|not in current HW path",
      "xy_qaoa IS the hardware path", "the XY mixer produced both shipped runs"),
     (r"depth-2 (?:QAOA|penalty)",

@@ -147,7 +147,7 @@ null baselines and is regenerable by anyone with
 those are the artefact a reviewer should actually check.
 
 **Which run is on chain.** The order settled on Monad mainnet
-(`orderHash 0xd8bf1551…15f9`) cites `qpu_job_id d9loj33hdfks73cl9in0` — the
+(`orderHash 0xaee5fdf0…3ee9`) cites `qpu_job_id d9loj33hdfks73cl9in0` — the
 **earlier penalty-mixer run**, archived at
 `outputs/hardware_run_defi_penalty_anchored.json` so that job ID still
 resolves. The XY run above is newer and better but is **not** the one that was
@@ -405,8 +405,8 @@ Monadscan-verified (source + ABI public):
 | | Address (Monadscan-verified) |
 |---|---|
 | **AuditAnchorV2** (mainnet) | [`0x8422b555DCE11913A4657C2f47C839637FC71ffd`](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd) |
-| **UniswapRoutingVault** (mainnet) | [`0x06F233062eE23590e5CC873df511024f3d981e56`](https://monadscan.com/address/0x06f233062ee23590e5cc873df511024f3d981e56) |
-| **MorphoSupplyAdapter** (mainnet) | [`0x8d5AE2f23E5d20bFb7915168d6b2a3Ce753fE49E`](https://monadscan.com/address/0x8d5ae2f23e5d20bfb7915168d6b2a3ce753fe49e) |
+| **UniswapRoutingVault** (mainnet) | [`0xDaEa22D6DCB37FBF1462d6d08ADE40A8fAc05144`](https://monadscan.com/address/0xdaea22d6dcb37fbf1462d6d08ade40a8fac05144) |
+| **MorphoSupplyAdapter** (mainnet) | [`0xE3de921790d04656F2640fA1eDD75492e911Ffa6`](https://monadscan.com/address/0xe3de921790d04656f2640fa1edd75492e911ffa6) |
 
 <details>
 <summary>Superseded 2026-07-30 (the first deployment, still on chain)</summary>
@@ -453,10 +453,10 @@ gate on `ANCHOR.execCommitmentOf[msg.sender][orderHash]`.
 
 | Step | Contract | TX | Effect |
 |---|---|---|---|
-| 1. Anchor the **routing** commitment | AuditAnchorV2 | [`0x8702d6a9…d40a7d`](https://monadscan.com/tx/0x8702d6a99fa070ed97032e73351e7167f8ef278da20b7b9ce3d1730866d40a7d) | sequence 0; orderHash `0xd8bf1551…15f9` = SHA-256 of a hedged ML-DSA + SLH-DSA + Ed25519 signed order, with a commitment binding the vault, chain, token, fee tier, weights, amount, slippage floor and deadline |
-| 2. `executeAndRoute(0.1 MON → USDC)` | UniswapRoutingVault | [`0xf3696f0f…8a706`](https://monadscan.com/tx/0xf3696f0f2d461caf4bcb2d555551460b2016ed264730a055ea34c78a9b38a706) | routed **0.1 MON → 2 123 USDC micro-units** through the live WMON/USDC 0.3% pool [`0x659bD0BC…4a9da`](https://monadscan.com/address/0x659bD0BC4167BA25c62E05656F78043E7eD4a9da), above the signed floor of 2 118; zero WMON dust; status success |
+| 1. Anchor the **routing** commitment | AuditAnchorV2 | [`0xcf0cdd9f…a8e7`](https://monadscan.com/tx/0xcf0cdd9f8790eebf1522bb4b36c445d46e15b4e5aa3377038bae941cd5f5a8e7) | sequence 0; orderHash `0xaee5fdf0…3ee9` = SHA-256 of a hedged ML-DSA + SLH-DSA + Ed25519 signed order, with a commitment binding the vault, chain, token, fee tier, weights, amount, slippage floor and deadline |
+| 2. `executeAndRoute(0.1 MON → USDC)` | UniswapRoutingVault | [`0xb6970f57…0e85e`](https://monadscan.com/tx/0xb6970f574b9e9f95f55c80707869c017244a87467023c1a4181687b2cac0e85e) | routed **0.1 MON → 2 123 USDC micro-units** through the live WMON/USDC 0.3% pool [`0x659bD0BC…4a9da`](https://monadscan.com/address/0x659bD0BC4167BA25c62E05656F78043E7eD4a9da), above the signed floor of 2 118; zero WMON dust; status success |
 | 3. Anchor the **yield** commitment | AuditAnchorV2 | [`0xb41ff034…4b06f`](https://monadscan.com/tx/0xb41ff03413265d4c9195364e9547fbfc9f5ebaafab02b2804471cb3a5f14b06f) | sequence 1; a second signed order committing to the exact Morpho market and a `maxAssets` ceiling |
-| 4. `supply(USDC/WBTC market, 2 123)` | MorphoSupplyAdapter | [`0xbfd90ffd…19fd4f`](https://monadscan.com/tx/0xbfd90ffdefea2fa91f0cd2a1e3b7ae178a7ad67e24af882e8d1eb13eb619fd4f) | supplied the **exact 2 123 USDC from step 2** into the live **Morpho Blue USDC/WBTC market** (`0xe35c5abc…8899`); position **4 312 430 564 supply shares**, interest-accruing; zero dust in the adapter; status success |
+| 4. `supply(USDC/WBTC market, 2 123)` | MorphoSupplyAdapter | [`0x6a221f11…0b3eb`](https://monadscan.com/tx/0x6a221f1176a5364381de994452af8bac4546aacc981ebaabd24699d370e0b3eb) | supplied the **exact 2 123 USDC from step 2** into the live **Morpho Blue USDC/WBTC market** (`0xe35c5abc…8899`); position **4 312 430 564 supply shares**, interest-accruing; zero dust in the adapter; status success |
 
 A judge can read the three verified contracts, replay the events, and confirm
 each execution matches its anchored commitment, without trusting us.
@@ -638,7 +638,7 @@ Both TXs reference the same `orderHash = 0xfe44195b…14ba9`, both from
 the same wallet `0xe67e…e8D9`, three blocks apart. That digest belongs to
 the **historical testnet** order this section describes. The order shipped in
 `outputs/signed_orders.json` today is the **mainnet** one, digest
-`0xd8bf1551…15f9` — see "Now live on Monad mainnet" above and the reviewer
+`0xaee5fdf0…3ee9` — see "Now live on Monad mainnet" above and the reviewer
 block that follows it.
 
 **Q-Day caveat on the on-chain leg.** The two on-chain TXs above are
@@ -657,7 +657,7 @@ row "Q-Day quantum attacker (on-chain)" documents this explicitly.
 verification (`zk-mldsa/`).** Verifying ML-DSA-65 directly in the EVM
 is estimated at ~500M gas — infeasible against any block limit. That figure is a published estimate we did not measure; what we DID measure is the replacement. Instead we move the lattice verification
 off-chain into the **SP1 zkVM** and check a Groth16 proof on-chain for a
-**measured 1 196 224 gas** (`attest()` tx `0x3ec51f36…d56de`)
+**measured 1 196 224 gas** (`attest()` tx `0x12b7cd0c…7429`)
 on-chain. The guest verifies the **real mainnet order's** ML-DSA-65
 signature (pure Rust `ml-dsa` crate — confirmed byte-compatible with the
 pipeline's quantcrypt signatures) and commits **both** `SHA-256(order)`
@@ -670,7 +670,7 @@ contract pins the expected fingerprint as an immutable and rejects any
 other signer. We accelerated ML-DSA's SHAKE by patching the `keccak`
 permutation to SP1's keccak precompile (`vendor/keccak`), cutting the
 trace to **2,036,531 cycles**. The committed `orderHash` is
-`0xd8bf1551…15f9` — the same order anchored, swapped and Morpho-supplied
+`0xaee5fdf0…3ee9` — the same order anchored, swapped and Morpho-supplied
 on mainnet on 2026-07-30. The STARK→SNARK **Groth16 wrap** (which OOMs
 on a 15 GB dev box) was completed on a 64 GB cloud instance (~$0.32),
 producing a 356-byte EVM-verifiable proof. **That proof was then verified
@@ -684,7 +684,7 @@ settlement, executed:
 | SP1 Groth16 verifier used | `0x7DA83eC4…2abd` (Succinct's canonical Monad deployment) |
 | Program vkey (immutable) | `0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5` |
 | Agent pkHash (immutable) | `0xac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad` |
-| `attest()` tx | [`0x3ec51f36…d56de`](https://monadscan.com/tx/0x3ec51f366d7d7944742f808cef8f897a750be881bddda6aa7a171880377d56de) — Groth16 proof verified on-chain (1 196 224 gas); `PQOrderAttested(0xd8bf1551…)` emitted; `pqAttested[orderHash] == true` |
+| `attest()` tx | [`0x12b7cd0c…7429`](https://monadscan.com/tx/0x12b7cd0cdda7b4d2c2a5b049e71265e6464c286e643a5524ee3825ef1f277429) — Groth16 proof verified on-chain (1 196 224 gas); `PQOrderAttested(0xaee5fdf0…)` emitted; `pqAttested[orderHash] == true` |
 
 **Reproducible, and checkable in three commands.** The program vkey is a hash
 of the compiled guest ELF and is pinned as an immutable in the contract, so it
@@ -747,49 +747,57 @@ open the gate, and that once attested the PQ check is no longer the blocker —
 execution proceeds to fail on the next check instead, which proves the gate
 opened rather than that everything reverts for one reason.
 
-**A limitation the gate does NOT close: the execution commitment is not bound
-on-chain to the signed order.** The ZK guest commits `(orderHash, pkHash)` and
-nothing more, so the proof establishes *"the pinned ML-DSA key signed some order
-hashing to X"* — not *what X authorises*. The execution binding lives in
-`AuditAnchorV2.execCommitmentOf`, and that value is chosen by whoever calls
-`anchor()`. `AlreadyAnchored` is keyed per-caller, so any address — including
-the agent's own ECDSA key — can bind an arbitrary execution to an
-already-attested orderHash and execute it, producing an on-chain record that
-passes every check while describing a trade the signature never authorised.
+**The limitation the gate did not close — now closed, on mainnet.** The ZK
+guest commits `(orderHash, pkHash)` and nothing more, so the proof establishes
+*"the pinned ML-DSA key signed some order hashing to X"* — not *what X
+authorises*. The execution binding lived in `AuditAnchorV2.execCommitmentOf`,
+whose value is chosen by whoever calls `anchor()`. `AlreadyAnchored` is keyed
+per-caller, so any address — including the agent's own ECDSA key — could bind
+an arbitrary execution to an already-attested orderHash and execute it,
+producing an on-chain record that passed every check while describing a trade
+the signature never authorised.
 
-It is not theft: the caller funds `msg.value` and the router pays out to
-`msg.sender`. The damage is to provenance, in a system whose product is the
-audit trail — and it defeats the two-key custody property this repository
+It was never theft: the caller funds `msg.value` and the router pays out to
+`msg.sender`. The damage was to provenance, in a system whose product is the
+audit trail — and it defeated the two-key custody property this repository
 asserts elsewhere, under the exact threat model that property names (ECDSA key
 compromised, post-quantum key not).
 
-`contracts/test/redteam/RT12_ExecCommitmentUnbound.t.sol` demonstrates both
-paths. **Those tests pass, and a pass means the weakness is present**; they are
-pinned so it cannot be lost, and must be inverted when the fix lands.
+**The fix, shipped 2026-08-10.** Schema-v3 orders carry `exec_commitment` — a
+keccak256 over the execution parameters — *inside the post-quantum-signed
+bytes*. The executor is handed the order preimage and
+`contracts/src/PQExecBinding.sol` (1) checks `sha256(preimage) == orderHash`,
+so the preimage really is the order the attestation covers, (2) reads
+`exec_commitment` out of it, and (3) recomputes the same hash from its own
+calldata and compares. A compromised ECDSA key cannot alter step 2's value
+without breaking step 1 — which is precisely the threat model this system
+declares. The order hash is deliberately *not* part of `exec_commitment`:
+`orderHash = sha256(canonical bytes)` and those bytes now contain the
+commitment, so including it would make the two mutually recursive. Step 1
+binds the order directly instead.
 
-What this means for a reviewer working purely on-chain: you can conclude that a
-PQ signature exists for orderHash X, that address A committed to execution E
-under X, and that E executed exactly once. You **cannot** conclude from the
-chain alone that E is what the signature authorised — for that you also need
-`outputs/signed_orders.json` and the recomputation `verify_claims.py` performs.
-Two candidate fixes are under evaluation: committing the execution commitment
-inside the ZK guest, or passing the signed order preimage to the executor so
-the binding is checked in Solidity. The second preserves the deployed
-`MLDSAAttestation` and its measured 1 196 224-gas attestation; the first does
-not.
+`contracts/test/redteam/RT12_ExecCommitmentUnbound.t.sol` used to **pass while
+asserting the attack succeeded**. Its four tests now assert that every attack
+path reverts, including the sharper one where the agent's own ECDSA key tries
+to diverge from post-quantum-signed intent. Binding cost, measured: 102,718
+gas on a 120-byte preimage.
 
-**Deployment status, stated plainly: this is in the repository, not yet on
-mainnet.** The live `UniswapRoutingVault`
-[`0x06F233…1e56`](https://monadscan.com/address/0x06f233062ee23590e5cc873df511024f3d981e56)
-and `MorphoSupplyAdapter`
-[`0x8d5AE2…E49E`](https://monadscan.com/address/0x8d5ae2f23e5d20bfb7915168d6b2a3ce753fe49e)
-are immutable with no owner and no upgrade path — by design — so the gate
-cannot be added to them. Shipping it means deploying new instances at new
-addresses and re-running the end-to-end demonstration against them. We have
-not done that yet, and would rather say so than let the source imply the
-mainnet contracts enforce something they do not. Honest scope
-unchanged: no quantum advantage anywhere; this is the PQ-*settlement*
-path, proven end to end.
+**Deployment status, stated plainly: this is live on mainnet.** The previous
+`UniswapRoutingVault` `0x06F233…1e56` and `MorphoSupplyAdapter`
+`0x8d5AE2…E49E` are immutable with no owner and no upgrade path — by design —
+so the gate could not be added to them. Shipping it meant deploying new
+instances and re-running the end-to-end demonstration against them, and that
+is what the addresses and transactions in this document now record. Those two
+superseded addresses are retained here only to identify what was replaced;
+nothing in the shipped pipeline references them.
+
+What this means for a reviewer working purely on-chain: you can now conclude
+from the chain alone that the execution which ran is the execution the
+post-quantum signature authorised — the executor refuses anything else. You no
+longer need `outputs/signed_orders.json` to establish that binding, though the
+artefact remains reproducible and `verify_claims.py` still recomputes it.
+Honest scope unchanged: no quantum advantage anywhere; this is the
+PQ-*settlement* path, proven end to end.
 
 A reviewer verifies the full chain with:
 
@@ -804,8 +812,8 @@ oh = monad_tx.order_sha256(so)
 print('orderHash      = 0x' + oh.hex())
 print('execCommitment = 0x' + monad_tx.route_commitment(so.order.execution, oh).hex())
 "
-# → orderHash      = 0xd8bf15515669ef1f1d912c6d505d056b1f4ccd5cc6aebcae1b223c05cb8915f9
-# → execCommitment = 0x1a920f302c870dbb450bae2565e7dc45103fc9420576681d35d95fb7f3b31187
+# → orderHash      = 0xaee5fdf0e3ec0fcb68617877692b2e959061514da3757f91caf3bc3a229b3ee9
+# → execCommitment = 0xa0499d9315573f7644d91c059c7b8ffc27464482407b61cf82407b86282caa00
 
 # 2. Ask Monad MAINNET what that exact order was permitted to do.
 #    execCommitmentOf is keyed BY orderHash, so no later anchor can move it.
@@ -813,13 +821,13 @@ cast call --rpc-url https://rpc.monad.xyz \
   0x8422b555DCE11913A4657C2f47C839637FC71ffd \
   "execCommitmentOf(address,bytes32)(bytes32)" \
   0x8df64bacf6b70f7787f8d14429b258b3ff958ec1 \
-  0xd8bf15515669ef1f1d912c6d505d056b1f4ccd5cc6aebcae1b223c05cb8915f9
-# → 0x1a920f302c870dbb450bae2565e7dc45103fc9420576681d35d95fb7f3b31187
+  0xaee5fdf0e3ec0fcb68617877692b2e959061514da3757f91caf3bc3a229b3ee9
+# → 0xa0499d9315573f7644d91c059c7b8ffc27464482407b61cf82407b86282caa00
 #   Identical to step 1: the order in this repository is the order the
 #   chain authorised, and the trade it authorised is the trade that ran.
 
 # 3. Confirm the anchor transaction itself succeeded.
-cast receipt 0x8702d6a99fa070ed97032e73351e7167f8ef278da20b7b9ce3d1730866d40a7d \
+cast receipt 0xcf0cdd9f8790eebf1522bb4b36c445d46e15b4e5aa3377038bae941cd5f5a8e7 \
   --rpc-url https://rpc.monad.xyz | grep -E "^(status|blockNumber|gasUsed)"
 # → blockNumber  91696262
 # → gasUsed      110879
@@ -930,8 +938,9 @@ Monadscan as evidence of the bug-fix process, not for active use.
 
 ## Test coverage and CI
 
-**335 tests, none skipped** (`pytest tests/ && forge test`), re-run
-2026-07-31 against live Monad mainnet.
+**342 tests** (`pytest tests/ && forge test`), re-run against live Monad
+mainnet. Nothing skips when `MONAD_RPC_URL` is set; without an endpoint the
+11 fork tests skip rather than reporting a pass they did not earn.
 
 **154 Python tests**
 - `test_pq_signing.py` (32) — SLH-DSA variant lock-in; round-trip and
@@ -1003,18 +1012,18 @@ its nestedness, and asserts the returndata is
   red-team suite** (`contracts/test/redteam/`) that reproduces each
   vulnerability found in the July 2026 audit and then asserts it is closed —
   several against the real Uniswap and Morpho deployments on a mainnet fork.
-  335 tests, none skipped. The artefacts are tamper-evident and a reviewer can
+  342 tests, none skipped with an RPC endpoint. The artefacts are tamper-evident and a reviewer can
   audit them without running the code. **The full loop is LIVE on Monad
   mainnet (chainId 143), all contracts Monadscan-verified**:
   [AuditAnchorV2](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd),
-  [UniswapRoutingVault](https://monadscan.com/address/0x06f233062ee23590e5cc873df511024f3d981e56) (real Uniswap v3 swap),
-  [MorphoSupplyAdapter](https://monadscan.com/address/0x8d5ae2f23e5d20bfb7915168d6b2a3ce753fe49e) (real Morpho lending deposit), and
+  [UniswapRoutingVault](https://monadscan.com/address/0xdaea22d6dcb37fbf1462d6d08ade40a8fac05144) (real Uniswap v3 swap),
+  [MorphoSupplyAdapter](https://monadscan.com/address/0xe3de921790d04656f2640fa1edd75492e911ffa6) (real Morpho lending deposit), and
   [MLDSAAttestation](https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da)
   (the order's ML-DSA-65 post-quantum signature **verified on-chain via a
   zero-knowledge proof**). One PQ-signed agent decision → SHA-256 anchored
   → real MON→USDC swap → real USDC supplied to a live lending market →
   on-chain ZK attestation of the PQ signature. The routing leg and the ZK
-  attestation share `orderHash 0xd8bf1551…15f9`; the yield leg carries its
+  attestation share `orderHash 0xaee5fdf0…3ee9`; the yield leg carries its
   own signed order, because AuditAnchorV2 binds one commitment per order
   and each executor demands its own. Aligned with the NIST FIPS 204
   algorithm NEAR Protocol committed to at L1 on 2026-05-06 — the first
@@ -1166,7 +1175,7 @@ partners.** No conversation with any institution has taken place.
 
 What exists instead is shipped, verifiable evidence: four contracts live and
 Monadscan-verified on Monad mainnet, one end-to-end run executed with real
-value, 335 tests passing with none skipped, two IBM Heron QPU runs with
+value, 342 tests passing with none skipped under an RPC endpoint, two IBM Heron QPU runs with
 published job IDs and raw counts, and every documented reviewer command
 executed against mainnet in CI. Reaching Phase 2 of this challenge is the only
 external validation we claim.
@@ -1216,7 +1225,7 @@ incorporated in Mexico and qualifies under the LATAM startup criteria.
   gate on the managed-cosigner revenue line.
 
 Two people shipped four Monadscan-verified mainnet contracts, an SP1 ZK
-circuit, and 335 passing tests. That is the argument for a pilot, and the
+circuit, and 342 passing tests. That is the argument for a pilot, and the
 reason the ask is for a counterparty rather than for headcount.
 
 ### What we are asking Santander for
@@ -1334,7 +1343,7 @@ walks through, end-to-end. You do **not** need to run `run_pq_demo.py` — and
 should not, because it replaces the shipped order (it refuses without
 `--replace-shipped` for exactly that reason). The shipped
 `outputs/signed_orders.json` holds the order whose canonical SHA-256 is
-`0xd8bf1551…15f9`, and `AuditAnchorV2.execCommitmentOf` on Monad **mainnet**
+`0xaee5fdf0…3ee9`, and `AuditAnchorV2.execCommitmentOf` on Monad **mainnet**
 returns the execution commitment that order authorises.
 
 ```sh
@@ -1353,7 +1362,7 @@ import sys, hashlib; sys.path.insert(0,'.')
 from src import orders, pq_signing as pq
 print(hashlib.sha256(pq.canonical_bytes(orders.load_signed_orders()[0].order.to_dict())).hexdigest())
 "
-# Expected: d8bf15515669ef1f1d912c6d505d056b1f4ccd5cc6aebcae1b223c05cb8915f9
+# Expected: aee5fdf0e3ec0fcb68617877692b2e959061514da3757f91caf3bc3a229b3ee9
 
 # Recompute every documented number against the chain, the artefacts and the
 # test suites — including the reviewer commands in this document:

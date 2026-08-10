@@ -1,14 +1,31 @@
 # Mainnet deploy runbook — Monad (chainId 143)
 
-> **STATUS: EXECUTED 2026-07-30.** All three contracts are live and
-> Monadscan-verified. Kept as the record of what was done and as the
-> procedure for any future redeploy.
+> **STATUS: SUPERSEDED 2026-08-10.** The executors below were redeployed so
+> that execution is bound in Solidity to the post-quantum signature
+> (`PQExecBinding`). The addresses in this block are the **superseded** ones,
+> retained as the historical record of the 2026-07-30 deploy; the procedure
+> itself is still current, and was used again for the redeploy.
 >
-> | Contract | Address |
+> **Live now:**
+>
+> | Contract | Address | Changed? |
+> |---|---|---|
+> | AuditAnchorV2 | `0x8422b555DCE11913A4657C2f47C839637FC71ffd` | no — reused |
+> | UniswapRoutingVault | `0xDaEa22D6DCB37FBF1462d6d08ADE40A8fAc05144` | **redeployed** |
+> | MorphoSupplyAdapter | `0xE3de921790d04656F2640fA1eDD75492e911Ffa6` | **redeployed** |
+> | MLDSAAttestation | `0xb0aADaFe68647578520E988b4444e556c300b4Da` | no — immutable vkey still matches the guest |
+>
+> **Superseded (2026-07-30 deploy), kept for provenance only:**
+>
+> | Contract | Superseded address |
 > |---|---|
-> | AuditAnchorV2 | `0x8422b555DCE11913A4657C2f47C839637FC71ffd` |
 > | UniswapRoutingVault | `0x06F233062eE23590e5CC873df511024f3d981e56` |
 > | MorphoSupplyAdapter | `0x8d5AE2f23E5d20bFb7915168d6b2a3Ce753fE49E` |
+>
+> The 2026-08-10 redeploy cost 0.3438 MON and needed **two** constructor
+> changes: both executors now take the live `MLDSAAttestation` address as
+> `_pqAttestation`. `PQExecBinding` is an `internal` library, so it inlines —
+> there is nothing extra to deploy or link.
 >
 > Anchor deploy tx `0xdb194edf208b64ce5f67b62344a3722f7c95d5983e121b17f0789340e3f20310`.
 > Total cost 0.2998 MON. The deployer key is held outside this repository and
@@ -28,20 +45,28 @@ Pre-flight verified 2026-07-30 at block 91684549:
 | Balance | 0.989160532 MON |
 | Nonce | 394 |
 | Gas price | 102 gwei (forge pads its estimate to ~202) |
-| Tests *(as of the 2026-07-30 deploy)* | 142 Solidity, 85 Python, 0 skipped |
+| Tests *(as of the 2026-07-30 deploy)* | 142 Solidity, 85 Python. Recorded as "0 skipped", but that reading was wrong: the fork tests returned early without an RPC endpoint and reported PASS instead of skipping, so 11 of them never ran. Fixed 2026-08-09; a bare `forge test` now honestly reports them skipped. |
 | External env | SwapRouter02 / WMON / USDC / Morpho Blue / V3Factory all unchanged; USDC not paused |
 
 Deployment cost *(estimate at the time — not the attest-tx gas)*: **~2,308,043 gas ≈ 0.235 MON** at 102 gwei, **≈0.466 MON** at forge's
 padded 202 gwei. Either way it fits, and the deployer additionally holds
 501 WMON unwrappable 1:1 if you want headroom.
 
-Predicted addresses (CREATE from nonce 394 — **verify each one matches**):
+Predicted addresses for that superseded run (CREATE from nonce 394 —
+**verify each one matches**):
 
 ```
 nonce 394  AuditAnchorV2        0x8422b555DCE11913A4657C2f47C839637FC71ffd
-nonce 395  UniswapRoutingVault  0x06F233062eE23590e5CC873df511024f3d981e56
-nonce 396  MorphoSupplyAdapter  0x8d5AE2f23E5d20bFb7915168d6b2a3Ce753fE49E
+nonce 395  UniswapRoutingVault  0x06F233062eE23590e5CC873df511024f3d981e56   (superseded)
+nonce 396  MorphoSupplyAdapter  0x8d5AE2f23E5d20bFb7915168d6b2a3Ce753fE49E   (superseded)
 ```
+
+> **Do not predict addresses when the order is signed against them.** The
+> 2026-08-10 redeploy deployed FIRST and signed second, because
+> `exec_commitment` covers the vault address: any stray transaction between
+> prediction and broadcast shifts the CREATE address and silently invalidates
+> an already-signed order. The constructors take no order data, so nothing
+> forces the prediction-first ordering.
 
 If a nonce is consumed by anything else in between, the later addresses shift.
 That is harmless — the vault and adapter take the anchor's address as an

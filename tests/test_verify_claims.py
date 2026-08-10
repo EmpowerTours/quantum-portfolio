@@ -31,9 +31,11 @@ import verify_claims as vc  # noqa: E402
 PROBES: dict[str, str] = {
     r"~?\s*230\s*[k,]\s*(?:-\s*)?gas|230,000\s*gas": "The attest call costs 230k gas.",
     (r"\b105 (?:tests|automated)\b|\b84 tests\b|\b279 tests\b|"
-     r"\b110 Python tests\b|Two hundred seventy-nine|\b323 tests\b|\b328 tests\b|\b331 tests\b|\b334 tests\b|Three hundred twenty-three"): "The suite has 279 tests.",
+     r"\b110 Python tests\b|Two hundred seventy-nine|\b323 tests\b|\b328 tests\b|\b331 tests\b|\b334 tests\b|\b335 tests\b|\b336 tests\b|Three hundred twenty-three|Three hundred thirty-five"): "The suite has 279 tests.",
     r"81[- ]second": "Watch the 81-second walkthrough.",
-    r"fe44195b": "orderHash 0xfe44195b36463e33da7156285383a4fe735093ecadb1abb87684435552814ba9",
+    r"fe44195b|d8bf1551": "orderHash 0xd8bf15515669ef1f1d912c6d505d056b1f4ccd5cc6aebcae1b223c05cb8915f9",
+    (r"0x5caf7a40|executeAndRoute\(bytes32,address\[\],uint24\[\],uint16\[\],"
+     r"uint256\[\],uint256\)"): "Call executeAndRoute(bytes32,address[],uint24[],uint16[],uint256[],uint256).",
     r"not yet on the hardware path|not in current HW path": (
         "src/xy_qaoa.py is not yet on the hardware path."),
     r"depth-2 (?:QAOA|penalty)": "A depth-2 QAOA runs on IBM Heron.",

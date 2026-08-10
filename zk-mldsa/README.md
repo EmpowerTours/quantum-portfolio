@@ -37,7 +37,7 @@ zkVM** and check a Groth16 proof on-chain for a **measured 1 196 224 gas**.
 ### Status: the fixture is CURRENT and deployed
 
 `contracts/src/fixtures/groth16-mldsa-fixture.json` proves the ML-DSA-65
-signature over orderHash `0xd8bf1551…15f9` — the same order anchored and
+signature over orderHash `0xaee5fdf0…3ee9` — the same order anchored and
 swapped on Monad mainnet — by the live signing key `ac0b2aea…`.
 
 | | |
@@ -46,7 +46,7 @@ swapped on Monad mainnet — by the live signing key `ac0b2aea…`.
 | vkey | `0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5` |
 | proof | 356 bytes, selector `0x4388a21c` |
 | Deployed to | `MLDSAAttestation` [`0xb0aADaFe68647578520E988b4444e556c300b4Da`](https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da) |
-| `attest()` | [`0x3ec51f36…d56de`](https://monadscan.com/tx/0x3ec51f366d7d7944742f808cef8f897a750be881bddda6aa7a171880377d56de), 1 196 224 gas |
+| `attest()` | [`0x12b7cd0c…7429`](https://monadscan.com/tx/0x12b7cd0cdda7b4d2c2a5b049e71265e6464c286e643a5524ee3825ef1f277429), 1 196 224 gas |
 
 An *earlier* fixture was unusable in three ways — 32-byte single-field
 publicValues, the superseded vkey `0x00eddc1f…8c37`, and a signature by the
@@ -130,7 +130,7 @@ proving box.
    deployed contract afterwards — so a bricked deployment fails loudly at
    deploy time rather than on first use.
 3. Call `attest(publicValues, proofBytes)` -> the proof verifies on-chain
-   (**1 196 224 gas measured**, from the receipt of tx `0x3ec51f36…d56de`)
+   (**1 196 224 gas measured**, from the receipt of tx `0x12b7cd0c…7429`)
    and the orderHash is recorded as PQ-attested.
 
 ## Numbers for the pitch (independently citeable)

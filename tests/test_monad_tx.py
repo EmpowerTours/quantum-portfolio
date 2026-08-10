@@ -340,7 +340,7 @@ def test_build_alloc_tx_rejects_zero_value():
 # The preimage is REAL and the orderHash is its true SHA-256, because the
 # encoder now rejects a preimage that hashes elsewhere — exactly as the vault
 # does. A synthetic 0x1111… hash cannot appear here any more, and that is the
-# point: the old golden pinned the 6-argument selector 0x5caf7a40 and kept
+# point: the old golden pinned the superseded 6-argument selector 0x5caf7a40 and kept
 # passing after Solidity moved to the 7-argument form, so the suite certified
 # calldata the deployed vault rejects.
 #
