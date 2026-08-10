@@ -419,10 +419,17 @@ def check_demo_video() -> None:
     actual = dur / ts
     check(abs(actual - expected) < 1.5, "video duration matches the storyboard",
           f"{actual:.1f}s vs {expected:.1f}s")
+    # Only durations presented as THE VIDEO's. "a ~12-second window" between
+    # two QPU jobs is not a video claim, and flagging it teaches the reader to
+    # ignore this check — the same false-positive failure as the gas figures.
+    vid = re.compile(r"(video|walkthrough|storyboard|DEMO_VIDEO)", re.I)
     for path, body in text().items():
-        for claimed in set(re.findall(r"(\d{2,3})[- ]second", body)):
-            check(abs(int(claimed) - actual) < 1.5, f"{path} claims a {claimed}s video",
-                  f"actual {actual:.1f}s")
+        for m in re.finditer(r"(\d{2,3})[- ]second", body):
+            window = body[max(0, m.start() - 120):m.end() + 120]
+            if not vid.search(window):
+                continue
+            check(abs(int(m.group(1)) - actual) < 1.5,
+                  f"{path} claims a {m.group(1)}s video", f"actual {actual:.1f}s")
 
 
 # ---------------------------------------------------------------------------
