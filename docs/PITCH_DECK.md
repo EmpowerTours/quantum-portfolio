@@ -172,8 +172,8 @@ QAOA on IBM Heron · Hedged post-quantum signatures · On-chain provenance on Mo
 
 - **IBM Heron**, XY-ring-mixer QAOA, reps=3. Raw counts shipped — recompute it yourself.
 - **Stocks** (`ibm_fez`, n=1): **13 → 39**, Fisher p = 0.00039 — the number we used to lead with.
-- **We then replicated it.** 10 paired runs, `ibm_marrakesh`: **53.2 → 48.0**, Wilcoxon **p = 0.43**. Worse in 7 of 10. *It does not hold.*
-- **Why:** run-to-run variance is **3.8× shot noise**, and Fisher assumes shot noise is all there is. Corrected, the original is **p ≈ 0.024, not 0.00039**.
+- **We then replicated it.** 20 paired runs, `ibm_marrakesh`: mitigation **worse in 15 of 20**, Wilcoxon **p = 0.0094**. *It reverses.*
+- **Why:** run-to-run variance is **3.8× shot noise**; Fisher assumes shot noise is all there is. The raw baseline moved **+56%** between sessions with nothing changed but the clock.
 
 </div>
 

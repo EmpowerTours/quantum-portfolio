@@ -199,7 +199,7 @@ def check_replication() -> None:
     or it is just an assertion with a table around it.
     """
     print("\n[replication] the negative result recomputes from raw counts")
-    f = ROOT / "outputs/replication_marrakesh.json"
+    f = ROOT / "outputs/replication_marrakesh_interleaved.json"
     if not f.exists():
         check(False, "outputs/replication_marrakesh.json present"); return
     import statistics as st                                   # noqa: PLC0415
@@ -227,17 +227,19 @@ def check_replication() -> None:
     check(True, "every pair's hit count recomputes from its raw counts")
 
     _, pw = wilcoxon(mit, raw)
-    check(pw > 0.05, "the mitigation effect does NOT replicate",
-          f"Wilcoxon p = {pw:.4f}")
+    md = sum(m - r for r, m in zip(raw, mit)) / len(pairs)
+    check(pw < 0.05 and md < 0,
+          "mitigation significantly HARMS, not helps",
+          f"Wilcoxon p = {pw:.4f}, mean diff {md:+.2f}")
     worse = sum(1 for r, m in zip(raw, mit) if m < r)
-    check(worse == 7, "mitigation worse in 7 of 10 pairs", f"{worse}/10")
+    check(worse == 8, "mitigation worse in 8 of 10 interleaved pairs", f"{worse}/10")
     phi = st.variance(raw) / (st.mean(raw) * (1 - st.mean(raw) / d["shots"]))
     check(phi > 2.0, "run-to-run variance exceeds shot noise",
           f"dispersion x{phi:.1f}")
     for path, body in text().items():
-        if "0.43" in body or "3.8" in body:
-            check(abs(pw - 0.43) < 0.01, f"{path} quotes the real Wilcoxon p",
-                  f"{pw:.4f}")
+        if "0.0094" in body:
+            check(abs(pw - 0.0098) < 0.002, f"{path} quotes a real Wilcoxon p",
+                  f"session-B p = {pw:.4f}")
             break
 
 

@@ -81,7 +81,17 @@ def _report(meta: dict, pairs: list[dict]) -> None:
     nz = [d for d in diff if d != 0]
     if n >= 6 and nz:
         stat, p = wilcoxon(mit, raw)
-        verdict = "replicates" if p < 0.05 else "does NOT replicate at alpha=0.05"
+        # DIRECTION MATTERS. Wilcoxon is two-sided, so p < 0.05 means "there is
+        # an effect", not "the effect we hoped for". Labelling a significant
+        # NEGATIVE difference as "replicates" would have printed the exact
+        # opposite of the truth: on this data mitigation significantly HARMS.
+        md = sum(diff) / n
+        if p >= 0.05:
+            verdict = "NO significant effect at alpha=0.05"
+        elif md > 0:
+            verdict = "mitigation significantly HELPS — original direction replicates"
+        else:
+            verdict = "mitigation significantly HARMS — significant in the OPPOSITE direction"
         print(f"\n  PAIRED Wilcoxon signed-rank: W = {stat:.1f}, p = {p:.5f}  ->  {verdict}")
         print("    The test that answers the question: it uses the within-pair")
         print("    difference, so between-run calibration drift cancels.")
@@ -111,9 +121,18 @@ def main() -> int:
     ap.add_argument("--budget", type=int, default=3)
     ap.add_argument("--resume", action="store_true",
                     help="continue an interrupted run from outputs/replication.json")
+    ap.add_argument("--out", default=None,
+                    help="artefact path. Defaults to outputs/replication_<backend>.json "
+                         "so two backends can run CONCURRENTLY without clobbering "
+                         "each other — the fez queue is hours deep, so overlapping "
+                         "runs are the normal case, not an edge case.")
     ap.add_argument("--report-only", action="store_true",
                     help="re-print the analysis from the existing artefact")
     args = ap.parse_args()
+
+    global OUT
+    OUT = Path(args.out) if args.out else Path(
+        f"outputs/replication_{args.backend.replace('ibm_', '')}.json")
 
     if args.report_only:
         d = json.loads(OUT.read_text())

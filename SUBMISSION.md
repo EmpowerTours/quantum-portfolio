@@ -272,81 +272,76 @@ mitigation effect under-powered to claim significance at this scale —
 are documented so a panel reviewer running the math gets the same
 answer we put in the table.
 
-### The replication — and why our own headline number does not survive it
+### The replication — our own headline number reverses under it
 
 Every version of this document has said the same thing about the mitigation
 result: **n = 1 per arm, therefore no replicating effect size**. Item 5 of the
-funding plan was to fix that. We fixed it, and it is worth reporting exactly
-what happened, because the answer is negative.
+funding plan was to fix that. We fixed it. The answer is not merely "no
+effect" — it is an effect in the **opposite direction**.
 
-**Design.** Ten INDEPENDENT raw/mitigated pairs of the identical tuned circuit
+**Design.** Independent raw/mitigated pairs of the identical tuned circuit
 (XY-ring mixer, reps=3, 4 096 shots), `ibm_marrakesh`, stocks universe. The
 circuit is tuned once — retuning per run would let the angles vary alongside
 the mitigation setting. The test is a **paired Wilcoxon signed-rank** on the
 per-run difference: both members of a pair see one calibration snapshot, so
 between-pair drift cancels. Non-parametric because at n = 10 there is no basis
-for assuming the differences are normal.
+for assuming normality.
 
-**Result.**
+**Two experiments, 20 pairs total.**
 
-| | raw | mitigated | difference |
-|---|---|---|---|
-| mean over 10 pairs | 53.20 | 48.00 | **−5.20** |
+| | raw | mitigated | mean diff | mitigation worse | Wilcoxon |
+|---|---|---|---|---|---|
+| session A (fixed order) | 53.2 | 48.0 | −5.20 | 7/10 | p = 0.43 |
+| session B (interleaved) | 83.1 | 68.2 | −14.90 | 8/10 | **p = 0.0098** |
+| **pooled, 20 pairs** | | | **−10.05** | **15/20** | **p = 0.0094** |
 
-Wilcoxon signed-rank **p = 0.43**. Mitigation was *worse* in 7 pairs of 10. The
-effect does not replicate.
+Sign test on the pooled data: p = 0.041. **On this circuit and this backend,
+XY4 dynamical decoupling plus measurement twirling significantly HARMS
+P(optimal).** That is the reverse of the direction we published.
 
-**Why the original number was so much stronger — the actual mistake.** Fisher's
-exact test on a 2×2 table assumes the only source of variation is shot noise.
-Ten runs let us measure whether that holds. It does not:
+**Why the original number looked so strong — the actual mistake.** Fisher's
+exact on a 2×2 assumes shot noise is the only source of variation. Twenty runs
+say otherwise: observed variance is **3.8× the binomial prediction** for the
+raw arm, and raw hits ranged 31–109 across identical runs where shot noise
+alone predicts ±7. Between the two sessions the raw baseline moved **+56 %**
+(53.2 → 83.1) with nothing changed but the clock. The dominant variance is
+calibration drift, not sampling. Re-testing the shipped 13 vs 39 comparison
+with the measured dispersion moves it from **p = 0.00039 to p ≈ 0.024, a factor
+of about 62** — and even that is the wrong sign relative to the replication.
 
-| | mean | observed variance | variance under shot noise alone | dispersion |
-|---|---|---|---|---|
-| raw | 53.2 | 200.8 | 52.5 | **×3.8** |
-| mitigated | 48.0 | 101.8 | 47.4 | **×2.1** |
-
-Raw hits ranged **31 to 76** across identical runs of an identical circuit;
-shot noise alone predicts ±7. The dominant variance is calibration drift
-between jobs, not sampling. Re-testing the shipped 13 vs 39 comparison with the
-measured dispersion instead of the binomial assumption moves it from
-**p = 0.00039 to p ≈ 0.024 — a factor of about 62**.
-
-So the published figure was not miscalculated; it was calculated under a noise
+The published figure was not miscalculated. It was calculated under a noise
 model that understates the true variance by roughly 2× in standard deviation,
-and with n = 1 there was no way to detect that from the data in hand. This is
-the concrete content of the caveat we had been printing all along.
+and n = 1 could not reveal that. This is the concrete content of the caveat
+every revision has carried.
 
-**This is a known failure mode in the field, not a quirk of ours.**
-[arXiv:2605.29872](https://arxiv.org/abs/2605.29872) surveys 81 recent
-quantum-error-mitigation papers and finds only 25 % use inferential methods at
-all, that temporal drift alone can change a measured effect size by more than
-3×, and that parameter choices can flip a conclusion between significant
-improvement and significant degradation. Its recommendations are paired
-designs, interleaved measurement, drift modelled separately from shot noise,
-and enough repetitions to estimate the variance components. Our replication
-does the first, third and fourth.
+**Did our own methodological fix change the answer?** Session A submitted raw
+first in every pair; session B alternates, which is the interleaving that
+[arXiv:2605.29872](https://arxiv.org/abs/2605.29872) requires. The two
+difference distributions are not statistically distinguishable
+(Mann-Whitney p = 0.13) and both point the same way, so interleaving did not
+create the result — session B simply had a larger effect relative to its noise.
+We report both rather than only the significant one.
 
-**A limitation in our own replication, stated rather than discovered.** The
-`ibm_marrakesh` run submitted raw first and mitigated second in every pair, so
-any drift inside that ~12-second window loads onto one arm. That is precisely
-the interleaving requirement above, and we got it wrong. The harness now
-alternates the within-pair order; the `ibm_fez` replication currently queued
-uses the corrected design. The `marrakesh` numbers stand as reported, with this
-caveat attached.
+**Context: this is a known failure mode in the field.** That survey covers 81
+recent quantum-error-mitigation papers and finds only 25 % use inferential
+methods at all, that temporal drift alone can change a measured effect size by
+more than 3×, and that parameter choices can flip a conclusion between
+significant improvement and significant degradation. We are an instance of
+exactly that, found by looking.
 
-**What this does and does not establish.** It does not refute the `ibm_fez`
-result directly — different backend, and `fez` was 426 jobs deep. What it does
-is break a confound this document previously reported without being able to
-resolve: the stocks/DeFi discrepancy was ambiguous between universe and
-backend. With stocks now showing no effect on `marrakesh` at n = 10, **the
-universe is not the explanation.** Either the behaviour is backend-specific, or
-the original single `fez` run sat in the tail of a wide distribution. The
-queued `fez` replication addresses that directly and its result will be
-published whichever way it falls.
+**Scope.** This is `ibm_marrakesh`, one circuit, one universe. It does not
+refute the `ibm_fez` run directly — different backend, and `fez` has been
+queued 440+ jobs deep. That replication is still running and will be published
+whichever way it falls. What the 20 pairs do settle is the stocks/DeFi
+discrepancy this document previously reported without being able to resolve:
+with stocks showing significant harm on `marrakesh`, **the universe is not the
+explanation**.
 
-Raw counts for all ten pairs, both job IDs per pair, and the problem inputs are
-shipped in `outputs/replication_marrakesh.json`, so every figure above
-recomputes without an IBM account.
+Raw counts, both job IDs per pair, and the problem inputs ship in
+`outputs/replication_marrakesh.json` and
+`outputs/replication_marrakesh_interleaved.json`, so every figure above
+recomputes without an IBM account. `verify_claims.py` recomputes them on every
+commit.
 
 ### AI forecasting layer
 

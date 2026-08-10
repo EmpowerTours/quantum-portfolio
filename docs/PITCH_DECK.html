@@ -788,8 +788,8 @@ section.xdense p { margin: 0.4em 0; }
 <ul>
 <li><strong>IBM Heron</strong>, XY-ring-mixer QAOA, reps=3. Raw counts shipped — recompute it yourself.</li>
 <li><strong>Stocks</strong> (<code>ibm_fez</code>, n=1): <strong>13 → 39</strong>, Fisher p = 0.00039 — the number we used to lead with.</li>
-<li><strong>We then replicated it.</strong> 10 paired runs, <code>ibm_marrakesh</code>: <strong>53.2 → 48.0</strong>, Wilcoxon <strong>p = 0.43</strong>. Worse in 7 of 10. <em>It does not hold.</em></li>
-<li><strong>Why:</strong> run-to-run variance is <strong>3.8× shot noise</strong>, and Fisher assumes shot noise is all there is. Corrected, the original is <strong>p ≈ 0.024, not 0.00039</strong>.</li>
+<li><strong>We then replicated it.</strong> 20 paired runs, <code>ibm_marrakesh</code>: mitigation <strong>worse in 15 of 20</strong>, Wilcoxon <strong>p = 0.0094</strong>. <em>It reverses.</em></li>
+<li><strong>Why:</strong> run-to-run variance is <strong>3.8× shot noise</strong>; Fisher assumes shot noise is all there is. The raw baseline moved <strong>+56%</strong> between sessions with nothing changed but the clock.</li>
 </ul>
 </div>
 <div class="card">
