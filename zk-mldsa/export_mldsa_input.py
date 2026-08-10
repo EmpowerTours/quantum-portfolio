@@ -104,7 +104,16 @@ def main() -> int:
     }, indent=2) + "\n")
 
     pk_hash = hashlib.sha256(pk).hexdigest()
-    print(f"wrote {out_path.relative_to(REPO)}")
+    # --out may legitimately point outside the repo (a scratch dir, a path on
+    # the way to a rented proving box). relative_to() raises ValueError there,
+    # which crashed AFTER the file was written — so the export had actually
+    # succeeded while the exit code said it failed, and a caller chaining on
+    # `&&` would skip the transfer for no reason.
+    try:
+        shown = out_path.relative_to(REPO)
+    except ValueError:
+        shown = out_path
+    print(f"wrote {shown}")
     print(f"  pkHash (must equal MLDSAAttestation.agentPkHash): 0x{pk_hash}")
     print(f"  orderHash (guest commits this):                   0x{actual}")
     print(f"  msg {len(msg)} bytes, sig {len(sig)} bytes, pk {len(pk)} bytes")
