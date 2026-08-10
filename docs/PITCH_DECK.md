@@ -171,8 +171,9 @@ QAOA on IBM Heron · Hedged post-quantum signatures · On-chain provenance on Mo
 <div>
 
 - **IBM Heron**, XY-ring-mixer QAOA, reps=3. Raw counts shipped — recompute it yourself.
-- **Stocks universe** (`ibm_fez`): mitigation rescues the signal, **13 → 39** hits — **×2.19** vs random, raw **×0.76** (below chance). Fisher **p = 0.00039**, **n = 1** per arm.
-- **DeFi universe** (`ibm_marrakesh`) — the one this product actually optimises: **22 → 22**, **p = 1.000**. *No mitigation effect at all.*
+- **Stocks** (`ibm_fez`, n=1): **13 → 39**, Fisher p = 0.00039 — the number we used to lead with.
+- **We then replicated it.** 10 paired runs, `ibm_marrakesh`: **53.2 → 48.0**, Wilcoxon **p = 0.43**. Worse in 7 of 10. *It does not hold.*
+- **Why:** run-to-run variance is **3.8× shot noise**, and Fisher assumes shot noise is all there is. Corrected, the original is **p ≈ 0.024, not 0.00039**.
 
 </div>
 
@@ -182,7 +183,7 @@ QAOA on IBM Heron · Hedged post-quantum signatures · On-chain provenance on Mo
 
 QAOA is **not** faster than the classical baseline at this size — that baseline is `NumPyMinimumEigensolver` (brute-force exact, `src/solvers.py:33`), which is optimal and instant on 8 assets.
 
-**And our strongest quantum result is not on our own universe.** We report the discrepancy rather than lead with the number that flatters us.
+**We published the replication that weakens our own headline.** A single QPU run is one sample from a distribution nobody had measured; we measured it. That is the result — not a lift we cannot reproduce.
 
 </div>
 

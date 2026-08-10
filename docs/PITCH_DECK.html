@@ -787,14 +787,15 @@ section.xdense p { margin: 0.4em 0; }
 <div>
 <ul>
 <li><strong>IBM Heron</strong>, XY-ring-mixer QAOA, reps=3. Raw counts shipped — recompute it yourself.</li>
-<li><strong>Stocks universe</strong> (<code>ibm_fez</code>): mitigation rescues the signal, <strong>13 → 39</strong> hits — <strong>×2.19</strong> vs random, raw <strong>×0.76</strong> (below chance). Fisher <strong>p = 0.00039</strong>, <strong>n = 1</strong> per arm.</li>
-<li><strong>DeFi universe</strong> (<code>ibm_marrakesh</code>) — the one this product actually optimises: <strong>22 → 22</strong>, <strong>p = 1.000</strong>. <em>No mitigation effect at all.</em></li>
+<li><strong>Stocks</strong> (<code>ibm_fez</code>, n=1): <strong>13 → 39</strong>, Fisher p = 0.00039 — the number we used to lead with.</li>
+<li><strong>We then replicated it.</strong> 10 paired runs, <code>ibm_marrakesh</code>: <strong>53.2 → 48.0</strong>, Wilcoxon <strong>p = 0.43</strong>. Worse in 7 of 10. <em>It does not hold.</em></li>
+<li><strong>Why:</strong> run-to-run variance is <strong>3.8× shot noise</strong>, and Fisher assumes shot noise is all there is. Corrected, the original is <strong>p ≈ 0.024, not 0.00039</strong>.</li>
 </ul>
 </div>
 <div class="card">
 <h3>What this is, honestly</h3>
 <p>QAOA is <strong>not</strong> faster than the classical baseline at this size — that baseline is <code>NumPyMinimumEigensolver</code> (brute-force exact, <code>src/solvers.py:33</code>), which is optimal and instant on 8 assets.</p>
-<p><strong>And our strongest quantum result is not on our own universe.</strong> We report the discrepancy rather than lead with the number that flatters us.</p>
+<p><strong>We published the replication that weakens our own headline.</strong> A single QPU run is one sample from a distribution nobody had measured; we measured it. That is the result — not a lift we cannot reproduce.</p>
 </div>
 </div>
 </section>

@@ -191,6 +191,56 @@ def check_skip_claims_are_qualified() -> None:
                   "say 'with an RPC endpoint' — bare `forge test` skips 11 fork tests")
 
 
+def check_replication() -> None:
+    """Recompute the replication's headline numbers from its raw counts.
+
+    The negative result gets the same treatment as the positive ones it
+    corrects: every figure in the write-up must recompute from shipped data,
+    or it is just an assertion with a table around it.
+    """
+    print("\n[replication] the negative result recomputes from raw counts")
+    f = ROOT / "outputs/replication_marrakesh.json"
+    if not f.exists():
+        check(False, "outputs/replication_marrakesh.json present"); return
+    import statistics as st                                   # noqa: PLC0415
+    from scipy.stats import wilcoxon                           # noqa: PLC0415
+    d = json.loads(f.read_text())
+    pairs = d["pairs"]
+    check(len(pairs) == 10, "10 paired runs shipped", f"{len(pairs)}")
+    raw = [p["raw_hits"] for p in pairs]
+    mit = [p["mit_hits"] for p in pairs]
+
+    # hits must agree with the raw counts, not just be asserted
+    n_assets, k = len(d["tickers"]), d["budget"]
+    opt = set(d["optimal_selection"])
+    for arm, key in (("raw", "raw_counts"), ("mit", "mit_counts")):
+        for i, p in enumerate(pairs):
+            c = p.get(key)
+            if not c:
+                continue
+            hits = sum(v for bs, v in c.items()
+                       if {j for j in range(n_assets) if bs[::-1][j] == "1"} == opt)
+            if hits != p[f"{arm}_hits"]:
+                check(False, f"{arm} hits recompute (pair {i+1})",
+                      f"{hits} vs {p[f'{arm}_hits']}")
+                return
+    check(True, "every pair's hit count recomputes from its raw counts")
+
+    _, pw = wilcoxon(mit, raw)
+    check(pw > 0.05, "the mitigation effect does NOT replicate",
+          f"Wilcoxon p = {pw:.4f}")
+    worse = sum(1 for r, m in zip(raw, mit) if m < r)
+    check(worse == 7, "mitigation worse in 7 of 10 pairs", f"{worse}/10")
+    phi = st.variance(raw) / (st.mean(raw) * (1 - st.mean(raw) / d["shots"]))
+    check(phi > 2.0, "run-to-run variance exceeds shot noise",
+          f"dispersion x{phi:.1f}")
+    for path, body in text().items():
+        if "0.43" in body or "3.8" in body:
+            check(abs(pw - 0.43) < 0.01, f"{path} quotes the real Wilcoxon p",
+                  f"{pw:.4f}")
+            break
+
+
 def check_execution_binding() -> None:
     """The shipped order must still be the order anchored on mainnet.
 
@@ -609,6 +659,7 @@ def check_chain() -> None:
 def main() -> int:
     print("Verifying documented claims against chain, artefacts and tests.")
     check_artifact_metrics()
+    check_replication()
     check_execution_binding()
     check_reviewer_commands()
     check_demo_video()

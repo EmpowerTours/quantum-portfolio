@@ -272,6 +272,82 @@ mitigation effect under-powered to claim significance at this scale —
 are documented so a panel reviewer running the math gets the same
 answer we put in the table.
 
+### The replication — and why our own headline number does not survive it
+
+Every version of this document has said the same thing about the mitigation
+result: **n = 1 per arm, therefore no replicating effect size**. Item 5 of the
+funding plan was to fix that. We fixed it, and it is worth reporting exactly
+what happened, because the answer is negative.
+
+**Design.** Ten INDEPENDENT raw/mitigated pairs of the identical tuned circuit
+(XY-ring mixer, reps=3, 4 096 shots), `ibm_marrakesh`, stocks universe. The
+circuit is tuned once — retuning per run would let the angles vary alongside
+the mitigation setting. The test is a **paired Wilcoxon signed-rank** on the
+per-run difference: both members of a pair see one calibration snapshot, so
+between-pair drift cancels. Non-parametric because at n = 10 there is no basis
+for assuming the differences are normal.
+
+**Result.**
+
+| | raw | mitigated | difference |
+|---|---|---|---|
+| mean over 10 pairs | 53.20 | 48.00 | **−5.20** |
+
+Wilcoxon signed-rank **p = 0.43**. Mitigation was *worse* in 7 pairs of 10. The
+effect does not replicate.
+
+**Why the original number was so much stronger — the actual mistake.** Fisher's
+exact test on a 2×2 table assumes the only source of variation is shot noise.
+Ten runs let us measure whether that holds. It does not:
+
+| | mean | observed variance | variance under shot noise alone | dispersion |
+|---|---|---|---|---|
+| raw | 53.2 | 200.8 | 52.5 | **×3.8** |
+| mitigated | 48.0 | 101.8 | 47.4 | **×2.1** |
+
+Raw hits ranged **31 to 76** across identical runs of an identical circuit;
+shot noise alone predicts ±7. The dominant variance is calibration drift
+between jobs, not sampling. Re-testing the shipped 13 vs 39 comparison with the
+measured dispersion instead of the binomial assumption moves it from
+**p = 0.00039 to p ≈ 0.024 — a factor of about 62**.
+
+So the published figure was not miscalculated; it was calculated under a noise
+model that understates the true variance by roughly 2× in standard deviation,
+and with n = 1 there was no way to detect that from the data in hand. This is
+the concrete content of the caveat we had been printing all along.
+
+**This is a known failure mode in the field, not a quirk of ours.**
+[arXiv:2605.29872](https://arxiv.org/abs/2605.29872) surveys 81 recent
+quantum-error-mitigation papers and finds only 25 % use inferential methods at
+all, that temporal drift alone can change a measured effect size by more than
+3×, and that parameter choices can flip a conclusion between significant
+improvement and significant degradation. Its recommendations are paired
+designs, interleaved measurement, drift modelled separately from shot noise,
+and enough repetitions to estimate the variance components. Our replication
+does the first, third and fourth.
+
+**A limitation in our own replication, stated rather than discovered.** The
+`ibm_marrakesh` run submitted raw first and mitigated second in every pair, so
+any drift inside that ~12-second window loads onto one arm. That is precisely
+the interleaving requirement above, and we got it wrong. The harness now
+alternates the within-pair order; the `ibm_fez` replication currently queued
+uses the corrected design. The `marrakesh` numbers stand as reported, with this
+caveat attached.
+
+**What this does and does not establish.** It does not refute the `ibm_fez`
+result directly — different backend, and `fez` was 426 jobs deep. What it does
+is break a confound this document previously reported without being able to
+resolve: the stocks/DeFi discrepancy was ambiguous between universe and
+backend. With stocks now showing no effect on `marrakesh` at n = 10, **the
+universe is not the explanation.** Either the behaviour is backend-specific, or
+the original single `fez` run sat in the tail of a wide distribution. The
+queued `fez` replication addresses that directly and its result will be
+published whichever way it falls.
+
+Raw counts for all ten pairs, both job IDs per pair, and the problem inputs are
+shipped in `outputs/replication_marrakesh.json`, so every figure above
+recomputes without an IBM account.
+
 ### AI forecasting layer
 
 Per-asset **Ridge regression** on technical features (lagged returns,

@@ -179,11 +179,19 @@ noise. Mitigated (XY4 dynamical decoupling + twirling) finds the optimum 3×
 more often, and Fisher's exact test on 13 vs 39 successes gives
 **p = 0.00039**.
 
-That p-value compares *these two runs* and is valid for that. It does not
-establish a replicating effect size: n = 1 per arm, so calibration drift is
-uncaptured. Replication (n ≥ 10) is the next milestone, not a claim made here.
-The DeFi run showed *no* mitigation effect at 288 gates; we report the
-discrepancy rather than explain it away.
+> **We ran the replication, and this result does not survive it.** Ten
+> independent paired runs on `ibm_marrakesh` (same circuit, same universe) give
+> raw 53.2 vs mitigated 48.0 — **Wilcoxon p = 0.43**, with mitigation *worse* in
+> 7 pairs of 10. Those runs also measure why the figure above looked so strong:
+> run-to-run variance is **3.8× larger than shot noise**, and Fisher's exact
+> test assumes shot noise is all there is. Re-testing 13 vs 39 under the
+> measured dispersion gives **p ≈ 0.024, not 0.00039**.
+>
+> The `ibm_fez` replication is queued and will be published either way. Full
+> detail, including a methodological error of our own, is in
+> [SUBMISSION.md](SUBMISSION.md#the-replication--and-why-our-own-headline-number-does-not-survive-it).
+> We are leaving the original number above visible rather than deleting it,
+> because the correction is the more useful result.
 
 ![hardware vs noise](outputs/hardware_vs_noise_stocks.png)
 
