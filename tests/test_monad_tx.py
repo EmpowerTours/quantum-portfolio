@@ -1,6 +1,7 @@
 """Round-trip tests for the Monad unsigned-TX builder."""
 from __future__ import annotations
 
+import hashlib
 import time as _time
 
 import pytest
@@ -336,17 +337,29 @@ def test_build_alloc_tx_rejects_zero_value():
 
 # --- UniswapRoutingVault route encoding ----------------------------------
 
+# The preimage is REAL and the orderHash is its true SHA-256, because the
+# encoder now rejects a preimage that hashes elsewhere — exactly as the vault
+# does. A synthetic 0x1111… hash cannot appear here any more, and that is the
+# point: the old golden pinned the 6-argument selector 0x5caf7a40 and kept
+# passing after Solidity moved to the 7-argument form, so the suite certified
+# calldata the deployed vault rejects.
+#
 # Golden generated with:
-#   cast calldata "executeAndRoute(bytes32,address[],uint24[],uint16[],uint256[],uint256)" \
-#     0x1111...1111 "[0x..aaAA,0x..bBbB]" "[3000,500]" "[6000,4000]" "[1000,2000]" 1893456000
+#   PRE=0x676f6c64656e2d707265696d616765           # b"golden-preimage"
+#   cast calldata \
+#     "executeAndRoute(bytes32,address[],uint24[],uint16[],uint256[],uint256,bytes)" \
+#     0xeb0a2364bbf6507909b83fdbc66b29b4c65c1d429c2f5e550df15d9e3a56465e \
+#     "[0x..aaAA,0x..bBbB]" "[3000,500]" "[6000,4000]" "[1000,2000]" 1893456000 "$PRE"
+ROUTE_GOLDEN_PREIMAGE = b"golden-preimage"
 ROUTE_GOLDEN = (
-    "0x5caf7a40"
-    "1111111111111111111111111111111111111111111111111111111111111111"
-    "00000000000000000000000000000000000000000000000000000000000000c0"
-    "0000000000000000000000000000000000000000000000000000000000000120"
-    "0000000000000000000000000000000000000000000000000000000000000180"
-    "00000000000000000000000000000000000000000000000000000000000001e0"
+    "0x0a2c848a"
+    "eb0a2364bbf6507909b83fdbc66b29b4c65c1d429c2f5e550df15d9e3a56465e"
+    "00000000000000000000000000000000000000000000000000000000000000e0"
+    "0000000000000000000000000000000000000000000000000000000000000140"
+    "00000000000000000000000000000000000000000000000000000000000001a0"
+    "0000000000000000000000000000000000000000000000000000000000000200"
     "0000000000000000000000000000000000000000000000000000000070dbd880"
+    "0000000000000000000000000000000000000000000000000000000000000260"
     "0000000000000000000000000000000000000000000000000000000000000002"
     "000000000000000000000000000000000000000000000000000000000000aaaa"
     "000000000000000000000000000000000000000000000000000000000000bbbb"
@@ -359,12 +372,14 @@ ROUTE_GOLDEN = (
     "0000000000000000000000000000000000000000000000000000000000000002"
     "00000000000000000000000000000000000000000000000000000000000003e8"
     "00000000000000000000000000000000000000000000000000000000000007d0"
+    "000000000000000000000000000000000000000000000000000000000000000f"
+    "676f6c64656e2d707265696d6167650000000000000000000000000000000000"
 )
 
 
 def test_route_calldata_matches_cast_golden():
     blob = mtx.encode_route_calldata(
-        order_hash=bytes.fromhex("11" * 32),
+        order_hash=hashlib.sha256(ROUTE_GOLDEN_PREIMAGE).digest(),
         token_outs=[
             "0x000000000000000000000000000000000000aaAA",
             "0x000000000000000000000000000000000000bBbB",
@@ -373,17 +388,38 @@ def test_route_calldata_matches_cast_golden():
         weights_bps=[6000, 4000],
         amount_out_min=[1000, 2000],
         deadline=1893456000,
+        order_preimage=ROUTE_GOLDEN_PREIMAGE,
     )
     assert blob == ROUTE_GOLDEN, f"encoding drifted from cast golden:\n{blob}"
+
+
+def test_route_calldata_rejects_preimage_that_hashes_elsewhere():
+    """The vault checks sha256(preimage) == orderHash; so must the builder.
+
+    Without this the builder would happily emit calldata that reverts
+    PreimageHashMismatch on-chain, burning gas to discover it.
+    """
+    try:
+        mtx.encode_route_calldata(
+            order_hash=hashlib.sha256(b"one-order").digest(),
+            token_outs=["0x000000000000000000000000000000000000aaAA"],
+            fee_tiers=[3000], weights_bps=[10000], amount_out_min=[0],
+            deadline=1893456000,
+            order_preimage=b"a-different-order",
+        )
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError on a mismatched preimage")
 
 
 def test_route_calldata_rejects_bad_weights():
     try:
         mtx.encode_route_calldata(
-            order_hash=bytes.fromhex("11" * 32),
+            order_hash=hashlib.sha256(ROUTE_GOLDEN_PREIMAGE).digest(),
             token_outs=["0x000000000000000000000000000000000000aaAA"],
             fee_tiers=[3000], weights_bps=[9999], amount_out_min=[0],
             deadline=1,
+            order_preimage=ROUTE_GOLDEN_PREIMAGE,
         )
     except ValueError:
         return
@@ -393,10 +429,11 @@ def test_route_calldata_rejects_bad_weights():
 def test_route_calldata_rejects_length_mismatch():
     try:
         mtx.encode_route_calldata(
-            order_hash=bytes.fromhex("11" * 32),
+            order_hash=hashlib.sha256(ROUTE_GOLDEN_PREIMAGE).digest(),
             token_outs=["0x000000000000000000000000000000000000aaAA"],
             fee_tiers=[3000, 500], weights_bps=[10000], amount_out_min=[0],
             deadline=1,
+            order_preimage=ROUTE_GOLDEN_PREIMAGE,
         )
     except ValueError:
         return
@@ -436,7 +473,7 @@ def test_build_route_tx_derives_everything_from_the_signed_execution():
     assert tx.chainId == ex.chain_id
     assert tx.to == ex.vault
     assert tx.value == ex.amount_in_wei
-    assert tx.data.startswith("0x5caf7a40"), tx.data[:12]
+    assert tx.data.startswith("0x0a2c848a"), tx.data[:12]
 
     # The builder takes no route parameters at all any more.
     import inspect

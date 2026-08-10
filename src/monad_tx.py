@@ -37,6 +37,7 @@ import re
 import time as _time
 
 import base64
+import hashlib
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -415,9 +416,18 @@ def build_alloc_tx(
 #
 # Selector verified with `cast sig` / `forge inspect UniswapRoutingVault
 # methods` — regenerate after any signature-changing edit.
-ROUTE_EXECUTE_SELECTOR = bytes.fromhex("5caf7a40")
-# executeAndRoute(bytes32,address[],uint24[],uint16[],uint256[],uint256)
-ROUTE_EXECUTE_GAS_LIMIT = 400_000   # wrap + N exactInputSingle hops; +headroom
+ROUTE_EXECUTE_SELECTOR = bytes.fromhex("0a2c848a")
+# executeAndRoute(bytes32,address[],uint24[],uint16[],uint256[],uint256,bytes)
+#
+# The trailing `bytes` is the signed order preimage. It was added when the
+# execution binding moved into Solidity (PQExecBinding): the vault checks
+# sha256(preimage) == orderHash and reads the signed exec_commitment out of
+# it, so a compromised ECDSA key can no longer bind an arbitrary execution to
+# an attested orderHash. The Solidity migration covered 146 call sites but not
+# this builder, and the golden below was pinned to the OLD 6-argument selector
+# 0x5caf7a40 — so the suite stayed green while the encoder could only produce
+# calldata the deployed vault rejects. Regenerate after any signature edit.
+ROUTE_EXECUTE_GAS_LIMIT = 550_000   # wrap + N hops + ~103k preimage binding
 
 
 def encode_route_calldata(
@@ -427,12 +437,19 @@ def encode_route_calldata(
     weights_bps: list[int],
     amount_out_min: list[int],
     deadline: int,
+    order_preimage: bytes,
 ) -> str:
     """Pack a UniswapRoutingVault.executeAndRoute(...) call.
 
     ABI: executeAndRoute(bytes32 orderHash, address[] tokenOuts,
                          uint24[] feeTiers, uint16[] weightsBps,
-                         uint256[] amountOutMin, uint256 deadline)
+                         uint256[] amountOutMin, uint256 deadline,
+                         bytes orderPreimage)
+
+    `order_preimage` MUST be the canonical signed-order bytes, i.e. exactly
+    the bytes `order_sha256` hashes. The vault recomputes sha256 over them and
+    reverts `PreimageHashMismatch` otherwise, so passing anything else fails
+    closed rather than executing something unauthorised.
 
     All four arrays are parallel (same length n). `token_outs` are
     0x-prefixed 20-byte addresses; `fee_tiers` are Uniswap v3 tiers
@@ -463,6 +480,17 @@ def encode_route_calldata(
         raise ValueError("amountOutMin must fit in uint256")
     if deadline < 0 or deadline >= 2 ** 256:
         raise ValueError("deadline must fit in uint256")
+    if not isinstance(order_preimage, (bytes, bytearray)):
+        raise TypeError(
+            f"order_preimage must be bytes, got {type(order_preimage).__name__}"
+        )
+    if not order_preimage:
+        raise ValueError("order_preimage is empty; the vault would revert")
+    if hashlib.sha256(order_preimage).digest() != order_hash:
+        raise ValueError(
+            "order_preimage does not hash to order_hash — the vault checks "
+            "sha256(preimage) == orderHash and would revert PreimageHashMismatch"
+        )
 
     def addr_word(a: str) -> bytes:
         # Validate the DECODED length, not the string length. `bytes.fromhex`
@@ -484,14 +512,23 @@ def encode_route_calldata(
             out += addr_word(a)
         return out
 
-    # Head: 6 static words (orderHash, 4 array offsets, deadline).
-    head_words = 6
-    base = head_words * 0x20                     # 0xC0
+    def bytes_tail(b: bytes) -> bytes:
+        # ABI dynamic bytes: length word, then data right-padded to a whole
+        # number of 32-byte words. An exact multiple must NOT gain a pad word.
+        pad = (-len(b)) % 32
+        return len(b).to_bytes(32, "big") + b + bytes(pad)
+
+    # Head: 7 static words (orderHash, 4 array offsets, deadline, preimage
+    # offset). This was 6 before the preimage argument; getting it wrong
+    # shifts every offset and the vault decodes garbage.
+    head_words = 7
+    base = head_words * 0x20                      # 0xE0
     stride = 0x20 * (1 + n)                       # length word + n elements
-    off_tokens  = base
-    off_fees    = off_tokens + stride
-    off_weights = off_fees + stride
-    off_minouts = off_weights + stride
+    off_tokens   = base
+    off_fees     = off_tokens + stride
+    off_weights  = off_fees + stride
+    off_minouts  = off_weights + stride
+    off_preimage = off_minouts + stride
 
     head = (
         order_hash
@@ -500,12 +537,14 @@ def encode_route_calldata(
         + off_weights.to_bytes(32, "big")
         + off_minouts.to_bytes(32, "big")
         + deadline.to_bytes(32, "big")
+        + off_preimage.to_bytes(32, "big")
     )
     body = (
         addr_array(token_outs)
         + uint_array(fee_tiers)
         + uint_array(weights_bps)
         + uint_array(amount_out_min)
+        + bytes_tail(bytes(order_preimage))
     )
     return "0x" + (ROUTE_EXECUTE_SELECTOR + head + body).hex()
 
@@ -567,7 +606,8 @@ def build_route_tx(
         to=vault_contract,
         value=amount_wei,
         data=encode_route_calldata(
-            order_hash, token_outs, fee_tiers, weights_bps, amount_out_min, deadline
+            order_hash, token_outs, fee_tiers, weights_bps, amount_out_min,
+            deadline, pq.canonical_bytes(signed.order.to_dict()),
         ),
         accessList=[],
     )
