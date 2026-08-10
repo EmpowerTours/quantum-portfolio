@@ -829,9 +829,65 @@ cast call --rpc-url https://rpc.monad.xyz \
 # 3. Confirm the anchor transaction itself succeeded.
 cast receipt 0xcf0cdd9f8790eebf1522bb4b36c445d46e15b4e5aa3377038bae941cd5f5a8e7 \
   --rpc-url https://rpc.monad.xyz | grep -E "^(status|blockNumber|gasUsed)"
-# → blockNumber  91696262
-# → gasUsed      110879
+# → blockNumber  94694907
+# → gasUsed      90000
 # → status       1 (success)
+
+# 4. The YIELD leg is a SEPARATE signed order with its own digest, because
+#    AuditAnchorV2 stores one commitment per (user, orderHash) and both
+#    executors read that slot expecting their own. Same recomputation:
+python -c "
+import sys; sys.path.insert(0, '.')
+from pathlib import Path
+from src import orders, monad_tx
+so = orders.load_signed_orders(path=Path('outputs/mainnet_supply_order.json'))[0]
+oh = monad_tx.order_sha256(so)
+print('orderHash      = 0x' + oh.hex())
+print('execCommitment = 0x' + monad_tx.supply_commitment(so.order.execution, oh).hex())
+"
+# → orderHash      = 0x051a10f524a68ef6ef82361223eebb88b49b6971b6e9f9e887e0d3a576a6348c
+# → execCommitment = 0x5b61f6f036538c72a5d5b530421a3332b0812680e1a4d526622a797f21989249
+
+cast call --rpc-url https://rpc.monad.xyz \
+  0x8422b555DCE11913A4657C2f47C839637FC71ffd \
+  "execCommitmentOf(address,bytes32)(bytes32)" \
+  0x8df64bacf6b70f7787f8d14429b258b3ff958ec1 \
+  0x051a10f524a68ef6ef82361223eebb88b49b6971b6e9f9e887e0d3a576a6348c
+# → 0x5b61f6f036538c72a5d5b530421a3332b0812680e1a4d526622a797f21989249
+
+# 5. Prove the binding is REAL rather than described: replay the shipped
+#    execution with one field changed and watch mainnet refuse it. Read-only,
+#    costs nothing, needs no key. Drop the slippage floor 2046 -> 1 — the
+#    exact deviation a compromised ECDSA key would want:
+#      revert 0x1f9e3c96 = ExecCommitmentMismatch(signed, recomputed)
+#    It reverts on the BINDING, not on replay: the check fires before the
+#    consumed flag, so it is doing work rather than being masked by it.
+#    Replaying the order UNCHANGED gives 0x1162d898 = AnchorAlreadyConsumed,
+#    which is the one-shot property.
+PRE=0x$(python -c "
+import sys; sys.path.insert(0, '.')
+from src import orders, pq_signing as pq
+print(pq.canonical_bytes(orders.load_signed_orders()[0].order.to_dict()).hex())
+")
+
+# A. TAMPERED — slippage floor 2046 -> 1:
+cast call 0xDaEa22D6DCB37FBF1462d6d08ADE40A8fAc05144 \
+  "executeAndRoute(bytes32,address[],uint24[],uint16[],uint256[],uint256,bytes)" \
+  0xaee5fdf0e3ec0fcb68617877692b2e959061514da3757f91caf3bc3a229b3ee9 \
+  "[0x754704Bc059F8C67012fEd69BC8A327a5aafb603]" "[3000]" "[10000]" "[1]" \
+  1786420926 "$PRE" \
+  --from 0x8dF64bACf6b70F7787f8d14429b258B3fF958ec1 \
+  --value 100000000000000000 --rpc-url https://rpc.monad.xyz
+# → execution reverted, data: "0x1f9e3c96 266543ca…  84e594b7…"
+#   ExecCommitmentMismatch(signed, recomputed) — mainnet refuses an execution
+#   the post-quantum signature never authorised.
+
+# B. UNCHANGED — same call, floor left at the signed 2046:
+#   (identical command with "[1]" -> "[2046]")
+# → execution reverted, data: "0x1162d898 aee5fdf0…"
+#   AnchorAlreadyConsumed(orderHash) — a DIFFERENT error, which is the point:
+#   the binding in (A) fired BEFORE the consumed flag, so it is doing real work
+#   rather than being masked by replay protection.
 ```
 
 > **Why `execCommitmentOf` and not `lastHash`.** V1 exposed only

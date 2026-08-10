@@ -10,6 +10,12 @@ outputs/*
 !outputs/hardware_run_defi.json
 !outputs/backtest.json
 !outputs/signed_orders.json
+# mainnet_route_order.json is deliberately NOT tracked: it was a schema-v1
+# snapshot with no execution block, matching nothing on chain, referenced by no
+# doc or script. A reviewer opening it looking for "the mainnet route order"
+# would find an order unrelated to any deployed transaction. The route order
+# that WAS anchored is signed_orders.json (0xaee5fdf0...).
+!outputs/mainnet_supply_order.json
 !outputs/unsigned_monad_tx.json
 !outputs/unsigned_anchor_tx.json
 # The anchor transaction that actually executed on mainnet, fetched from
