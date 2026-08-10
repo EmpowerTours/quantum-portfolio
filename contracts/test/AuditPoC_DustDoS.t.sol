@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
+import { PQBind } from "./helpers/PQBind.sol";
 import { MockPQAttestation } from "./mocks/MockPQAttestation.sol";
 import { IERC20 }    from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -109,8 +110,10 @@ contract AuditPoCDustDoSTest is Test {
 
     uint24  constant FEE    = 3000;
     uint256 constant FUTURE = 1e18;
-    bytes32 constant ORDER  = keccak256("order-1");
-    bytes32 constant ORDER2 = keccak256("order-2");
+    // ORDER / ORDER2 constants removed: an orderHash is now DERIVED from the
+    // execution parameters, so it cannot be a fixed literal. Two "independent"
+    // orders must therefore differ in at least one parameter, or they collide
+    // into a single hash and the second one is rejected as already-consumed.
 
     function setUp() public {
         wmon   = new WMON();
@@ -159,11 +162,16 @@ contract AuditPoCDustDoSTest is Test {
         });
     }
 
+    /// Derives the orderHash: the executor now demands bytes hashing to it
+    /// that carry the matching exec_commitment, so it cannot be invented.
     function _anchorRoute(
-        UniswapRoutingVault v, address who, bytes32 oh,
+        UniswapRoutingVault v, address who,
         address[] memory t, uint24[] memory f, uint16[] memory w, uint256 amt,
         uint256[] memory m
-    ) internal {
+    ) internal returns (bytes32 oh, bytes memory pre) {
+        (pre, oh) = PQBind.preimage(
+            keccak256(abi.encode(block.chainid, address(v), who, t, f, w, amt, m, FUTURE))
+        );
         bytes32 c = v.routeCommitment(oh, who, t, f, w, amt, m, FUTURE);
         uint64  q = anchor.nextSequence(who);
         vm.prank(who);
@@ -171,8 +179,13 @@ contract AuditPoCDustDoSTest is Test {
     }
 
     function _anchorSupply(
-        MorphoSupplyAdapter a, address who, bytes32 oh, address loan, uint256 maxA
-    ) internal {
+        MorphoSupplyAdapter a, address who, address loan, uint256 maxA
+    ) internal returns (bytes32 oh, bytes memory pre) {
+        MarketParams memory mp = _params(loan);
+        (pre, oh) = PQBind.preimage(keccak256(abi.encode(
+            block.chainid, address(a), who, mp.loanToken, mp.collateralToken,
+            mp.oracle, mp.irm, mp.lltv, maxA
+        )));
         bytes32 c = a.supplyCommitment(oh, who, _params(loan), maxA);
         uint64  q = anchor.nextSequence(who);
         vm.prank(who);
@@ -189,9 +202,9 @@ contract AuditPoCDustDoSTest is Test {
     /// Baseline: the vault works with no dust present.
     function test_VaultWorksWithNoDust() public {
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) = _oneLeg();
-        _anchorRoute(vault, alice, ORDER, t, f, w, 1 ether, m);
+        (bytes32 ORDER, bytes memory ORDER_pre) = _anchorRoute(vault, alice, t, f, w, 1 ether, m);
         vm.prank(alice);
-        vault.executeAndRoute{value: 1 ether}(ORDER, t, f, w, m, FUTURE);
+        vault.executeAndRoute{value: 1 ether}(ORDER, t, f, w, m, FUTURE, ORDER_pre);
         assertGt(usdc.balanceOf(alice), 0, "alice should have received USDC");
     }
 
@@ -206,16 +219,18 @@ contract AuditPoCDustDoSTest is Test {
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) = _oneLeg();
 
         // First order succeeds despite the dust.
-        _anchorRoute(vault, alice, ORDER, t, f, w, 1 ether, m);
+        (bytes32 ORDER, bytes memory ORDER_pre) = _anchorRoute(vault, alice, t, f, w, 1 ether, m);
         vm.prank(alice);
-        vault.executeAndRoute{value: 1 ether}(ORDER, t, f, w, m, FUTURE);
+        vault.executeAndRoute{value: 1 ether}(ORDER, t, f, w, m, FUTURE, ORDER_pre);
         assertGt(usdc.balanceOf(alice), 0, "alice received USDC");
 
         // And a second, independent order also succeeds — not a one-off.
         uint256 balMid = usdc.balanceOf(alice);
-        _anchorRoute(vault, alice, ORDER2, t, f, w, 1 ether, m);
+        // 0.5 rather than 1 ether: with a derived hash, an identical parameter
+        // set IS the same order, so a second "independent" order has to differ.
+        (bytes32 ORDER2, bytes memory ORDER2_pre) = _anchorRoute(vault, alice, t, f, w, 0.5 ether, m);
         vm.prank(alice);
-        vault.executeAndRoute{value: 1 ether}(ORDER2, t, f, w, m, FUTURE);
+        vault.executeAndRoute{value: 0.5 ether}(ORDER2, t, f, w, m, FUTURE, ORDER2_pre);
         assertGt(usdc.balanceOf(alice), balMid, "second order also routed");
 
         // The donated dust is inert: still exactly 1 wei, never touched.
@@ -232,9 +247,9 @@ contract AuditPoCDustDoSTest is Test {
         vm.stopPrank();
 
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) = _oneLeg();
-        _anchorRoute(vault, alice, ORDER, t, f, w, 1 ether, m);
+        (bytes32 ORDER, bytes memory ORDER_pre) = _anchorRoute(vault, alice, t, f, w, 1 ether, m);
         vm.prank(alice);
-        vault.executeAndRoute{value: 1 ether}(ORDER, t, f, w, m, FUTURE);
+        vault.executeAndRoute{value: 1 ether}(ORDER, t, f, w, m, FUTURE, ORDER_pre);
 
         assertEq(wmon.balanceOf(address(vault)), donation, "donation untouched");
         assertGt(usdc.balanceOf(alice), 0, "route succeeded");
@@ -259,11 +274,11 @@ contract AuditPoCDustDoSTest is Test {
         vm.stopPrank();
 
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) = _oneLeg();
-        _anchorRoute(v2, alice, ORDER, t, f, w, 1 ether, m);
+        (bytes32 ORDER, bytes memory ORDER_pre) = _anchorRoute(v2, alice, t, f, w, 1 ether, m);
         vm.prank(alice);
         // 1 wei of the deposit is stranded -> delta is 1, not 8.
         vm.expectRevert(abi.encodeWithSelector(UniswapRoutingVault.WMonDustResidual.selector, 1));
-        v2.executeAndRoute{value: 1 ether}(ORDER, t, f, w, m, FUTURE);
+        v2.executeAndRoute{value: 1 ether}(ORDER, t, f, w, m, FUTURE, ORDER_pre);
     }
 
     /// NEW-RISK CHECK for the H-1 fix: tolerating dust must not make it
@@ -286,10 +301,10 @@ contract AuditPoCDustDoSTest is Test {
         vm.stopPrank();
 
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) = _oneLeg();
-        _anchorRoute(v2, alice, ORDER, t, f, w, 1 ether, m);
+        (bytes32 ORDER, bytes memory ORDER_pre) = _anchorRoute(v2, alice, t, f, w, 1 ether, m);
         vm.prank(alice);
         vm.expectRevert();  // ERC20 allowance exceeded
-        v2.executeAndRoute{value: 1 ether}(ORDER, t, f, w, m, FUTURE);
+        v2.executeAndRoute{value: 1 ether}(ORDER, t, f, w, m, FUTURE, ORDER_pre);
 
         // Dust survives untouched.
         assertEq(wmon.balanceOf(address(v2)), 3 ether, "dust not stolen");
@@ -306,15 +321,15 @@ contract AuditPoCDustDoSTest is Test {
         usdc.transfer(address(adapter), 1);
         assertEq(usdc.balanceOf(address(adapter)), 1, "adapter holds donated dust");
 
-        _anchorSupply(adapter, alice, ORDER, address(usdc), 100 ether);
+        (bytes32 ORDER, bytes memory ORDER_pre) = _anchorSupply(adapter, alice, address(usdc), 100 ether);
         vm.prank(alice);
-        uint256 shares = adapter.supply(ORDER, _params(address(usdc)), 100 ether, 100 ether);
+        uint256 shares = adapter.supply(ORDER, _params(address(usdc)), 100 ether, 100 ether, ORDER_pre);
         assertEq(shares, 100 ether, "supply credited");
 
         // Second supply also works; dust still inert.
-        _anchorSupply(adapter, alice, ORDER2, address(usdc), 50 ether);
+        (bytes32 ORDER2, bytes memory ORDER2_pre) = _anchorSupply(adapter, alice, address(usdc), 50 ether);
         vm.prank(alice);
-        adapter.supply(ORDER2, _params(address(usdc)), 50 ether, 50 ether);
+        adapter.supply(ORDER2, _params(address(usdc)), 50 ether, 50 ether, ORDER2_pre);
         assertEq(usdc.balanceOf(address(adapter)), 1, "dust untouched");
     }
 
@@ -335,10 +350,10 @@ contract AuditPoCDustDoSTest is Test {
 
         usdc.transfer(address(a2), 500 ether);   // sizeable donation
 
-        _anchorSupply(a2, alice, ORDER, address(usdc), 100 ether);
+        (bytes32 ORDER, bytes memory ORDER_pre) = _anchorSupply(a2, alice, address(usdc), 100 ether);
         vm.prank(alice);
         vm.expectRevert();  // ERC20 allowance exceeded
-        a2.supply(ORDER, _params(address(usdc)), 100 ether, 100 ether);
+        a2.supply(ORDER, _params(address(usdc)), 100 ether, 100 ether, ORDER_pre);
 
         assertEq(usdc.balanceOf(address(a2)), 500 ether, "dust not stolen");
     }
@@ -359,9 +374,9 @@ contract AuditPoCDustDoSTest is Test {
         // Pre-existing donated dust, to prove the check measures the DELTA.
         usdc.transfer(address(a2), 9);
 
-        _anchorSupply(a2, alice, ORDER, address(usdc), 100 ether);
+        (bytes32 ORDER, bytes memory ORDER_pre) = _anchorSupply(a2, alice, address(usdc), 100 ether);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(MorphoSupplyAdapter.DustResidual.selector, 1));
-        a2.supply(ORDER, _params(address(usdc)), 100 ether, 100 ether);
+        a2.supply(ORDER, _params(address(usdc)), 100 ether, 100 ether, ORDER_pre);
     }
 }

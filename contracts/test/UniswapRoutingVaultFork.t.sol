@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test }  from "forge-std/Test.sol";
+import { PQBind } from "./helpers/PQBind.sol";
 import { MockPQAttestation } from "./mocks/MockPQAttestation.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { AuditAnchorV2 }       from "../src/AuditAnchorV2.sol";
@@ -57,12 +58,17 @@ contract UniswapRoutingVaultForkTest is Test {
             return;
         }
 
-        bytes32 orderHash = keccak256("fork-live-swap");
-
         address[] memory t = new address[](1); t[0] = tokenOut;
         uint24[]  memory f = new uint24[](1);  f[0] = fee;
         uint16[]  memory w = new uint16[](1);  w[0] = 10_000;
         uint256[] memory m = new uint256[](1); m[0] = 1; // accept anything > 0 for the smoke test
+
+        // Derived: the vault requires bytes hashing to this that carry the
+        // matching exec_commitment, so it cannot be a literal.
+        (bytes memory pre, bytes32 orderHash) = PQBind.preimage(keccak256(abi.encode(
+            block.chainid, address(vault), trader, t, f, w, uint256(0.1 ether), m,
+            block.timestamp + 300
+        )));
 
         // Anchor bound to exactly this execution.
         bytes32 commitment = vault.routeCommitment(orderHash, trader, t, f, w, 0.1 ether, m, block.timestamp + 300);
@@ -73,7 +79,7 @@ contract UniswapRoutingVaultForkTest is Test {
         uint256 before = IERC20(tokenOut).balanceOf(trader);
         vm.prank(trader);
         vault.executeAndRoute{value: 0.1 ether}(
-            orderHash, t, f, w, m, block.timestamp + 300
+            orderHash, t, f, w, m, block.timestamp + 300, pre
         );
         uint256 received = IERC20(tokenOut).balanceOf(trader) - before;
 

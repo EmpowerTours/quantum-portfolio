@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import { Test }      from "forge-std/Test.sol";
 import { MockPQAttestation } from "../mocks/MockPQAttestation.sol";
+import { PQBind }    from "../helpers/PQBind.sol";
 import { IERC20 }    from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { ERC20 }     from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -85,22 +86,49 @@ contract ReenterVault {
         vault = v; anchor = a; wmon = w; tokenOut = t;
     }
 
+    /// The re-entrant order must be a genuinely SEPARATE order from the outer
+    /// one, and an orderHash is now a function of the execution parameters
+    /// rather than an arbitrary label — so the two are told apart by size.
+    uint256 public constant INNER_VALUE = 2 ether;
+
     receive() external payable {}
+
+    /// The signed bytes / orderHash for a call of `val` wei made by this
+    /// contract. The executor requires bytes that sha256 to the orderHash and
+    /// carry the matching exec_commitment, so even the attacker has to produce
+    /// them exactly as an honest signer would.
+    function signed(uint256 val) public view returns (bytes32 h, bytes memory pre) {
+        (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) = _legs();
+        bytes32 paramsHash = keccak256(
+            abi.encode(
+                block.chainid, address(vault), address(this), t, f, w, val, m, type(uint256).max
+            )
+        );
+        (pre, h) = PQBind.preimage(paramsHash);
+    }
 
     /// Anchor BOTH the outer and the inner (re-entrant) call with fully valid
     /// commitments, so the only thing that can stop the re-entry is the
-    /// ReentrancyGuard — not a commitment mismatch and not consumption.
-    function prep(bytes32 hOuter, uint256 vOuter, bytes32 hInner, uint256 vInner) external {
+    /// ReentrancyGuard — not a commitment mismatch, not a binding mismatch and
+    /// not consumption.
+    function prep(uint256 vOuter, bool withInner)
+        external
+        returns (bytes32 hOuter, bytes32 hInner)
+    {
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) = _legs();
+        (hOuter, ) = signed(vOuter);
         anchor.anchor(
             hOuter,
             vault.routeCommitment(hOuter, address(this), t, f, w, vOuter, m, type(uint256).max),
             anchor.nextSequence(address(this))
         );
-        if (hInner != bytes32(0)) {
+        if (withInner) {
+            (hInner, ) = signed(INNER_VALUE);
             anchor.anchor(
                 hInner,
-                vault.routeCommitment(hInner, address(this), t, f, w, vInner, m, type(uint256).max),
+                vault.routeCommitment(
+                    hInner, address(this), t, f, w, INNER_VALUE, m, type(uint256).max
+                ),
                 anchor.nextSequence(address(this))
             );
         }
@@ -108,14 +136,16 @@ contract ReenterVault {
 
     function go(bytes32 h) external payable {
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) = _legs();
-        vault.executeAndRoute{ value: msg.value }(h, t, f, w, m, type(uint256).max);
+        (, bytes memory pre) = signed(msg.value);
+        vault.executeAndRoute{ value: msg.value }(h, t, f, w, m, type(uint256).max, pre);
     }
 
     /// hook body — re-enter executeAndRoute with a SEPARATE, validly anchored
     /// order. Must still be blocked.
     function reenter(bytes32 h) external {
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) = _legs();
-        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, type(uint256).max);
+        (, bytes memory pre) = signed(INNER_VALUE);
+        vault.executeAndRoute{ value: INNER_VALUE }(h, t, f, w, m, type(uint256).max, pre);
     }
 
     /// hook body — donate 1 wei WMON into the vault mid-call
@@ -168,7 +198,9 @@ contract EvilIrm {
         uint8 m = mode;
         mode = 0; // one-shot: avoid unbounded self-recursion in the stub
         if (m == 1) {
-            adapter.supply(keccak256("evil"), p, 1, 1);
+            // The preimage is irrelevant: nonReentrant rejects the call before
+            // the body runs, which is the point of the probe.
+            adapter.supply(keccak256("evil"), p, 1, 1, "");
         } else if (m == 2) {
             loan.transfer(address(adapter), 1);
         } else if (m == 3) {
@@ -259,16 +291,45 @@ contract RT03_DustInvariantAttacks is Test {
         m = new uint256[](1); m[0] = 1;      // non-zero: ZeroSlippageFloor guard
     }
 
-    function _anchorRoute(address who, bytes32 h, address tok, uint256 amountInWei) internal {
+    /// @dev The orderHash is DERIVED from the execution parameters: the vault
+    ///      now demands bytes that sha256 to it and carry the matching
+    ///      exec_commitment, so a test can no longer invent one.
+    function _anchorRoute(address who, address tok, uint256 amountInWei)
+        internal
+        returns (bytes32 h, bytes memory pre)
+    {
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _legs(tok);
+        bytes32 paramsHash = keccak256(
+            abi.encode(block.chainid, address(vault), who, t, f, w, amountInWei, m, FUTURE)
+        );
+        (pre, h) = PQBind.preimage(paramsHash);
         bytes32 c = vault.routeCommitment(h, who, t, f, w, amountInWei, m, FUTURE);
         uint64 _seq = anchor.nextSequence(who);
         vm.prank(who);
         anchor.anchor(h, c, _seq);
     }
 
-    function _anchorSupply(address who, bytes32 h, address irm, uint256 maxAssets) internal {
+    /// Same derivation for the adapter side.
+    function _supplyPre(address who, MarketParams memory p, uint256 maxAssets)
+        internal
+        view
+        returns (bytes32 h, bytes memory pre)
+    {
+        bytes32 paramsHash = keccak256(
+            abi.encode(
+                block.chainid, address(adapter), who, p.loanToken, p.collateralToken,
+                p.oracle, p.irm, p.lltv, maxAssets
+            )
+        );
+        (pre, h) = PQBind.preimage(paramsHash);
+    }
+
+    function _anchorSupply(address who, address irm, uint256 maxAssets)
+        internal
+        returns (bytes32 h, bytes memory pre)
+    {
+        (h, pre) = _supplyPre(who, _params(irm), maxAssets);
         bytes32 c = adapter.supplyCommitment(h, who, _params(irm), maxAssets);
         uint64 _seq = anchor.nextSequence(who);
         vm.prank(who);
@@ -288,12 +349,11 @@ contract RT03_DustInvariantAttacks is Test {
         vm.assume(dust > 0 && dust < 50 ether);
         _donateWmon(grief, dust);
 
-        bytes32 h = keccak256("h");
-        _anchorRoute(alice, h, address(usdc), 1 ether);
+        (bytes32 h, bytes memory pre) = _anchorRoute(alice, address(usdc), 1 ether);
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _legs(address(usdc));
         vm.prank(alice);
-        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE, pre);
 
         assertEq(wmon.balanceOf(address(vault)), dust, "dust inert, neither stolen nor blocking");
         assertEq(usdc.balanceOf(alice), 2000 ether, "user got the full swap");
@@ -306,9 +366,7 @@ contract RT03_DustInvariantAttacks is Test {
         ReenterVault atk = new ReenterVault(vault, anchor, wmon, address(hook));
         vm.deal(address(atk), 10 ether);
 
-        bytes32 hOuter = keccak256("re-outer");
-        bytes32 hInner = keccak256("re-inner");
-        atk.prep(hOuter, 1 ether, hInner, 1 ether);
+        (bytes32 hOuter, bytes32 hInner) = atk.prep(1 ether, true);
 
         // sanity: the inner order IS validly anchored and unconsumed
         assertTrue(anchor.execCommitmentOf(address(atk), hInner) != bytes32(0));
@@ -332,20 +390,18 @@ contract RT03_DustInvariantAttacks is Test {
         wmon.transfer(address(atk), 1);
         vm.stopPrank();
 
-        bytes32 h = keccak256("don");
-        atk.prep(h, 1 ether, bytes32(0), 0);
+        (bytes32 h, ) = atk.prep(1 ether, false);
         hook.arm(address(atk), abi.encodeCall(ReenterVault.donate, ()));
 
         vm.expectRevert(abi.encodeWithSelector(UniswapRoutingVault.WMonDustResidual.selector, 1));
         atk.go{ value: 1 ether }(h);
 
         // A concurrent, unrelated user is unaffected.
-        bytes32 h2 = keccak256("clean");
-        _anchorRoute(alice, h2, address(usdc), 1 ether);
+        (bytes32 h2, bytes memory pre2) = _anchorRoute(alice, address(usdc), 1 ether);
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _legs(address(usdc));
         vm.prank(alice);
-        vault.executeAndRoute{ value: 1 ether }(h2, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 1 ether }(h2, t, f, w, m, FUTURE, pre2);
         assertEq(usdc.balanceOf(alice), 2000 ether);
     }
 
@@ -356,12 +412,11 @@ contract RT03_DustInvariantAttacks is Test {
         _donateWmon(grief, 5 ether);
         assertEq(wmon.balanceOf(address(vault)), 5 ether);
 
-        bytes32 h = keccak256("x");
-        _anchorRoute(alice, h, address(usdc), 1 ether);
+        (bytes32 h, bytes memory pre) = _anchorRoute(alice, address(usdc), 1 ether);
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _legs(address(usdc));
         vm.prank(alice);
-        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE, pre);
         assertEq(wmon.balanceOf(address(vault)), 5 ether, "still stuck after a full route");
 
         vm.prank(grief);
@@ -386,13 +441,12 @@ contract RT03_DustInvariantAttacks is Test {
         usdc.transfer(address(evilIrm), 10 ether);
 
         uint256 adapterBefore = usdc.balanceOf(address(adapter));
-        bytes32 h = keccak256("m");
-        _anchorSupply(alice, h, address(evilIrm), 1000 ether);
+        (bytes32 h, bytes memory pre) = _anchorSupply(alice, address(evilIrm), 1000 ether);
 
         vm.startPrank(alice);
         usdc.faucet(1000 ether);
         usdc.approve(address(adapter), type(uint256).max);
-        adapter.supply(h, _params(address(evilIrm)), 1000 ether, 1000 ether);
+        adapter.supply(h, _params(address(evilIrm)), 1000 ether, 1000 ether, pre);
         vm.stopPrank();
 
         assertEq(usdc.balanceOf(address(adapter)), adapterBefore, "adapter drained nothing extra");
@@ -419,7 +473,10 @@ contract RT03_DustInvariantAttacks is Test {
         });
         bytes32 id = keccak256(abi.encode(hostile));
 
-        bytes32 h = keccak256("m-hostile");
+        // Sign AND anchor the hostile market honestly, so both the PQ binding
+        // and the commitment check pass and the allowlist guard is the one that
+        // fires.
+        (bytes32 h, bytes memory pre) = _supplyPre(alice, hostile, 1000 ether);
         bytes32 c = adapter.supplyCommitment(h, alice, hostile, 1000 ether);
         uint64 _seq = anchor.nextSequence(alice);
         vm.prank(alice);
@@ -431,7 +488,7 @@ contract RT03_DustInvariantAttacks is Test {
         vm.expectRevert(
             abi.encodeWithSelector(MorphoSupplyAdapter.MarketNotApproved.selector, id)
         );
-        adapter.supply(h, hostile, 1000 ether, 1000 ether);
+        adapter.supply(h, hostile, 1000 ether, 1000 ether, pre);
         vm.stopPrank();
         assertEq(usdc.balanceOf(address(adapter)), 0, "no tokens pulled before the check");
     }
@@ -447,14 +504,13 @@ contract RT03_DustInvariantAttacks is Test {
     }
 
     function _supplyExpectRevert() internal {
-        bytes32 h = keccak256("m");
-        _anchorSupply(alice, h, address(evilIrm), 1000 ether);
+        (bytes32 h, bytes memory pre) = _anchorSupply(alice, address(evilIrm), 1000 ether);
 
         vm.startPrank(alice);
         usdc.faucet(1000 ether);
         usdc.approve(address(adapter), type(uint256).max);
         vm.expectRevert();
-        adapter.supply(h, _params(address(evilIrm)), 1000 ether, 1000 ether);
+        adapter.supply(h, _params(address(evilIrm)), 1000 ether, 1000 ether, pre);
         vm.stopPrank();
     }
 }

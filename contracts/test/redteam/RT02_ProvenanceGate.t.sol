@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
 import { MockPQAttestation } from "../mocks/MockPQAttestation.sol";
+import { PQBind } from "../helpers/PQBind.sol";
 import { IERC20 }  from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { WMON }          from "../../src/dex/WMON.sol";
 import { MockToken }     from "../../src/dex/MockToken.sol";
@@ -110,14 +111,32 @@ contract RT02_ProvenanceGate is Test {
         m = new uint256[](1); m[0] = 1;      // non-zero: ZeroSlippageFloor guard
     }
 
-    function _anchorRoute(
-        bytes32 h,
+    /// @dev The orderHash is DERIVED from the execution parameters, not
+    ///      invented: the executor now demands bytes that sha256 to it and
+    ///      carry the matching exec_commitment, so the test does the work a
+    ///      real signer does. Returns the preimage for the executor call.
+    function _routePre(
+        address who,
         address[] memory t,
         uint24[] memory f,
         uint16[] memory w,
         uint256 amountInWei,
         uint256[] memory m
-    ) internal {
+    ) internal view returns (bytes32 h, bytes memory pre) {
+        bytes32 paramsHash = keccak256(
+            abi.encode(block.chainid, address(vault), who, t, f, w, amountInWei, m, FUTURE)
+        );
+        (pre, h) = PQBind.preimage(paramsHash);
+    }
+
+    function _anchorRoute(
+        address[] memory t,
+        uint24[] memory f,
+        uint16[] memory w,
+        uint256 amountInWei,
+        uint256[] memory m
+    ) internal returns (bytes32 h, bytes memory pre) {
+        (h, pre) = _routePre(agent, t, f, w, amountInWei, m);
         bytes32 c = vault.routeCommitment(h, agent, t, f, w, amountInWei, m, FUTURE);
         uint64 _seq = anchor.nextSequence(agent);
         vm.prank(agent);
@@ -128,30 +147,26 @@ contract RT02_ProvenanceGate is Test {
     /// The V1 sequence "one anchor, three divergent executions" now dies at
     /// the second step; a verbatim replay dies at the consumption check.
     function test_RT02a_OneAnchorNoLongerAuthorisesDivergentExecutions() public {
-        bytes32 orderHash = keccak256("order-42");
-
         (address[] memory t1, uint24[] memory f1, uint16[] memory w1, uint256[] memory m1) =
             _one(address(usdc));
-        _anchorRoute(orderHash, t1, f1, w1, 1 ether, m1);
+        (bytes32 orderHash, bytes memory pre) = _anchorRoute(t1, f1, w1, 1 ether, m1);
 
         // execution 1 — exactly what was anchored: still works.
         vm.prank(agent);
-        vault.executeAndRoute{ value: 1 ether }(orderHash, t1, f1, w1, m1, FUTURE);
+        vault.executeAndRoute{ value: 1 ether }(orderHash, t1, f1, w1, m1, FUTURE, pre);
         assertEq(usdc.balanceOf(agent), 1 ether * 2000, "the anchored trade executes");
 
         // execution 2 — V1 allowed this: a DIFFERENT token and amount under the
-        // same "provenance". Now the commitment mismatch is caught first.
+        // same "provenance". Rejected. The specific selector is no longer
+        // assertable: the PQ execution binding runs BEFORE the anchor lookup,
+        // and the signed bytes that hash to `orderHash` commit to the USDC
+        // allocation, so the divergent submission dies at the binding rather
+        // than at ExecutionNotAnchored. Deliberate — it is the stronger check.
         (address[] memory t2, uint24[] memory f2, uint16[] memory w2, uint256[] memory m2) =
             _one(address(usdt));
-        bytes32 anchored = anchor.execCommitmentOf(agent, orderHash);
-        bytes32 divergent = vault.routeCommitment(orderHash, agent, t2, f2, w2, 5 ether, m2, FUTURE);
         vm.prank(agent);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                UniswapRoutingVault.ExecutionNotAnchored.selector, divergent, anchored
-            )
-        );
-        vault.executeAndRoute{ value: 5 ether }(orderHash, t2, f2, w2, m2, FUTURE);
+        vm.expectRevert();
+        vault.executeAndRoute{ value: 5 ether }(orderHash, t2, f2, w2, m2, FUTURE, pre);
 
         // execution 3 — a VERBATIM replay of the authorised trade. V1 allowed
         // unlimited repeats; now the anchor is spent.
@@ -161,7 +176,7 @@ contract RT02_ProvenanceGate is Test {
                 UniswapRoutingVault.AnchorAlreadyConsumed.selector, orderHash
             )
         );
-        vault.executeAndRoute{ value: 1 ether }(orderHash, t1, f1, w1, m1, FUTURE);
+        vault.executeAndRoute{ value: 1 ether }(orderHash, t1, f1, w1, m1, FUTURE, pre);
 
         assertEq(usdt.balanceOf(agent), 0, "the divergent allocation never executed");
         assertEq(usdc.balanceOf(agent), 1 ether * 2000, "and the replay added nothing");
@@ -171,26 +186,22 @@ contract RT02_ProvenanceGate is Test {
     /// The route and supply commitment shapes differ, so an anchor minted for
     /// the vault is structurally unusable at the adapter.
     function test_RT02c_OneAnchorCannotGateBothVaultAndMorphoAdapter() public {
-        bytes32 orderHash = keccak256("order-99");
-
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _one(address(usdc));
-        _anchorRoute(orderHash, t, f, w, 1 ether, m);
+        (bytes32 orderHash, bytes memory pre) = _anchorRoute(t, f, w, 1 ether, m);
 
         vm.prank(agent);
-        vault.executeAndRoute{ value: 1 ether }(orderHash, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 1 ether }(orderHash, t, f, w, m, FUTURE, pre);
 
-        // Same hash, no re-anchor: the adapter refuses it.
+        // Same hash, same signed bytes, no re-anchor: the adapter refuses it.
+        // The specific selector is no longer assertable — the signed order's
+        // exec_commitment is a ROUTE commitment, so the adapter's PQ binding
+        // rejects it before the anchor lookup it used to fail at. Structurally
+        // unusable at the other executor, which is exactly the claim.
         vm.startPrank(agent);
         usdc.approve(address(adapter), type(uint256).max);
-        bytes32 anchored = anchor.execCommitmentOf(agent, orderHash);
-        bytes32 supplyC  = adapter.supplyCommitment(orderHash, agent, _market(), 1000 ether);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                MorphoSupplyAdapter.ExecutionNotAnchored.selector, supplyC, anchored
-            )
-        );
-        adapter.supply(orderHash, _market(), 1000 ether, 1000 ether);
+        vm.expectRevert();
+        adapter.supply(orderHash, _market(), 1000 ether, 1000 ether, pre);
         vm.stopPrank();
     }
 
@@ -198,23 +209,20 @@ contract RT02_ProvenanceGate is Test {
     /// the previous one: commitments are keyed per (anchorer, orderHash), so a
     /// pipelining agent can anchor N and N+1 and still execute N.
     function test_RT02d_PipelinedAnchorsNoLongerStrandEachOther() public {
-        bytes32 orderN  = keccak256("order-N");
-        bytes32 orderN1 = keccak256("order-N+1");
-
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _one(address(usdc));
-        _anchorRoute(orderN, t, f, w, 1 ether, m);
+        (bytes32 orderN, bytes memory preN) = _anchorRoute(t, f, w, 1 ether, m);
 
         // The next order is anchored while route(N) is still in flight.
         (address[] memory t2, uint24[] memory f2, uint16[] memory w2, uint256[] memory m2) =
             _one(address(usdt));
-        _anchorRoute(orderN1, t2, f2, w2, 2 ether, m2);
+        (bytes32 orderN1, bytes memory preN1) = _anchorRoute(t2, f2, w2, 2 ether, m2);
 
         // V1 reverted AnchorNotFound here. V2 executes both, in either order.
         vm.prank(agent);
-        vault.executeAndRoute{ value: 1 ether }(orderN, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 1 ether }(orderN, t, f, w, m, FUTURE, preN);
         vm.prank(agent);
-        vault.executeAndRoute{ value: 2 ether }(orderN1, t2, f2, w2, m2, FUTURE);
+        vault.executeAndRoute{ value: 2 ether }(orderN1, t2, f2, w2, m2, FUTURE, preN1);
 
         assertEq(usdc.balanceOf(agent), 1 ether * 2000, "order N executed");
         assertEq(usdt.balanceOf(agent), 2 ether * 2000, "order N+1 executed");
@@ -225,11 +233,10 @@ contract RT02_ProvenanceGate is Test {
     /// anchor state; commitments are namespaced by anchorer.
     function test_RT02e_ThirdPartyCannotAffectVictimAnchorState() public {
         address attacker = address(0xBAD);
-        bytes32 h = keccak256("victim-order");
 
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _one(address(usdc));
-        _anchorRoute(h, t, f, w, 1 ether, m);
+        (bytes32 h, ) = _anchorRoute(t, f, w, 1 ether, m);
         bytes32 victimCommitment = anchor.execCommitmentOf(agent, h);
 
         vm.prank(attacker);

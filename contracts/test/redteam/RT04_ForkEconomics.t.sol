@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import { Test }   from "forge-std/Test.sol";
 import { MockPQAttestation } from "../mocks/MockPQAttestation.sol";
+import { PQBind } from "../helpers/PQBind.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { AuditAnchorV2 }       from "../../src/AuditAnchorV2.sol";
 import { UniswapRoutingVault } from "../../src/UniswapRoutingVault.sol";
@@ -90,14 +91,20 @@ contract RT04_ForkEconomics is Test {
                                              // 1 is the smallest LEGAL floor
     }
 
+    /// @dev The orderHash is DERIVED from the execution parameters, not
+    ///      invented: the vault now requires bytes that sha256 to it and carry
+    ///      the matching exec_commitment. Returns the preimage to pass on.
     function _anchorRoute(
         address who,
-        bytes32 h,
         uint256 amountInWei,
         uint256[] memory m,
         uint256 deadline
-    ) internal {
+    ) internal returns (bytes32 h, bytes memory pre) {
         (address[] memory t, uint24[] memory f, uint16[] memory w, ) = _legs();
+        bytes32 paramsHash = keccak256(
+            abi.encode(block.chainid, address(vault), who, t, f, w, amountInWei, m, deadline)
+        );
+        (pre, h) = PQBind.preimage(paramsHash);
         bytes32 c = vault.routeCommitment(h, who, t, f, w, amountInWei, m, deadline);
         uint64 seq = anchor.nextSequence(who);
         vm.prank(who);
@@ -106,14 +113,14 @@ contract RT04_ForkEconomics is Test {
 
     /// Fill 10 MON with a throwaway loose floor to learn the fair price, then
     /// rewind. Kept in its own frame to stay under the IR stack limit.
-    function _measureFair(bytes32 h) internal returns (uint256 fair) {
+    function _measureFair() internal returns (uint256 fair) {
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory loose) =
             _legs();
         uint256 snap = vm.snapshotState();
         uint256 dl0 = block.timestamp + 300;
-        _anchorRoute(victim, h, 10 ether, loose, dl0);
+        (bytes32 h, bytes memory pre) = _anchorRoute(victim, 10 ether, loose, dl0);
         vm.prank(victim);
-        vault.executeAndRoute{ value: 10 ether }(h, t, f, w, loose, dl0);
+        vault.executeAndRoute{ value: 10 ether }(h, t, f, w, loose, dl0, pre);
         fair = IERC20(tokenOut).balanceOf(victim);
         vm.revertToState(snap);
     }
@@ -157,22 +164,21 @@ contract RT04_ForkEconomics is Test {
     function test_RT04a_SandwichCannotLandAgainstABoundFloor() public {
         if (!forked) { vm.skip(true); return; }   // reports as SKIPPED, not PASSED
 
-        uint256 fair = _measureFair(keccak256("baseline"));
+        uint256 fair = _measureFair();
 
         // The agent signs a REAL floor: 5 bps of tolerance.
         (address[] memory t, uint24[] memory f, uint16[] memory w, ) = _legs();
         uint256[] memory bnd = new uint256[](1);
         bnd[0] = (fair * 9995) / 10_000;
         uint256 dl = block.timestamp + 300;
-        bytes32 h1 = keccak256("bound-floor");
-        _anchorRoute(victim, h1, 10 ether, bnd, dl);
+        (bytes32 h1, bytes memory pre) = _anchorRoute(victim, 10 ether, bnd, dl);
 
         _frontRun();   // same 400k WMON as the pre-fix run (~30 bps impact)
 
         // The victim's anchored order can no longer be filled at a loss.
         vm.prank(victim);
         vm.expectRevert(bytes("Too little received"));
-        vault.executeAndRoute{ value: 10 ether }(h1, t, f, w, bnd, dl);
+        vault.executeAndRoute{ value: 10 ether }(h1, t, f, w, bnd, dl, pre);
 
         emit log_named_uint("fair fill for 10 MON  ", fair);
         emit log_named_uint("anchored floor (5 bps)", bnd[0]);
@@ -182,7 +188,7 @@ contract RT04_ForkEconomics is Test {
         // And it fills normally once the attacker unwinds.
         _unwind();
         vm.prank(victim);
-        vault.executeAndRoute{ value: 10 ether }(h1, t, f, w, bnd, dl);
+        vault.executeAndRoute{ value: 10 ether }(h1, t, f, w, bnd, dl, pre);
         assertGe(IERC20(tokenOut).balanceOf(victim), bnd[0], "filled at or above the floor");
     }
 
@@ -195,20 +201,19 @@ contract RT04_ForkEconomics is Test {
     function test_RT04c_ResidualMevIsBoundedByTheAnchoredTolerance() public {
         if (!forked) { vm.skip(true); return; }   // reports as SKIPPED, not PASSED
 
-        uint256 fair = _measureFair(keccak256("baseline2"));
+        uint256 fair = _measureFair();
 
         // A slack floor: 200 bps of tolerance, well outside the ~30 bps impact.
         (address[] memory t, uint24[] memory f, uint16[] memory w, ) = _legs();
         uint256[] memory slack = new uint256[](1);
         slack[0] = (fair * 9800) / 10_000;
         uint256 dl = block.timestamp + 300;
-        bytes32 h1 = keccak256("slack-floor");
-        _anchorRoute(victim, h1, 10 ether, slack, dl);
+        (bytes32 h1, bytes memory pre) = _anchorRoute(victim, 10 ether, slack, dl);
 
         _frontRun();
 
         vm.prank(victim);
-        vault.executeAndRoute{ value: 10 ether }(h1, t, f, w, slack, dl);
+        vault.executeAndRoute{ value: 10 ether }(h1, t, f, w, slack, dl, pre);
         uint256 got = IERC20(tokenOut).balanceOf(victim);
 
         emit log_named_uint("fair fill        ", fair);

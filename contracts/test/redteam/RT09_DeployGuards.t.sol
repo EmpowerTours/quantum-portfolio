@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import { Test }   from "forge-std/Test.sol";
 import { MockPQAttestation } from "../mocks/MockPQAttestation.sol";
+import { PQBind } from "../helpers/PQBind.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { WMON }                from "../../src/dex/WMON.sol";
 import { MockToken }           from "../../src/dex/MockToken.sol";
@@ -144,12 +145,25 @@ contract RT09_DeployGuards is Test {
         uint16[]  memory w = new uint16[](1);  w[0] = 10_000;
         uint256[] memory m = new uint256[](1); m[0] = 1;
 
+        // The orderHash is DERIVED from the execution parameters, so the
+        // PQ-binding check passes and the call dies where this test says it
+        // does — inside `ANCHOR.execCommitmentOf`. An invented hash would
+        // revert one layer earlier and prove nothing about the anchor.
+        (bytes memory pre, bytes32 h) = PQBind.preimage(
+            keccak256(
+                abi.encode(
+                    block.chainid, address(dead), agent, t, f, w,
+                    uint256(1 ether), m, FUTURE
+                )
+            )
+        );
+
         vm.prank(agent);
-        v1.anchor(keccak256("h"), 0);            // anchoring "works" on V1
+        v1.anchor(h, 0);                          // anchoring "works" on V1
 
         vm.prank(agent);
         vm.expectRevert();                        // no execCommitmentOf, no fallback
-        dead.executeAndRoute{ value: 1 ether }(keccak256("h"), t, f, w, m, FUTURE);
+        dead.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE, pre);
 
         assertEq(address(dead.ANCHOR()), address(v1), "immutable: no owner, no setter, no rescue");
     }
@@ -164,11 +178,23 @@ contract RT09_DeployGuards is Test {
         MorphoSupplyAdapter dead =
             new MorphoSupplyAdapter(address(morpho), address(v1), address(new MockPQAttestation()), approved, markets);
 
+        // Same as RT09c: derive the orderHash so the binding is satisfied and
+        // the revert is genuinely the V1 anchor's missing `execCommitmentOf`.
+        MarketParams memory p = _market();
+        (bytes memory pre, bytes32 h) = PQBind.preimage(
+            keccak256(
+                abi.encode(
+                    block.chainid, address(dead), agent, p.loanToken,
+                    p.collateralToken, p.oracle, p.irm, p.lltv, uint256(1 ether)
+                )
+            )
+        );
+
         vm.startPrank(agent);
         usdc.faucet(10 ether);
         usdc.approve(address(dead), type(uint256).max);
         vm.expectRevert();
-        dead.supply(keccak256("h"), _market(), 1 ether, 1 ether);
+        dead.supply(h, p, 1 ether, 1 ether, pre);
         vm.stopPrank();
     }
 

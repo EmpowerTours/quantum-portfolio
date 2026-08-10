@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test }   from "forge-std/Test.sol";
+import { PQBind } from "../helpers/PQBind.sol";
 import { MockPQAttestation } from "../mocks/MockPQAttestation.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { WMON }                from "../../src/dex/WMON.sol";
@@ -127,17 +128,21 @@ contract RT07_SentinelBypassViaRounding is Test {
         vm.deal(stranded, 100 ether);
     }
 
+    /// Derives the orderHash: it is now a function of the execution
+    /// parameters, so it cannot be supplied by the caller.
     function _anchorRoute(
         address who,
         UniswapRoutingVault v,
-        bytes32 h,
         uint16[] memory w,
         uint256 amountInWei,
         uint256[] memory m
-    ) internal {
+    ) internal returns (bytes32 h, bytes memory pre) {
         address[] memory t = new address[](w.length);
         uint24[] memory f = new uint24[](w.length);
         for (uint256 i = 0; i < w.length; ++i) { t[i] = address(usdc); f[i] = FEE; }
+        (pre, h) = PQBind.preimage(keccak256(
+            abi.encode(block.chainid, address(v), who, t, f, w, amountInWei, m, FUTURE)
+        ));
         bytes32 c = v.routeCommitment(h, who, t, f, w, amountInWei, m, FUTURE);
         uint64 s = anchor.nextSequence(who);
         vm.prank(who);
@@ -170,17 +175,15 @@ contract RT07_SentinelBypassViaRounding is Test {
         wmon.deposit{ value: 1 ether }();
         IERC20(address(wmon)).transfer(address(recorder), 1 ether);
         vm.stopPrank();
-
-        bytes32 h = keccak256("rt07a");
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _legs(1, 9999);
-        _anchorRoute(attacker, recVault, h, w, 9_999, m);
+        (bytes32 h, bytes memory h_pre) = _anchorRoute(attacker, recVault, w, 9_999, m);
 
         vm.prank(attacker);
         vm.expectRevert(
             abi.encodeWithSelector(UniswapRoutingVault.ZeroWeightLeg.selector, uint256(0))
         );
-        recVault.executeAndRoute{ value: 9_999 }(h, t, f, w, m, FUTURE);
+        recVault.executeAndRoute{ value: 9_999 }(h, t, f, w, m, FUTURE, h_pre);
 
         assertEq(recorder.seenLength(), 0, "the router was never called at all");
         assertFalse(recVault.consumed(attacker, h), "and the anchor was not burned");
@@ -201,15 +204,13 @@ contract RT07_SentinelBypassViaRounding is Test {
         uint16 a = uint16(bound(wFirst, 1, 9_999));
         uint16 b = uint16(10_000 - a);
         uint256 v = bound(value, 1, 100_000);
-
-        bytes32 h = keccak256(abi.encode("rt07b", a, v));
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _legs(a, b);
-        _anchorRoute(attacker, recVault, h, w, v, m);
+        (bytes32 h, bytes memory h_pre) = _anchorRoute(attacker, recVault, w, v, m);
 
         uint256 before = recorder.seenLength();
         vm.prank(attacker);
-        try recVault.executeAndRoute{ value: v }(h, t, f, w, m, FUTURE) {
+        try recVault.executeAndRoute{ value: v }(h, t, f, w, m, FUTURE, h_pre) {
             for (uint256 i = before; i < recorder.seenLength(); ++i) {
                 assertGt(recorder.seen(i), 0, "no leg may be handed amountIn == 0");
             }
@@ -227,7 +228,7 @@ contract RT07_SentinelBypassViaRounding is Test {
     }
 
     // ---------------------------------------------------------------------
-    // (2) The exploit: sweep the router's stranded WMON, for free.
+    // (2) The exploit: sweep the router's stranded WMON_MAINNET, for free.
     // ---------------------------------------------------------------------
 
     /// INVERTED (was CONFIRMED, M-5 re-opened; now FIXED) — an attacker with
@@ -244,18 +245,16 @@ contract RT07_SentinelBypassViaRounding is Test {
         IERC20(address(wmon)).transfer(address(router), 10 ether);
         vm.stopPrank();
         assertEq(IERC20(address(wmon)).balanceOf(address(router)), 10 ether, "setup");
-
-        bytes32 h = keccak256("rt07c");
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _legs(1, 9999);
-        _anchorRoute(attacker, vault, h, w, 9_999, m);
+        (bytes32 h, bytes memory h_pre) = _anchorRoute(attacker, vault, w, 9_999, m);
 
         uint256 routerOutBefore = usdc.balanceOf(address(router));
         vm.prank(attacker);
         vm.expectRevert(
             abi.encodeWithSelector(UniswapRoutingVault.ZeroWeightLeg.selector, uint256(0))
         );
-        vault.executeAndRoute{ value: 9_999 }(h, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 9_999 }(h, t, f, w, m, FUTURE, h_pre);
 
         // nothing moved, and the anchor survives for a legitimate retry
         assertEq(usdc.balanceOf(attacker), 0, "no output delivered");
@@ -271,14 +270,12 @@ contract RT07_SentinelBypassViaRounding is Test {
         wmon.deposit{ value: 10 ether }();
         IERC20(address(wmon)).transfer(address(router), 10 ether);
         vm.stopPrank();
-
-        bytes32 h = keccak256("rt07d");
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _legs(1, 9999);
-        _anchorRoute(attacker, vault, h, w, 1 ether, m);
+        (bytes32 h, bytes memory h_pre) = _anchorRoute(attacker, vault, w, 1 ether, m);
 
         vm.prank(attacker);
-        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE, h_pre);
 
         assertEq(usdc.balanceOf(attacker), 2000 ether, "only the caller's own deposit routed");
         assertEq(
@@ -320,10 +317,9 @@ contract RT07_SentinelBypassViaRounding is Test {
     /// against a future change to the split arithmetic, and `ZeroWeightLeg`
     /// remains reachable — and load-bearing — on NON-final legs (RT07a).
     function test_RT07g_LastLegCanRoundToZeroAndIsCaught() public {
-        bytes32 h = keccak256("rt07g");
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _legs(10_000, 0);
-        _anchorRoute(attacker, recVault, h, w, 1 ether, m);
+        (bytes32 h, bytes memory h_pre) = _anchorRoute(attacker, recVault, w, 1 ether, m);
 
         // the arithmetic the vault performs: leg 0 takes everything
         assertEq((uint256(1 ether) * 10_000) / 10_000, 1 ether, "leg 0 drains the deposit");
@@ -332,7 +328,7 @@ contract RT07_SentinelBypassViaRounding is Test {
         vm.expectRevert(
             abi.encodeWithSelector(UniswapRoutingVault.ZeroWeightBps.selector, uint256(1))
         );
-        recVault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
+        recVault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE, h_pre);
 
         // The revert names leg 1, i.e. the guard fired on the LAST leg — which
         // my original "never the last leg" bound wrongly excluded.
@@ -363,7 +359,6 @@ contract RT07_SentinelBypassViaRounding is Test {
     /// They are not substitutes, and the weight check costs ~20 gas. Inverted
     /// below: the zero-weight leg is now rejected before any swap.
     function test_RT07h_ZeroWeightLegWithRoundingDustIsRejected() public {
-        bytes32 h = keccak256("rt07h");
         address[] memory t = new address[](3);
         uint24[]  memory f = new uint24[](3);
         uint16[]  memory w = new uint16[](3);
@@ -371,6 +366,11 @@ contract RT07_SentinelBypassViaRounding is Test {
         for (uint256 i = 0; i < 3; ++i) { t[i] = address(usdc); f[i] = FEE; m[i] = 1; }
         w[0] = 5000; w[1] = 5000; w[2] = 0;          // a ZERO-weight final leg
 
+        // Bound to exactly these parameters, so ZeroWeightBps is what fires
+        // rather than the binding.
+        (bytes memory h_pre, bytes32 h) = PQBind.preimage(keccak256(
+            abi.encode(block.chainid, address(recVault), attacker, t, f, w, uint256(3), m, FUTURE)
+        ));
         bytes32 c = recVault.routeCommitment(h, attacker, t, f, w, 3, m, FUTURE);
         uint64 sq = anchor.nextSequence(attacker);
         vm.prank(attacker);
@@ -380,7 +380,7 @@ contract RT07_SentinelBypassViaRounding is Test {
         vm.expectRevert(
             abi.encodeWithSelector(UniswapRoutingVault.ZeroWeightBps.selector, 2)
         );
-        recVault.executeAndRoute{ value: 3 }(h, t, f, w, m, FUTURE);
+        recVault.executeAndRoute{ value: 3 }(h, t, f, w, m, FUTURE, h_pre);
 
         // No swap reached the router, and the anchor was not consumed.
         assertEq(recorder.seenLength(), 0, "the router must never be called");
@@ -391,7 +391,7 @@ contract RT07_SentinelBypassViaRounding is Test {
 /// RT-07 fork leg — the same bypass against the REAL SwapRouter02 on Monad
 /// mainnet. Self-skips without MONAD_RPC_URL / FORK_TOKEN_OUT / FORK_FEE.
 contract RT07_SentinelBypassFork is Test {
-    address constant WMON   = 0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A;
+    address constant WMON_MAINNET = 0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A;
     address constant ROUTER = 0xfE31F71C1b106EAc32F1A19239c9a9A72ddfb900;
 
     AuditAnchorV2 anchor;
@@ -420,7 +420,7 @@ contract RT07_SentinelBypassFork is Test {
         approved[0] = tokenOut;
         uint24[] memory tiers = new uint24[](1);
         tiers[0] = fee;
-        vault = new UniswapRoutingVault(WMON, ROUTER, address(anchor), address(new MockPQAttestation()), approved, tiers);
+        vault = new UniswapRoutingVault(WMON_MAINNET, ROUTER, address(anchor), address(new MockPQAttestation()), approved, tiers);
 
         vm.deal(attacker, 100 ether);
         vm.deal(victimLP, 100 ether);
@@ -440,18 +440,20 @@ contract RT07_SentinelBypassFork is Test {
         if (!forked) { vm.skip(true); return; }   // reports as SKIPPED, not PASSED
 
         vm.startPrank(victimLP);
-        IWrappedNative(WMON).deposit{ value: 5 ether }();
-        IERC20(WMON).transfer(ROUTER, 5 ether);
+        IWrappedNative(WMON_MAINNET).deposit{ value: 5 ether }();
+        IERC20(WMON_MAINNET).transfer(ROUTER, 5 ether);
         vm.stopPrank();
-        uint256 strandedBefore = IERC20(WMON).balanceOf(ROUTER);
+        uint256 strandedBefore = IERC20(WMON_MAINNET).balanceOf(ROUTER);
         assertGe(strandedBefore, 5 ether, "setup: WMON stranded in the router");
 
         address[] memory t = new address[](2); t[0] = tokenOut; t[1] = tokenOut;
         uint24[]  memory f = new uint24[](2);  f[0] = fee; f[1] = fee;
         uint16[]  memory w = new uint16[](2);  w[0] = 1; w[1] = 9_999;
         uint256[] memory m = new uint256[](2); m[0] = 1; m[1] = 1;
-
-        bytes32 h = keccak256("rt07f");
+        // Bound to exactly these parameters, so ZeroWeightLeg is what fires.
+        (bytes memory h_pre, bytes32 h) = PQBind.preimage(keccak256(
+            abi.encode(block.chainid, address(vault), attacker, t, f, w, uint256(9_999), m, FUTURE)
+        ));
         bytes32 c = vault.routeCommitment(h, attacker, t, f, w, 9_999, m, FUTURE);
         uint64 s = anchor.nextSequence(attacker);
         vm.prank(attacker);
@@ -461,10 +463,10 @@ contract RT07_SentinelBypassFork is Test {
         vm.expectRevert(
             abi.encodeWithSelector(UniswapRoutingVault.ZeroWeightLeg.selector, uint256(0))
         );
-        vault.executeAndRoute{ value: 9_999 }(h, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 9_999 }(h, t, f, w, m, FUTURE, h_pre);
 
         assertEq(IERC20(tokenOut).balanceOf(attacker), 0, "FORK: nothing swept");
-        assertEq(IERC20(WMON).balanceOf(ROUTER), strandedBefore, "FORK: router WMON untouched");
+        assertEq(IERC20(WMON_MAINNET).balanceOf(ROUTER), strandedBefore, "FORK: router WMON untouched");
         assertFalse(vault.consumed(attacker, h), "FORK: anchor not burned");
         emit log("FORK: ZeroWeightLeg fired against the real SwapRouter02 - guard is correct");
     }

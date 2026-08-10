@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import { Test }   from "forge-std/Test.sol";
 import { MockPQAttestation } from "../mocks/MockPQAttestation.sol";
+import { PQBind } from "../helpers/PQBind.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { WMON }                from "../../src/dex/WMON.sol";
 import { MockToken }           from "../../src/dex/MockToken.sol";
@@ -26,6 +27,15 @@ import { FaithfulRouter }      from "./RT03_DustInvariantAttacks.t.sol";
 /// still ~0.35% of one block. The per-leg cost is dominated by the swap
 /// itself, not the binding. There is no gas-based DoS here and no realistic
 /// order that cannot be included.
+///
+/// NOTE (post-RT12): `executeAndRoute` now also runs `PQExecBinding` over the
+/// order preimage — one SHA-256 precompile call plus a marker scan across the
+/// preimage bytes. That is a FIXED per-call cost, independent of leg count, so
+/// it shifts the intercept of every measurement below but not its slope, and
+/// it makes the anchor-commitment share of the hot path smaller rather than
+/// larger. The preimages used here are the compact `PQBind` fixture; a real
+/// ~828-byte canonical order scales the scan roughly 7x, which is still a
+/// four-figure gas cost against the six-figure totals reported below.
 ///
 /// The only unbounded-array observation worth recording: the vault imposes no
 /// cap on `n`, so an order CAN be anchored that cannot fit in a block. That is
@@ -78,6 +88,24 @@ contract RT10_GasEnvelope is Test {
         w[n - 1] = uint16(10_000 - each * (n - 1));
     }
 
+    /// The orderHash is now DERIVED from the execution parameters (the executor
+    /// requires bytes that sha256 to it and carry the matching
+    /// `exec_commitment`), so these measurements can no longer anchor an
+    /// invented hash. Each leg count produces a different array shape and
+    /// therefore a different orderHash, which is what keeps the loops below
+    /// from colliding on an already-consumed anchor.
+    function _derive(
+        address[] memory t,
+        uint24[]  memory f,
+        uint16[]  memory w,
+        uint256   value,
+        uint256[] memory m
+    ) internal view returns (bytes32 h, bytes memory pre) {
+        (pre, h) = PQBind.preimage(
+            keccak256(abi.encode(block.chainid, address(vault), agent, t, f, w, value, m, FUTURE))
+        );
+    }
+
     /// The isolated cost of the binding itself: one external `routeCommitment`
     /// call per leg count.
     function test_RT10a_RouteCommitmentCostByLegCount() public {
@@ -101,7 +129,7 @@ contract RT10_GasEnvelope is Test {
             uint256 n = ns[k];
             (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
                 _shape(n);
-            bytes32 h = keccak256(abi.encode("gas", n));
+            (bytes32 h, bytes memory pre) = _derive(t, f, w, 1 ether, m);
             bytes32 c = vault.routeCommitment(h, agent, t, f, w, 1 ether, m, FUTURE);
             uint64 s = anchor.nextSequence(agent);
             vm.prank(agent);
@@ -109,7 +137,7 @@ contract RT10_GasEnvelope is Test {
 
             vm.prank(agent);
             uint256 g0 = gasleft();
-            vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
+            vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE, pre);
             uint256 used = g0 - gasleft();
 
             emit log_named_uint("executeAndRoute legs", n);
@@ -134,7 +162,7 @@ contract RT10_GasEnvelope is Test {
             vault.routeCommitment(H0, agent, t, f, w, 1 ether, m, FUTURE);
             uint256 commitGas = g0 - gasleft();
 
-            bytes32 h = keccak256(abi.encode("share", ns[k]));
+            (bytes32 h, bytes memory pre) = _derive(t, f, w, 1 ether, m);
             bytes32 c = vault.routeCommitment(h, agent, t, f, w, 1 ether, m, FUTURE);
             uint64 s = anchor.nextSequence(agent);
             vm.prank(agent);
@@ -142,7 +170,7 @@ contract RT10_GasEnvelope is Test {
 
             vm.prank(agent);
             g0 = gasleft();
-            vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
+            vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE, pre);
             uint256 total = g0 - gasleft();
 
             emit log_named_uint("legs", ns[k]);
@@ -173,7 +201,7 @@ contract RT10_GasEnvelope is Test {
     function test_RT10d_LargeNIsNotAGriefVector() public {
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _shape(64);
-        bytes32 h = keccak256("big");
+        (bytes32 h, bytes memory pre) = _derive(t, f, w, 1 ether, m);
         bytes32 c = vault.routeCommitment(h, agent, t, f, w, 1 ether, m, FUTURE);
         uint64 s = anchor.nextSequence(agent);
         vm.prank(agent);
@@ -181,7 +209,7 @@ contract RT10_GasEnvelope is Test {
 
         vm.prank(agent);
         uint256 g0 = gasleft();
-        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE, pre);
         uint256 used = g0 - gasleft();
         emit log_named_uint("executeAndRoute 64 legs gas", used);
         assertLt(used, MONAD_BLOCK_GAS_LIMIT, "still includable");

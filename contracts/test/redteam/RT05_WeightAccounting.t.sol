@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import { Test }   from "forge-std/Test.sol";
 import { MockPQAttestation } from "../mocks/MockPQAttestation.sol";
+import { PQBind } from "../helpers/PQBind.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { WMON }        from "../../src/dex/WMON.sol";
 import { MockToken }   from "../../src/dex/MockToken.sol";
@@ -44,15 +45,21 @@ contract RT05_WeightAccounting is Test {
         }
     }
 
+    /// @dev The orderHash is DERIVED from the execution parameters, not
+    ///      invented: the vault now requires bytes that sha256 to it and carry
+    ///      the matching exec_commitment. Returns the preimage to pass on.
     function _anchorRoute(
         address who,
-        bytes32 h,
         address[] memory t,
         uint24[] memory f,
         uint16[] memory w,
         uint256 amountInWei,
         uint256[] memory m
-    ) internal {
+    ) internal returns (bytes32 h, bytes memory pre) {
+        bytes32 paramsHash = keccak256(
+            abi.encode(block.chainid, address(vault), who, t, f, w, amountInWei, m, FUTURE)
+        );
+        (pre, h) = PQBind.preimage(paramsHash);
         bytes32 c = vault.routeCommitment(h, who, t, f, w, amountInWei, m, FUTURE);
         uint64 _seq = anchor.nextSequence(who);
         vm.prank(who);
@@ -74,7 +81,6 @@ contract RT05_WeightAccounting is Test {
         vm.assume(w2 > 0);
 
         vm.deal(alice, amount);
-        bytes32 h = keccak256("fuzz");
 
         address[] memory t = new address[](3);
         uint24[]  memory f = new uint24[](3);
@@ -85,9 +91,9 @@ contract RT05_WeightAccounting is Test {
 
         uint256 routerWmonBefore = wmon.balanceOf(address(router));
 
-        _anchorRoute(alice, h, t, f, w, amount, m);
+        (bytes32 h, bytes memory pre) = _anchorRoute(alice, t, f, w, amount, m);
         vm.prank(alice);
-        vault.executeAndRoute{ value: amount }(h, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: amount }(h, t, f, w, m, FUTURE, pre);
 
         // Every wei of the deposit reached the router; nothing stranded.
         assertEq(wmon.balanceOf(address(router)) - routerWmonBefore, amount, "full deposit routed");
@@ -99,15 +105,14 @@ contract RT05_WeightAccounting is Test {
     /// takes `remaining` (== msg.value) and the weight is only sum-checked.
     function test_RT05b_SingleLegTakesEntireDeposit() public {
         vm.deal(alice, 3 ether);
-        bytes32 h = keccak256("n1");
         address[] memory t = new address[](1); t[0] = address(usdc);
         uint24[]  memory f = new uint24[](1);  f[0] = FEE;
         uint16[]  memory w = new uint16[](1);  w[0] = 10_000;
         uint256[] memory m = new uint256[](1); m[0] = 1;
 
-        _anchorRoute(alice, h, t, f, w, 3 ether, m);
+        (bytes32 h, bytes memory pre) = _anchorRoute(alice, t, f, w, 3 ether, m);
         vm.prank(alice);
-        vault.executeAndRoute{ value: 3 ether }(h, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 3 ether }(h, t, f, w, m, FUTURE, pre);
         assertEq(usdc.balanceOf(alice), 3 ether * 2000);
     }
 
@@ -116,7 +121,6 @@ contract RT05_WeightAccounting is Test {
     function test_RT05c_LargeNIsCallerFundedOnly() public {
         uint256 n = 300;
         vm.deal(alice, 100 ether);
-        bytes32 h = keccak256("bign");
 
         address[] memory t = new address[](n);
         uint24[]  memory f = new uint24[](n);
@@ -127,10 +131,10 @@ contract RT05_WeightAccounting is Test {
             w[i] = i == n - 1 ? uint16(10_000 - 33 * (n - 1)) : 33;
         }
 
-        _anchorRoute(alice, h, t, f, w, 100 ether, m);
+        (bytes32 h, bytes memory pre) = _anchorRoute(alice, t, f, w, 100 ether, m);
         vm.prank(alice);
         uint256 g = gasleft();
-        vault.executeAndRoute{ value: 100 ether }(h, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 100 ether }(h, t, f, w, m, FUTURE, pre);
         emit log_named_uint("gas for 300 legs", g - gasleft());
         assertEq(wmon.balanceOf(address(vault)), 0);
     }

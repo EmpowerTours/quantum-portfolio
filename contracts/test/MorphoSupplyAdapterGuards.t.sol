@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test } from "forge-std/Test.sol";
+import { PQBind } from "./helpers/PQBind.sol";
 import { MockPQAttestation } from "./mocks/MockPQAttestation.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { MockToken } from "../src/dex/MockToken.sol";
@@ -101,38 +102,52 @@ contract MorphoSupplyAdapterGuardsTest is Test {
         });
     }
 
-    function _anchorFor(bytes32 oh, MarketParams memory m, uint256 maxAssets) internal {
+    /// Derives the orderHash instead of taking one: the adapter now requires
+    /// bytes that hash to it AND carry the matching exec_commitment.
+    function _anchorFor(MarketParams memory m, uint256 maxAssets)
+        internal returns (bytes32 oh, bytes memory pre)
+    {
+        (oh, pre) = _bindSupply(m, maxAssets);
         bytes32 c = adapter.supplyCommitment(oh, user, m, maxAssets);
         uint64 s = anchor.nextSequence(user);
         vm.prank(user);
         anchor.anchor(oh, c, s);
     }
 
+    /// Same derivation, without anchoring.
+    function _bindSupply(MarketParams memory m, uint256 maxAssets)
+        internal view returns (bytes32 oh, bytes memory pre)
+    {
+        bytes32 paramsHash = keccak256(abi.encode(
+            block.chainid, address(adapter), user, m.loanToken, m.collateralToken,
+            m.oracle, m.irm, m.lltv, maxAssets
+        ));
+        (pre, oh) = PQBind.preimage(paramsHash);
+    }
+
     // --- ZeroAssets -------------------------------------------------------
 
     function test_RevertsOnZeroAssets() public {
-        bytes32 oh = keccak256("zero-assets");
         MarketParams memory m = _market(address(usdc));
-        _anchorFor(oh, m, 1_000);
+        (bytes32 oh, bytes memory oh_pre) = _anchorFor(m, 1_000);
 
         vm.prank(user);
         vm.expectRevert(MorphoSupplyAdapter.ZeroAssets.selector);
-        adapter.supply(oh, m, 0, 1_000);
+        adapter.supply(oh, m, 0, 1_000, oh_pre);
     }
 
     /// A zero-asset call must not burn the anchor either.
     function test_ZeroAssetsDoesNotConsumeTheAnchor() public {
-        bytes32 oh = keccak256("zero-assets-2");
         MarketParams memory m = _market(address(usdc));
-        _anchorFor(oh, m, 1_000);
+        (bytes32 oh, bytes memory oh_pre) = _anchorFor(m, 1_000);
 
         vm.prank(user);
         vm.expectRevert(MorphoSupplyAdapter.ZeroAssets.selector);
-        adapter.supply(oh, m, 0, 1_000);
+        adapter.supply(oh, m, 0, 1_000, oh_pre);
 
         assertFalse(adapter.consumed(user, oh), "anchor must survive a rejected call");
         vm.prank(user);
-        adapter.supply(oh, m, 500, 1_000);     // still usable
+        adapter.supply(oh, m, 500, 1_000, oh_pre);     // still usable
         assertTrue(adapter.consumed(user, oh));
     }
 
@@ -141,38 +156,35 @@ contract MorphoSupplyAdapterGuardsTest is Test {
     /// The signed order authorises a RANGE (0, max]. Supplying above the
     /// ceiling spends more of the user's balance than they signed for.
     function test_RevertsWhenAssetsExceedTheAuthorisedCeiling() public {
-        bytes32 oh = keccak256("over-ceiling");
         MarketParams memory m = _market(address(usdc));
-        _anchorFor(oh, m, 1_000);
+        (bytes32 oh, bytes memory oh_pre) = _anchorFor(m, 1_000);
 
         vm.prank(user);
         vm.expectRevert(
             abi.encodeWithSelector(MorphoSupplyAdapter.AssetsExceedAuthorised.selector,
                                    uint256(1_001), uint256(1_000))
         );
-        adapter.supply(oh, m, 1_001, 1_000);
+        adapter.supply(oh, m, 1_001, 1_000, oh_pre);
     }
 
     function test_ExactlyTheCeilingIsAllowed() public {
-        bytes32 oh = keccak256("at-ceiling");
         MarketParams memory m = _market(address(usdc));
-        _anchorFor(oh, m, 1_000);
+        (bytes32 oh, bytes memory oh_pre) = _anchorFor(m, 1_000);
         vm.prank(user);
-        assertEq(adapter.supply(oh, m, 1_000, 1_000), 1_000, "max is inclusive");
+        assertEq(adapter.supply(oh, m, 1_000, 1_000, oh_pre), 1_000, "max is inclusive");
     }
 
     function testFuzz_AnythingAboveTheCeilingReverts(uint256 over) public {
         over = bound(over, 1, 400_000);
-        bytes32 oh = keccak256("fuzz-ceiling");
         MarketParams memory m = _market(address(usdc));
-        _anchorFor(oh, m, 1_000);
+        (bytes32 oh, bytes memory oh_pre) = _anchorFor(m, 1_000);
 
         vm.prank(user);
         vm.expectRevert(
             abi.encodeWithSelector(MorphoSupplyAdapter.AssetsExceedAuthorised.selector,
                                    uint256(1_000 + over), uint256(1_000))
         );
-        adapter.supply(oh, m, 1_000 + over, 1_000);
+        adapter.supply(oh, m, 1_000 + over, 1_000, oh_pre);
     }
 
     // --- replay -----------------------------------------------------------
@@ -180,45 +192,64 @@ contract MorphoSupplyAdapterGuardsTest is Test {
     /// One anchor authorises exactly ONE supply. Without this the same signed
     /// order could be drained repeatedly up to the ceiling each time.
     function test_RevertsOnReplayOfTheSameAnchor() public {
-        bytes32 oh = keccak256("replay");
         MarketParams memory m = _market(address(usdc));
-        _anchorFor(oh, m, 1_000);
+        (bytes32 oh, bytes memory oh_pre) = _anchorFor(m, 1_000);
 
         vm.prank(user);
-        adapter.supply(oh, m, 400, 1_000);
+        adapter.supply(oh, m, 400, 1_000, oh_pre);
 
         vm.prank(user);
         vm.expectRevert(
             abi.encodeWithSelector(MorphoSupplyAdapter.AnchorAlreadyConsumed.selector, oh)
         );
-        adapter.supply(oh, m, 400, 1_000);
+        adapter.supply(oh, m, 400, 1_000, oh_pre);
     }
 
     /// Replay protection is per (user, orderHash) — a second user's anchor is
     /// unaffected by the first consuming theirs.
+    /// `consumed` is keyed per (user, orderHash). It used to be provable by
+    /// having two users spend ONE orderHash; that is no longer expressible,
+    /// because `msg.sender` is inside the signed exec_commitment, so an order
+    /// naming one user cannot be executed by another — a strictly stronger
+    /// property, asserted here as well. Each user therefore gets their own
+    /// derived order, and the claim becomes: one user consuming theirs leaves
+    /// the other's slot untouched.
     function test_ConsumptionIsPerUser() public {
         address other = address(0xCAFE);
         usdc.transfer(other, 10_000);
         vm.prank(other);
         usdc.approve(address(adapter), type(uint256).max);
-
-        bytes32 oh = keccak256("per-user");
         MarketParams memory m = _market(address(usdc));
-        _anchorFor(oh, m, 1_000);
 
-        bytes32 c = adapter.supplyCommitment(oh, other, m, 1_000);
+        (bytes32 ohUser, bytes memory preUser) = _anchorFor(m, 1_000);
+
+        (bytes memory preOther, bytes32 ohOther) = PQBind.preimage(keccak256(abi.encode(
+            block.chainid, address(adapter), other, m.loanToken, m.collateralToken,
+            m.oracle, m.irm, m.lltv, uint256(1_000)
+        )));
+        bytes32 c = adapter.supplyCommitment(ohOther, other, m, 1_000);
         uint64 sOther = anchor.nextSequence(other);   // hoisted: vm.prank is
         vm.prank(other);                              // consumed by the FIRST call
-        anchor.anchor(oh, c, sOther);
+        anchor.anchor(ohOther, c, sOther);
+
+        assertTrue(ohUser != ohOther, "an order names its user, so the hashes differ");
 
         vm.prank(user);
-        adapter.supply(oh, m, 500, 1_000);
-        vm.prank(other);
-        adapter.supply(oh, m, 500, 1_000);     // must still work
+        adapter.supply(ohUser, m, 500, 1_000, preUser);
+        assertTrue(adapter.consumed(user, ohUser));
+        assertFalse(adapter.consumed(other, ohOther), "the other user's slot is untouched");
 
-        assertTrue(adapter.consumed(user, oh));
-        assertTrue(adapter.consumed(other, oh));
+        vm.prank(other);
+        adapter.supply(ohOther, m, 500, 1_000, preOther);   // must still work
+        assertTrue(adapter.consumed(other, ohOther));
+
+        // The stronger property the binding now gives for free: `other` cannot
+        // execute the order that names `user`, even holding its preimage.
+        vm.prank(other);
+        vm.expectRevert();
+        adapter.supply(ohUser, m, 500, 1_000, preUser);
     }
+
 
     // --- loan-token allowlist ---------------------------------------------
 
@@ -241,8 +272,14 @@ contract MorphoSupplyAdapterGuardsTest is Test {
         rogue.transfer(user, 5_000);
         vm.prank(user);
         rogue.approve(address(iso), type(uint256).max);
-
-        bytes32 oh = keccak256("bad-token");
+        // Bound to `iso`, not the default adapter: the params hash names the
+        // executor, so a preimage built for one is inert at the other.
+        bytes32 paramsHash = keccak256(abi.encode(
+            block.chainid, address(iso), user, hostile.loanToken,
+            hostile.collateralToken, hostile.oracle, hostile.irm,
+            hostile.lltv, uint256(1_000)
+        ));
+        (bytes memory oh_pre, bytes32 oh) = PQBind.preimage(paramsHash);
         bytes32 c = iso.supplyCommitment(oh, user, hostile, 1_000);
         uint64 sUser = anchor.nextSequence(user);     // hoisted, same reason
         vm.prank(user);
@@ -252,7 +289,7 @@ contract MorphoSupplyAdapterGuardsTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(MorphoSupplyAdapter.LoanTokenNotApproved.selector, address(rogue))
         );
-        iso.supply(oh, hostile, 500, 1_000);
+        iso.supply(oh, hostile, 500, 1_000, oh_pre);
     }
 
     // --- reentrancy -------------------------------------------------------
@@ -284,8 +321,18 @@ contract MorphoSupplyAdapterGuardsTest is Test {
         vm.prank(address(evil));
         usdc.approve(address(reAdapter), type(uint256).max);
 
-        bytes32 oh1 = keccak256("re-outer");
-        bytes32 oh2 = keccak256("re-nested");
+        // Derived, not invented: the outer call must satisfy the binding so the
+        // re-entrancy guard is genuinely what refuses the nested one. Bound to
+        // reAdapter and to each caller, which also keeps the two hashes
+        // distinct without needing a literal.
+        (bytes memory oh1_pre, bytes32 oh1) = PQBind.preimage(keccak256(abi.encode(
+            block.chainid, address(reAdapter), user, m.loanToken, m.collateralToken,
+            m.oracle, m.irm, m.lltv, uint256(1_000)
+        )));
+        (, bytes32 oh2) = PQBind.preimage(keccak256(abi.encode(
+            block.chainid, address(reAdapter), address(evil), m.loanToken,
+            m.collateralToken, m.oracle, m.irm, m.lltv, uint256(1_000)
+        )));
 
         bytes32 c1 = reAdapter.supplyCommitment(oh1, user, m, 1_000);
         uint64  s1 = anchor.nextSequence(user);
@@ -298,10 +345,13 @@ contract MorphoSupplyAdapterGuardsTest is Test {
         vm.prank(address(evil));
         anchor.anchor(oh2, c2, s2);
 
-        evil.arm(reAdapter, abi.encodeCall(reAdapter.supply, (oh2, m, 100, 1_000)));
+        // The nested call is refused by nonReentrant before any binding check,
+        // so it deliberately carries no preimage — if that ever starts
+        // mattering, the guard order has changed.
+        evil.arm(reAdapter, abi.encodeCall(reAdapter.supply, (oh2, m, 100, 1_000, "")));
 
         vm.prank(user);
-        reAdapter.supply(oh1, m, 500, 1_000);
+        reAdapter.supply(oh1, m, 500, 1_000, oh1_pre);
 
         assertTrue(evil.reentered(), "precondition: the mock actually re-entered");
         assertFalse(evil.reentrySucceeded(), "nonReentrant must refuse the nested call");
@@ -319,23 +369,21 @@ contract MorphoSupplyAdapterGuardsTest is Test {
     /// The post-supply `forceApprove(MORPHO, 0)` survived mutation. A lingering
     /// allowance would let the market pull again later, outside any anchor.
     function test_AllowanceToMorphoIsResetToZeroAfterSupply() public {
-        bytes32 oh = keccak256("allowance");
         MarketParams memory m = _market(address(usdc));
-        _anchorFor(oh, m, 1_000);
+        (bytes32 oh, bytes memory oh_pre) = _anchorFor(m, 1_000);
 
         vm.prank(user);
-        adapter.supply(oh, m, 700, 1_000);
+        adapter.supply(oh, m, 700, 1_000, oh_pre);
 
         assertEq(usdc.allowance(address(adapter), address(morpho)), 0,
             "adapter must leave no standing allowance to Morpho");
     }
 
     function test_NoLoanTokenIsLeftInTheAdapter() public {
-        bytes32 oh = keccak256("no-dust");
         MarketParams memory m = _market(address(usdc));
-        _anchorFor(oh, m, 1_000);
+        (bytes32 oh, bytes memory oh_pre) = _anchorFor(m, 1_000);
         vm.prank(user);
-        adapter.supply(oh, m, 700, 1_000);
+        adapter.supply(oh, m, 700, 1_000, oh_pre);
         assertEq(usdc.balanceOf(address(adapter)), 0);
     }
 }

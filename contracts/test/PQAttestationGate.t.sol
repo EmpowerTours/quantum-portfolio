@@ -5,6 +5,7 @@ import { Test } from "forge-std/Test.sol";
 import { UniswapRoutingVault } from "../src/UniswapRoutingVault.sol";
 import { MorphoSupplyAdapter } from "../src/MorphoSupplyAdapter.sol";
 import { AuditAnchorV2 } from "../src/AuditAnchorV2.sol";
+import { PQBind } from "./helpers/PQBind.sol";
 import { MockPQAttestation } from "./mocks/MockPQAttestation.sol";
 import { MarketParams } from "../src/interfaces/IMorpho.sol";
 
@@ -69,8 +70,10 @@ contract PQAttestationGateTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(UniswapRoutingVault.NotPQAttested.selector, orderHash)
         );
+        // Empty preimage on purpose: NotPQAttested is checked before the
+        // binding, so reaching it with no preimage also asserts the guard order.
         v.executeAndRoute{value: 1 ether}(
-            orderHash, toks, fees, w, minOut, block.timestamp + 1 hours
+            orderHash, toks, fees, w, minOut, block.timestamp + 1 hours, ""
         );
     }
 
@@ -84,7 +87,7 @@ contract PQAttestationGateTest is Test {
             loanToken: TOKEN, collateralToken: address(0x44),
             oracle: address(0x55), irm: address(0x66), lltv: 8e17
         });
-        a.supply(orderHash, mp, 1, 1);
+        a.supply(orderHash, mp, 1, 1, "");
     }
 
     /// Attesting a DIFFERENT order must not open the gate for this one — the
@@ -107,8 +110,10 @@ contract PQAttestationGateTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(UniswapRoutingVault.NotPQAttested.selector, orderHash)
         );
+        // Empty preimage on purpose: NotPQAttested is checked before the
+        // binding, so reaching it with no preimage also asserts the guard order.
         v.executeAndRoute{value: 1 ether}(
-            orderHash, toks, fees, w, minOut, block.timestamp + 1 hours
+            orderHash, toks, fees, w, minOut, block.timestamp + 1 hours, ""
         );
     }
 
@@ -130,11 +135,21 @@ contract PQAttestationGateTest is Test {
         minOut[0] = 1;
 
         vm.deal(address(this), 1 ether);
+        // AnchorNotFound is checked AFTER the PQ binding, so this needs a
+        // genuinely valid preimage — an empty one would revert at the binding
+        // and the test would pass for the wrong reason.
+        (bytes memory pre2, bytes32 derived) = PQBind.preimage(keccak256(abi.encode(
+            block.chainid, address(v), address(this), toks, fees, w,
+            uint256(1 ether), minOut, block.timestamp + 1 hours
+        )));
+        pq.setAttested(derived, true);
         vm.expectRevert(
-            abi.encodeWithSelector(UniswapRoutingVault.AnchorNotFound.selector, orderHash)
+            abi.encodeWithSelector(UniswapRoutingVault.AnchorNotFound.selector, derived)
         );
+        // Empty preimage on purpose: NotPQAttested is checked before the
+        // binding, so reaching it with no preimage also asserts the guard order.
         v.executeAndRoute{value: 1 ether}(
-            orderHash, toks, fees, w, minOut, block.timestamp + 1 hours
+            derived, toks, fees, w, minOut, block.timestamp + 1 hours, pre2
         );
     }
 

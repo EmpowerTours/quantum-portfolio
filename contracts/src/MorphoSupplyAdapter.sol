@@ -5,6 +5,7 @@ import { IERC20 }          from "@openzeppelin/contracts/token/ERC20/IERC20.sol"
 import { SafeERC20 }       from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { IPQAttestation } from "./IPQAttestation.sol";
+import { PQExecBinding }   from "./PQExecBinding.sol";
 import { AuditAnchorV2 }   from "./AuditAnchorV2.sol";
 import { IMorpho, MarketParams } from "./interfaces/IMorpho.sol";
 
@@ -129,7 +130,8 @@ contract MorphoSupplyAdapter is ReentrancyGuard {
         bytes32 orderHash,
         MarketParams calldata params,
         uint256 assets,
-        uint256 maxAssets
+        uint256 maxAssets,
+        bytes calldata orderPreimage
     )
         external
         nonReentrant
@@ -142,6 +144,17 @@ contract MorphoSupplyAdapter is ReentrancyGuard {
         // Provenance: the anchor must commit to exactly this market and ceiling.
         // No value moves without a post-quantum signature verified on-chain.
         if (!PQ.pqAttested(orderHash)) revert NotPQAttested(orderHash);
+
+        // The signature must cover THIS supply, not merely this order. (RT12.)
+        PQExecBinding.requireBound(
+            orderPreimage,
+            orderHash,
+            PQExecBinding.supplyParamsHash(
+                block.chainid, address(this), msg.sender, params.loanToken,
+                params.collateralToken, params.oracle, params.irm,
+                params.lltv, maxAssets
+            )
+        );
 
         bytes32 anchored = ANCHOR.execCommitmentOf(msg.sender, orderHash);
         if (anchored == bytes32(0)) revert AnchorNotFound(orderHash);

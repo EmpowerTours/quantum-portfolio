@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import { Test }   from "forge-std/Test.sol";
 import { MockPQAttestation } from "../mocks/MockPQAttestation.sol";
+import { PQBind } from "../helpers/PQBind.sol";
 import { Vm }     from "forge-std/Vm.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { AuditAnchorV2 }       from "../../src/AuditAnchorV2.sol";
@@ -87,16 +88,23 @@ contract RT01_ZeroAmountRouterSentinel is Test {
         vm.stopPrank();
     }
 
+    /// @dev The orderHash is DERIVED, not invented: the executor now requires
+    ///      bytes that sha256 to it and carry the matching exec_commitment, so
+    ///      the test has to do the work a real signer does. Returns the preimage
+    ///      so the caller can hand it to executeAndRoute.
     function _anchorRoute(
         address who,
-        bytes32 h,
         address[] memory t,
         uint24[] memory f,
         uint16[] memory w,
         uint256 amountInWei,
         uint256[] memory m,
         uint256 deadline
-    ) internal {
+    ) internal returns (bytes32 h, bytes memory pre) {
+        bytes32 paramsHash = keccak256(
+            abi.encode(block.chainid, address(vault), who, t, f, w, amountInWei, m, deadline)
+        );
+        (pre, h) = PQBind.preimage(paramsHash);
         bytes32 c = vault.routeCommitment(h, who, t, f, w, amountInWei, m, deadline);
         uint64 _seq = anchor.nextSequence(who);
         vm.prank(who);
@@ -147,21 +155,20 @@ contract RT01_ZeroAmountRouterSentinel is Test {
         _strandWmonInRouter(3 ether);
         uint256 routerBefore = IERC20(WMON).balanceOf(ROUTER);
 
-        bytes32 h = keccak256("attack");
         address[] memory t = new address[](2); t[0] = tokenOut;  t[1] = tokenOut;
         uint24[]  memory f = new uint24[](2);  f[0] = fee;       f[1] = fee;
         uint16[]  memory w = new uint16[](2);  w[0] = 0;         w[1] = 10_000;
         uint256[] memory m = new uint256[](2); m[0] = 1;         m[1] = 1;
 
-        // Anchor the hostile allocation honestly — the commitment matches, so
-        // the ONLY thing standing between the attacker and the sweep is the
-        // new zero-weight guard.
+        // Sign AND anchor the hostile allocation honestly — the PQ binding is
+        // satisfied and the commitment matches, so the ONLY thing standing
+        // between the attacker and the sweep is the new zero-weight guard.
         uint256 dl = block.timestamp + 1;
-        _anchorRoute(attacker, h, t, f, w, 1 ether, m, dl);
+        (bytes32 h, bytes memory pre) = _anchorRoute(attacker, t, f, w, 1 ether, m, dl);
 
         vm.prank(attacker);
         vm.expectRevert(abi.encodeWithSelector(UniswapRoutingVault.ZeroWeightBps.selector, 0));
-        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, dl);
+        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, dl, pre);
 
         assertEq(IERC20(WMON).balanceOf(ROUTER), routerBefore, "router's WMON NOT swept");
         assertEq(IERC20(tokenOut).balanceOf(attacker), 0, "attacker gained nothing");
@@ -177,17 +184,16 @@ contract RT01_ZeroAmountRouterSentinel is Test {
 
         _strandWmonInRouter(2 ether);
 
-        bytes32 h = keccak256("audit-corruption");
         address[] memory t = new address[](2); t[0] = tokenOut; t[1] = tokenOut;
         uint24[]  memory f = new uint24[](2);  f[0] = fee;      f[1] = fee;
         uint16[]  memory w = new uint16[](2);  w[0] = 0;        w[1] = 10_000;
         uint256[] memory m = new uint256[](2); m[0] = 1;        m[1] = 1;
         uint256 dl = block.timestamp + 1;
-        _anchorRoute(attacker, h, t, f, w, 1 ether, m, dl);
+        (bytes32 h, bytes memory pre) = _anchorRoute(attacker, t, f, w, 1 ether, m, dl);
 
         vm.recordLogs();
         vm.prank(attacker);
-        try vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, dl) {
+        try vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, dl, pre) {
             fail();
         } catch { /* expected */ }
 
@@ -214,16 +220,15 @@ contract RT01_ZeroAmountRouterSentinel is Test {
 
         assertEq(IERC20(WMON).balanceOf(ROUTER), 0, "precondition: router empty");
 
-        bytes32 h = keccak256("dos");
         address[] memory t = new address[](2); t[0] = tokenOut; t[1] = tokenOut;
         uint24[]  memory f = new uint24[](2);  f[0] = fee;      f[1] = fee;
         uint16[]  memory w = new uint16[](2);  w[0] = 0;        w[1] = 10_000;
         uint256[] memory m = new uint256[](2); m[0] = 1;        m[1] = 1;
         uint256 dl = block.timestamp + 1;
-        _anchorRoute(attacker, h, t, f, w, 1 ether, m, dl);
+        (bytes32 h, bytes memory pre) = _anchorRoute(attacker, t, f, w, 1 ether, m, dl);
 
         vm.prank(attacker);
         vm.expectRevert(abi.encodeWithSelector(UniswapRoutingVault.ZeroWeightBps.selector, 0));
-        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, dl);
+        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, dl, pre);
     }
 }

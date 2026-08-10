@@ -930,7 +930,7 @@ Monadscan as evidence of the bug-fix process, not for active use.
 
 ## Test coverage and CI
 
-**334 tests, none skipped** (`pytest tests/ && forge test`), re-run
+**335 tests, none skipped** (`pytest tests/ && forge test`), re-run
 2026-07-31 against live Monad mainnet.
 
 **154 Python tests**
@@ -958,7 +958,7 @@ Monadscan as evidence of the bug-fix process, not for active use.
   no execution block is rejected by default; and `canonical_bytes` refuses
   non-string dict keys (L-4).
 
-**180 Foundry tests**, of which **70 are an adversarial red-team suite**
+**181 Foundry tests**, of which **70 are an adversarial red-team suite**
 (`contracts/test/redteam/`, RT01–RT11) that reproduces each audit finding
 and then asserts it closed — several against the real Uniswap v3 and
 Morpho Blue deployments on a mainnet fork. Largest suites:
@@ -999,11 +999,11 @@ its nestedness, and asserts the returndata is
 - **Area 3 (primary) — Digital Infrastructure Secured Against Quantum
   Computing.** The PQ signing layer is not narrative — it is verified by
   **154 Python tests** (32 PQ-signing, 35 Monad-TX encoding, 18 live-quote,
-  17 key-pinning/hedge-policy, 8 audit-chain, 44 verifier self-tests) and **180 Foundry tests**, of which **70 are an adversarial
+  17 key-pinning/hedge-policy, 8 audit-chain, 44 verifier self-tests) and **181 Foundry tests**, of which **70 are an adversarial
   red-team suite** (`contracts/test/redteam/`) that reproduces each
   vulnerability found in the July 2026 audit and then asserts it is closed —
   several against the real Uniswap and Morpho deployments on a mainnet fork.
-  334 tests, none skipped. The artefacts are tamper-evident and a reviewer can
+  335 tests, none skipped. The artefacts are tamper-evident and a reviewer can
   audit them without running the code. **The full loop is LIVE on Monad
   mainnet (chainId 143), all contracts Monadscan-verified**:
   [AuditAnchorV2](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd),
@@ -1166,7 +1166,7 @@ partners.** No conversation with any institution has taken place.
 
 What exists instead is shipped, verifiable evidence: four contracts live and
 Monadscan-verified on Monad mainnet, one end-to-end run executed with real
-value, 334 tests passing with none skipped, two IBM Heron QPU runs with
+value, 335 tests passing with none skipped, two IBM Heron QPU runs with
 published job IDs and raw counts, and every documented reviewer command
 executed against mainnet in CI. Reaching Phase 2 of this challenge is the only
 external validation we claim.
@@ -1216,7 +1216,7 @@ incorporated in Mexico and qualifies under the LATAM startup criteria.
   gate on the managed-cosigner revenue line.
 
 Two people shipped four Monadscan-verified mainnet contracts, an SP1 ZK
-circuit, and 334 passing tests. That is the argument for a pilot, and the
+circuit, and 335 passing tests. That is the argument for a pilot, and the
 reason the ask is for a counterparty rather than for headcount.
 
 ### What we are asking Santander for
@@ -1345,7 +1345,7 @@ pip install pytest
 # Three of the five test modules use pytest fixtures and parametrisation, so
 # they must be run under pytest — invoking them as plain scripts skips them.
 pytest tests/ -q                    # 154 tests
-( cd contracts && forge test )      # 180 tests, 0 skipped with an RPC endpoint (11 fork tests skip without one)
+( cd contracts && forge test )      # 181 tests, 0 skipped with an RPC endpoint (11 fork tests skip without one)
 
 # Re-derive the canonical-bytes digest of the shipped order:
 python -c "

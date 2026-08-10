@@ -3,6 +3,8 @@ pragma solidity 0.8.28;
 
 import { Test }   from "forge-std/Test.sol";
 import { MockPQAttestation } from "../mocks/MockPQAttestation.sol";
+import { PQBind } from "../helpers/PQBind.sol";
+import { PQExecBinding } from "../../src/PQExecBinding.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { WMON }                from "../../src/dex/WMON.sol";
 import { MockToken }           from "../../src/dex/MockToken.sol";
@@ -48,6 +50,26 @@ import { RT06Morpho }          from "./RT06_V2BindingSurface.t.sol";
 ///
 /// Preimage layout now under test (10 leading words):
 ///     chainid | address(this) | orderHash | user | ...
+///
+/// THIRD LAYER (RT12, and why several tests below assert a different revert
+/// than they used to). The executor is now handed the PQ-signed order's
+/// canonical bytes and requires that `sha256(preimage) == orderHash` AND that
+/// the `exec_commitment` inside those bytes equals a hash it recomputes from
+/// its own calldata — a hash that ALSO leads with `block.chainid` and
+/// `address(this)`. Two consequences for this file:
+///
+///   * an orderHash can no longer be invented. It is DERIVED from the
+///     execution parameters, so "the same order at a second vault" is not
+///     expressible as one hash, and two orders with identical parameters are
+///     the SAME order. Where a test needs two independent orders it now varies
+///     a parameter (the deposit, the ceiling) to keep them apart.
+///
+///   * the chain/executor separation is enforced TWICE, and the PQ binding
+///     runs FIRST. A straight cross-vault replay therefore reverts
+///     `ExecCommitmentMismatch` rather than `ExecutionNotAnchored`. That is a
+///     strictly stronger rejection on the same axis, but it would hide the
+///     anchor-layer property this file exists to pin, so RT08a and RT08b now
+///     exercise BOTH layers explicitly.
 contract RT08_CommitmentDomainSeparation is Test {
     WMON wmon;
     MockToken usdc;
@@ -117,6 +139,58 @@ contract RT08_CommitmentDomainSeparation is Test {
         m = new uint256[](1); m[0] = 1;
     }
 
+    /// The exec_commitment a signer would embed for a routing call, and the
+    /// orderHash that follows from it. Note it is parameterised by the VAULT:
+    /// that is the whole point of RT08, now also enforced inside the signed
+    /// bytes.
+    function _routeParams(
+        UniswapRoutingVault v,
+        address   who,
+        address[] memory t,
+        uint24[]  memory f,
+        uint16[]  memory w,
+        uint256   value,
+        uint256[] memory m
+    ) internal view returns (bytes32) {
+        return keccak256(
+            abi.encode(block.chainid, address(v), who, t, f, w, value, m, FUTURE)
+        );
+    }
+
+    function _deriveRoute(
+        UniswapRoutingVault v,
+        address   who,
+        address[] memory t,
+        uint24[]  memory f,
+        uint16[]  memory w,
+        uint256   value,
+        uint256[] memory m
+    ) internal view returns (bytes32 h, bytes memory pre) {
+        (pre, h) = PQBind.preimage(_routeParams(v, who, t, f, w, value, m));
+    }
+
+    function _supplyParams(MorphoSupplyAdapter a, address who, uint256 maxAssets)
+        internal
+        view
+        returns (bytes32)
+    {
+        MarketParams memory p = _market();
+        return keccak256(
+            abi.encode(
+                block.chainid, address(a), who, p.loanToken, p.collateralToken,
+                p.oracle, p.irm, p.lltv, maxAssets
+            )
+        );
+    }
+
+    function _deriveSupply(MorphoSupplyAdapter a, address who, uint256 maxAssets)
+        internal
+        view
+        returns (bytes32 h, bytes memory pre)
+    {
+        (pre, h) = PQBind.preimage(_supplyParams(a, who, maxAssets));
+    }
+
     // =====================================================================
     // (a) one anchor, N executor deployments — INVERTED, now must FAIL
     // =====================================================================
@@ -127,29 +201,61 @@ contract RT08_CommitmentDomainSeparation is Test {
     /// the preimage the two vaults now compute DIFFERENT commitments, so the
     /// replay is rejected at the binding check.
     function test_RT08a_ReplayAcrossVaultDeploymentsIsNowRejected() public {
-        bytes32 h = keccak256("one-order");
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) = _one();
 
-        bytes32 cV1 = vaultV1.routeCommitment(h, agent, t, f, w, 1 ether, m, FUTURE);
-        bytes32 cV2 = vaultV2.routeCommitment(h, agent, t, f, w, 1 ether, m, FUTURE);
+        // h1 IS the vaultV1 order: the executor's address is inside the hash.
+        (bytes32 h1, bytes memory pre1) = _deriveRoute(vaultV1, agent, t, f, w, 1 ether, m);
+
+        bytes32 cV1 = vaultV1.routeCommitment(h1, agent, t, f, w, 1 ether, m, FUTURE);
+        bytes32 cV2 = vaultV2.routeCommitment(h1, agent, t, f, w, 1 ether, m, FUTURE);
         assertTrue(cV1 != cV2, "the commitment is now bound to the executor");
 
         uint64 s = anchor.nextSequence(agent);
         vm.prank(agent);
-        anchor.anchor(h, cV1, s);
+        anchor.anchor(h1, cV1, s);
 
         vm.prank(agent);
-        vaultV1.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
-        assertTrue(vaultV1.consumed(agent, h), "spent on V1");
+        vaultV1.executeAndRoute{ value: 1 ether }(h1, t, f, w, m, FUTURE, pre1);
+        assertTrue(vaultV1.consumed(agent, h1), "spent on V1");
 
-        // The replay that used to work.
+        // The replay that used to work, taken verbatim to the second vault. It
+        // is now rejected one layer EARLIER than it used to be: the signed
+        // exec_commitment carries the executor too, so vaultV2 recomputes a
+        // different value from its own calldata and never reaches the anchor.
         vm.prank(agent);
         vm.expectRevert(
-            abi.encodeWithSelector(UniswapRoutingVault.ExecutionNotAnchored.selector, cV2, cV1)
+            abi.encodeWithSelector(
+                PQExecBinding.ExecCommitmentMismatch.selector,
+                _routeParams(vaultV1, agent, t, f, w, 1 ether, m),   // what the signer signed
+                _routeParams(vaultV2, agent, t, f, w, 1 ether, m)    // what vaultV2 recomputes
+            )
         );
-        vaultV2.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
+        vaultV2.executeAndRoute{ value: 1 ether }(h1, t, f, w, m, FUTURE, pre1);
+        assertFalse(vaultV2.consumed(agent, h1), "not spendable a second time");
 
-        assertFalse(vaultV2.consumed(agent, h), "not spendable a second time");
+        // The ANCHOR-layer separation this test was originally written for is
+        // still pinned, on its own: hand vaultV2 an order it CAN bind (h2), but
+        // file it under a commitment minted in vaultV1's domain. The PQ check
+        // passes, and `ExecutionNotAnchored` fires with exactly the two values
+        // the original assertion named.
+        (bytes32 h2, bytes memory pre2) = _deriveRoute(vaultV2, agent, t, f, w, 1 ether, m);
+        assertTrue(h1 != h2, "one order per (executor, parameters) - never shared");
+        bytes32 mintedForV1 = vaultV1.routeCommitment(h2, agent, t, f, w, 1 ether, m, FUTURE);
+        bytes32 wantedByV2  = vaultV2.routeCommitment(h2, agent, t, f, w, 1 ether, m, FUTURE);
+
+        s = anchor.nextSequence(agent);
+        vm.prank(agent);
+        anchor.anchor(h2, mintedForV1, s);
+
+        vm.prank(agent);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UniswapRoutingVault.ExecutionNotAnchored.selector, wantedByV2, mintedForV1
+            )
+        );
+        vaultV2.executeAndRoute{ value: 1 ether }(h2, t, f, w, m, FUTURE, pre2);
+
+        assertFalse(vaultV2.consumed(agent, h2), "a V1-domain anchor is inert at V2");
         assertEq(usdc.balanceOf(agent), 2000 ether, "exactly one execution");
     }
 
@@ -157,27 +263,54 @@ contract RT08_CommitmentDomainSeparation is Test {
     /// which was the worse of the two because a standing max ERC20 approval to
     /// each adapter is the norm.
     function test_RT08b_ReplayAcrossAdapterDeploymentsIsNowRejected() public {
-        bytes32 h = keccak256("one-supply");
-        bytes32 cA1 = adapterV1.supplyCommitment(h, agent, _market(), 1000 ether);
-        bytes32 cA2 = adapterV2.supplyCommitment(h, agent, _market(), 1000 ether);
+        // h1 IS the adapterV1 order — same reasoning as RT08a.
+        (bytes32 h1, bytes memory pre1) = _deriveSupply(adapterV1, agent, 1000 ether);
+        bytes32 cA1 = adapterV1.supplyCommitment(h1, agent, _market(), 1000 ether);
+        bytes32 cA2 = adapterV2.supplyCommitment(h1, agent, _market(), 1000 ether);
         assertTrue(cA1 != cA2, "the commitment is now bound to the executor");
 
         uint64 s = anchor.nextSequence(agent);
         vm.prank(agent);
-        anchor.anchor(h, cA1, s);
+        anchor.anchor(h1, cA1, s);
 
         vm.startPrank(agent);
         usdc.faucet(3000 ether);
         usdc.approve(address(adapterV1), type(uint256).max);
         usdc.approve(address(adapterV2), type(uint256).max);
-        adapterV1.supply(h, _market(), 1000 ether, 1000 ether);
+        adapterV1.supply(h1, _market(), 1000 ether, 1000 ether, pre1);
 
+        // The replay, verbatim, at the second adapter — now stopped by the PQ
+        // binding before the anchor is even read.
         vm.expectRevert(
-            abi.encodeWithSelector(MorphoSupplyAdapter.ExecutionNotAnchored.selector, cA2, cA1)
+            abi.encodeWithSelector(
+                PQExecBinding.ExecCommitmentMismatch.selector,
+                _supplyParams(adapterV1, agent, 1000 ether),
+                _supplyParams(adapterV2, agent, 1000 ether)
+            )
         );
-        adapterV2.supply(h, _market(), 1000 ether, 1000 ether);
+        adapterV2.supply(h1, _market(), 1000 ether, 1000 ether, pre1);
         vm.stopPrank();
 
+        // ...and the anchor-layer property on its own: an order adapterV2 CAN
+        // bind, filed under a commitment minted in adapterV1's domain.
+        (bytes32 h2, bytes memory pre2) = _deriveSupply(adapterV2, agent, 1000 ether);
+        assertTrue(h1 != h2, "one order per (executor, parameters) - never shared");
+        bytes32 mintedForA1 = adapterV1.supplyCommitment(h2, agent, _market(), 1000 ether);
+        bytes32 wantedByA2  = adapterV2.supplyCommitment(h2, agent, _market(), 1000 ether);
+
+        s = anchor.nextSequence(agent);
+        vm.prank(agent);
+        anchor.anchor(h2, mintedForA1, s);
+
+        vm.prank(agent);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MorphoSupplyAdapter.ExecutionNotAnchored.selector, wantedByA2, mintedForA1
+            )
+        );
+        adapterV2.supply(h2, _market(), 1000 ether, 1000 ether, pre2);
+
+        assertFalse(adapterV2.consumed(agent, h2), "an A1-domain anchor is inert at A2");
         assertEq(usdc.balanceOf(address(morpho)), 1000 ether, "the ceiling was supplied ONCE");
     }
 
@@ -242,10 +375,18 @@ contract RT08_CommitmentDomainSeparation is Test {
 
     /// NEGATIVE — end-to-end: an anchor minted for the vault is rejected by the
     /// adapter and vice versa, and neither attempt burns the other's anchor.
+    ///
+    /// POST-RT12: the rejection moved from `ExecutionNotAnchored` to
+    /// `ExecCommitmentMismatch`, and here that is not merely "one layer
+    /// earlier" — `ExecutionNotAnchored` is now UNREACHABLE on this path. An
+    /// orderHash is `sha256` of bytes carrying the exec_commitment, and a route
+    /// commitment can never equal a supply commitment (RT08c), so no single
+    /// orderHash can be bound at both executors. The anchor-layer property is
+    /// therefore asserted directly against the anchor's storage below.
     function test_RT08d_AnchorMintedForOneExecutorIsInertAtTheOther() public {
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) = _one();
 
-        bytes32 hR = keccak256("route-anchor");
+        (bytes32 hR, bytes memory preR) = _deriveRoute(vaultV1, agent, t, f, w, 1 ether, m);
         bytes32 cR = vaultV1.routeCommitment(hR, agent, t, f, w, 1 ether, m, FUTURE);
         vm.prank(agent);
         anchor.anchor(hR, cR, 0);
@@ -253,26 +394,50 @@ contract RT08_CommitmentDomainSeparation is Test {
         vm.startPrank(agent);
         usdc.faucet(2000 ether);
         usdc.approve(address(adapterV1), type(uint256).max);
-        vm.expectRevert();                       // ExecutionNotAnchored
-        adapterV1.supply(hR, _market(), 1 ether, 1 ether);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PQExecBinding.ExecCommitmentMismatch.selector,
+                _routeParams(vaultV1, agent, t, f, w, 1 ether, m),   // a ROUTE order
+                _supplyParams(adapterV1, agent, 1 ether)             // a SUPPLY execution
+            )
+        );
+        adapterV1.supply(hR, _market(), 1 ether, 1 ether, preR);
         vm.stopPrank();
         assertFalse(adapterV1.consumed(agent, hR), "route anchor is inert at the adapter");
+        // the original claim, as state: the one anchor slot for hR holds a
+        // route commitment, which is not what the adapter would have demanded.
+        assertEq(anchor.execCommitmentOf(agent, hR), cR, "one slot, one value");
+        assertTrue(
+            cR != adapterV1.supplyCommitment(hR, agent, _market(), 1 ether),
+            "and the adapter would have rejected it too"
+        );
 
-        bytes32 hS = keccak256("supply-anchor");
+        (bytes32 hS, bytes memory preS) = _deriveSupply(adapterV1, agent, 1000 ether);
         bytes32 cS = adapterV1.supplyCommitment(hS, agent, _market(), 1000 ether);
         vm.prank(agent);
         anchor.anchor(hS, cS, 1);
 
         vm.prank(agent);
-        vm.expectRevert();                       // ExecutionNotAnchored
-        vaultV1.executeAndRoute{ value: 1 ether }(hS, t, f, w, m, FUTURE);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PQExecBinding.ExecCommitmentMismatch.selector,
+                _supplyParams(adapterV1, agent, 1000 ether),         // a SUPPLY order
+                _routeParams(vaultV1, agent, t, f, w, 1 ether, m)    // a ROUTE execution
+            )
+        );
+        vaultV1.executeAndRoute{ value: 1 ether }(hS, t, f, w, m, FUTURE, preS);
         assertFalse(vaultV1.consumed(agent, hS), "supply anchor is inert at the vault");
+        assertEq(anchor.execCommitmentOf(agent, hS), cS, "one slot, one value");
+        assertTrue(
+            cS != vaultV1.routeCommitment(hS, agent, t, f, w, 1 ether, m, FUTURE),
+            "and the vault would have rejected it too"
+        );
 
         // each is still spendable at its own executor
         vm.prank(agent);
-        vaultV1.executeAndRoute{ value: 1 ether }(hR, t, f, w, m, FUTURE);
+        vaultV1.executeAndRoute{ value: 1 ether }(hR, t, f, w, m, FUTURE, preR);
         vm.prank(agent);
-        adapterV1.supply(hS, _market(), 1000 ether, 1000 ether);
+        adapterV1.supply(hS, _market(), 1000 ether, 1000 ether, preS);
     }
 
     // =====================================================================
@@ -296,23 +461,32 @@ contract RT08_CommitmentDomainSeparation is Test {
     function test_RT08e_ReAnchoringOneCommitmentUnderNewOrderHashesIsNowInert() public {
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) = _one();
 
-        bytes32 h0 = keccak256(abi.encode("dup", uint256(0)));
+        (bytes32 h0, bytes memory pre0) = _deriveRoute(vaultV1, agent, t, f, w, 1 ether, m);
         bytes32 c0 = vaultV1.routeCommitment(h0, agent, t, f, w, 1 ether, m, FUTURE);
 
         vm.prank(agent);
         anchor.anchor(h0, c0, 0);
         vm.prank(agent);
-        vaultV1.executeAndRoute{ value: 1 ether }(h0, t, f, w, m, FUTURE);
+        vaultV1.executeAndRoute{ value: 1 ether }(h0, t, f, w, m, FUTURE, pre0);
         assertEq(usdc.balanceOf(agent), 2000 ether, "the authorised execution runs once");
 
         // The replay: file the SAME commitment under four fresh orderHashes.
+        //
+        // The orderHash is now derived from the execution parameters, so four
+        // "fresh" hashes require four distinct parameter sets — otherwise all
+        // five are literally the same order and the second anchor reverts
+        // AlreadyAnchored, testing nothing. The deposit is bumped by i wei,
+        // which is the smallest change that keeps the orders independent while
+        // leaving the attack shape identical: the SAME commitment `c0`, filed
+        // under an orderHash it was not minted for.
         for (uint256 i = 1; i < 5; ++i) {
-            bytes32 h = keccak256(abi.encode("dup", i));
+            uint256 value = 1 ether + i;
+            (bytes32 h, bytes memory pre) = _deriveRoute(vaultV1, agent, t, f, w, value, m);
             uint64 sq = anchor.nextSequence(agent);
             vm.prank(agent);
             anchor.anchor(h, c0, sq);              // still permitted: the anchor is opaque
 
-            bytes32 expected = vaultV1.routeCommitment(h, agent, t, f, w, 1 ether, m, FUTURE);
+            bytes32 expected = vaultV1.routeCommitment(h, agent, t, f, w, value, m, FUTURE);
             assertTrue(expected != c0, "each orderHash has its own commitment now");
 
             vm.prank(agent);
@@ -321,7 +495,7 @@ contract RT08_CommitmentDomainSeparation is Test {
                     UniswapRoutingVault.ExecutionNotAnchored.selector, expected, c0
                 )
             );
-            vaultV1.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
+            vaultV1.executeAndRoute{ value: value }(h, t, f, w, m, FUTURE, pre);
             assertFalse(vaultV1.consumed(agent, h), "no second execution");
         }
 
@@ -332,7 +506,7 @@ contract RT08_CommitmentDomainSeparation is Test {
     /// it multiplied the authorised CEILING: an anchor for "up to 1000 USDC"
     /// became "up to 1000 USDC, N times".
     function test_RT08f_SupplyCeilingCanNoLongerBeMultipliedByReAnchoring() public {
-        bytes32 h0 = keccak256(abi.encode("supply-dup", uint256(0)));
+        (bytes32 h0, bytes memory pre0) = _deriveSupply(adapterV1, agent, 1000 ether);
         bytes32 c0 = adapterV1.supplyCommitment(h0, agent, _market(), 1000 ether);
 
         vm.startPrank(agent);
@@ -343,22 +517,29 @@ contract RT08_CommitmentDomainSeparation is Test {
         vm.prank(agent);
         anchor.anchor(h0, c0, 0);
         vm.prank(agent);
-        adapterV1.supply(h0, _market(), 1000 ether, 1000 ether);
+        adapterV1.supply(h0, _market(), 1000 ether, 1000 ether, pre0);
 
+        // As in RT08e: the fresh orderHashes must differ in a parameter now
+        // that the hash is derived, so the authorised CEILING is bumped by i
+        // wei. The supplied `assets` stays at exactly 1000 ether, so the
+        // quantity under test is unchanged and the ceiling-multiplication
+        // attack keeps its original shape.
         for (uint256 i = 1; i < 4; ++i) {
-            bytes32 h = keccak256(abi.encode("supply-dup", i));
+            uint256 ceiling = 1000 ether + i;
+            (bytes32 h, bytes memory pre) = _deriveSupply(adapterV1, agent, ceiling);
             uint64 sq = anchor.nextSequence(agent);
             vm.prank(agent);
             anchor.anchor(h, c0, sq);
 
-            bytes32 expected = adapterV1.supplyCommitment(h, agent, _market(), 1000 ether);
+            bytes32 expected = adapterV1.supplyCommitment(h, agent, _market(), ceiling);
+            assertTrue(expected != c0, "each orderHash has its own commitment now");
             vm.prank(agent);
             vm.expectRevert(
                 abi.encodeWithSelector(
                     MorphoSupplyAdapter.ExecutionNotAnchored.selector, expected, c0
                 )
             );
-            adapterV1.supply(h, _market(), 1000 ether, 1000 ether);
+            adapterV1.supply(h, _market(), 1000 ether, ceiling, pre);
         }
 
         assertEq(
@@ -403,7 +584,9 @@ contract RT08_CommitmentDomainSeparation is Test {
     /// now separates (RT08a).
     function test_RT08g_ASecondAnchorDeploymentDoesNotWidenAuthorisation() public {
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) = _one();
-        bytes32 h = keccak256("wrong-anchor");
+        // Derived, so the PQ binding is satisfied and the call reaches the
+        // anchor lookup — which is the check this test is about.
+        (bytes32 h, bytes memory pre) = _deriveRoute(vaultV1, agent, t, f, w, 1 ether, m);
         bytes32 c = vaultV1.routeCommitment(h, agent, t, f, w, 1 ether, m, FUTURE);
 
         // agent anchors on the WRONG V2 instance
@@ -414,7 +597,7 @@ contract RT08_CommitmentDomainSeparation is Test {
         vm.expectRevert(
             abi.encodeWithSelector(UniswapRoutingVault.AnchorNotFound.selector, h)
         );
-        vaultV1.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
+        vaultV1.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE, pre);
 
         assertEq(address(vaultV1.ANCHOR()), address(anchor), "the anchor is immutable per vault");
     }

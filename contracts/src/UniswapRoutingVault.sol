@@ -7,6 +7,7 @@ import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.s
 import { IV3SwapRouter }  from "./interfaces/IV3SwapRouter.sol";
 import { IWrappedNative } from "./interfaces/IWrappedNative.sol";
 import { IPQAttestation } from "./IPQAttestation.sol";
+import { PQExecBinding }  from "./PQExecBinding.sol";
 import { AuditAnchorV2 }  from "./AuditAnchorV2.sol";
 
 /// @title  UniswapRoutingVault — agent-driven executor that routes native
@@ -179,6 +180,15 @@ contract UniswapRoutingVault is ReentrancyGuard {
     ///                       executed it already. Anchors are keyed per
     ///                       (anchorer, orderHash), so orders may be
     ///                       pipelined without stranding each other.
+    /// @param  orderPreimage the canonical bytes of the PQ-signed order. Its
+    ///                       SHA-256 must equal `orderHash`, and the
+    ///                       `exec_commitment` it carries must equal a hash
+    ///                       recomputed from the arguments below. This is what
+    ///                       makes the signature cover the EXECUTION and not
+    ///                       merely the order's existence — without it the
+    ///                       anchored commitment is chosen by whoever calls
+    ///                       `anchor()`, including a compromised ECDSA key.
+    ///                       (RT12.)
     /// @param  tokenOuts     output ERC20 per pool; each must be approved.
     /// @param  feeTiers      Uniswap v3 fee tier per pool (500 / 3000 / 10000).
     /// @param  weightsBps    basis-points weight per pool (sum == 10_000).
@@ -192,7 +202,8 @@ contract UniswapRoutingVault is ReentrancyGuard {
         uint24[]  calldata feeTiers,
         uint16[]  calldata weightsBps,
         uint256[] calldata amountOutMin,
-        uint256 deadline
+        uint256 deadline,
+        bytes calldata orderPreimage
     ) external payable nonReentrant {
         if (msg.value == 0) revert ZeroValue();
         if (orderHash == bytes32(0)) revert ZeroHash();
@@ -211,6 +222,20 @@ contract UniswapRoutingVault is ReentrancyGuard {
         // Checked BEFORE the anchor lookup so the cheapest rejection is the
         // one that says "this order was never PQ-authorised".
         if (!PQ.pqAttested(orderHash)) revert NotPQAttested(orderHash);
+
+        // The signature must cover THIS execution, not merely this order. The
+        // preimage is checked against orderHash, and the exec_commitment
+        // inside it against a hash recomputed from the arguments here. Placed
+        // before the anchor lookup because the anchored commitment is
+        // caller-chosen and therefore the weaker of the two checks. (RT12.)
+        PQExecBinding.requireBound(
+            orderPreimage,
+            orderHash,
+            PQExecBinding.routeParamsHash(
+                block.chainid, address(this), msg.sender, tokenOuts,
+                feeTiers, weightsBps, msg.value, amountOutMin, deadline
+            )
+        );
 
         // Provenance: the caller must have anchored this exact order AND the
         // anchor must commit to exactly these execution parameters.

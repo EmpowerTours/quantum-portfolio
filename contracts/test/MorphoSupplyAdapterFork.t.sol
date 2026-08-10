@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { Test }   from "forge-std/Test.sol";
+import { PQBind } from "./helpers/PQBind.sol";
 import { MockPQAttestation } from "./mocks/MockPQAttestation.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { AuditAnchorV2 }      from "../src/AuditAnchorV2.sol";
@@ -63,8 +64,13 @@ contract MorphoSupplyAdapterForkTest is Test {
 
         MarketParams memory m = _market();
         bytes32 id = keccak256(abi.encode(m));
-        bytes32 orderHash = keccak256("fork-live-morpho-supply");
         uint256 amount = 1_000_000; // 1 USDC (6 decimals)
+        // Derived: the adapter requires bytes hashing to this that carry the
+        // matching exec_commitment, so it cannot be a literal.
+        (bytes memory pre, bytes32 orderHash) = PQBind.preimage(keccak256(abi.encode(
+            block.chainid, address(adapter), trader, m.loanToken, m.collateralToken,
+            m.oracle, m.irm, m.lltv, amount
+        )));
 
         // Provenance: the trader anchors the order, then supplies.
         vm.startPrank(trader);
@@ -76,7 +82,7 @@ contract MorphoSupplyAdapterForkTest is Test {
         IERC20(USDC).approve(address(adapter), amount);
 
         (uint256 supplySharesBefore,,) = IMorpho(MORPHO).position(id, trader);
-        uint256 shares = adapter.supply(orderHash, m, amount, amount);
+        uint256 shares = adapter.supply(orderHash, m, amount, amount, pre);
         (uint256 supplySharesAfter,,) = IMorpho(MORPHO).position(id, trader);
         vm.stopPrank();
 
@@ -100,10 +106,19 @@ contract MorphoSupplyAdapterForkTest is Test {
             lltv: LLTV
         });
 
+        // Derive first: PQBind.preimage hits the sha256 precompile, and doing
+        // that after startPrank/expectRevert consumes the cheatcode.
+        (bytes memory hpre, bytes32 hh) = PQBind.preimage(keccak256(abi.encode(
+            block.chainid, address(adapter), trader, hostile.loanToken,
+            hostile.collateralToken, hostile.oracle, hostile.irm, hostile.lltv,
+            uint256(1_000_000)
+        )));
         vm.startPrank(trader);
+        // Must still ANCHOR, or AnchorNotFound fires before the market check
+        // and this stops testing the market allowlist at all.
         anchor.anchor(
-            keccak256("hostile-market"),
-            adapter.supplyCommitment(keccak256("hostile-market"), trader, hostile, 1_000_000),
+            hh,
+            adapter.supplyCommitment(hh, trader, hostile, 1_000_000),
             anchor.nextSequence(trader)
         );
         deal(USDC, trader, 1_000_000);
@@ -114,7 +129,7 @@ contract MorphoSupplyAdapterForkTest is Test {
                 keccak256(abi.encode(hostile))
             )
         );
-        adapter.supply(keccak256("hostile-market"), hostile, 1_000_000, 1_000_000);
+        adapter.supply(hh, hostile, 1_000_000, 1_000_000, hpre);
         vm.stopPrank();
     }
 
@@ -124,8 +139,14 @@ contract MorphoSupplyAdapterForkTest is Test {
         vm.startPrank(trader);
         deal(USDC, trader, 1_000_000);
         IERC20(USDC).approve(address(adapter), 1_000_000);
+        // Valid binding, deliberately unanchored, so the ANCHOR check is what
+        // fails rather than the binding.
+        (bytes memory npre, bytes32 nh) = PQBind.preimage(keccak256(abi.encode(
+            block.chainid, address(adapter), trader, m.loanToken, m.collateralToken,
+            m.oracle, m.irm, m.lltv, uint256(1_000_000)
+        )));
         vm.expectRevert(); // AnchorNotFound — trader never anchored
-        adapter.supply(keccak256("never-anchored"), m, 1_000_000, 1_000_000);
+        adapter.supply(nh, m, 1_000_000, 1_000_000, npre);
         vm.stopPrank();
     }
 }

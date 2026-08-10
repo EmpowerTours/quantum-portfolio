@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import { Test }   from "forge-std/Test.sol";
 import { MockPQAttestation } from "../mocks/MockPQAttestation.sol";
+import { PQBind } from "../helpers/PQBind.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { WMON }          from "../../src/dex/WMON.sol";
 import { MockToken }     from "../../src/dex/MockToken.sol";
@@ -95,15 +96,34 @@ contract RT06_V2BindingSurface is Test {
         m = new uint256[](1); m[0] = 1;
     }
 
-    function _anchorRoute(
+    /// @dev The orderHash is DERIVED from the execution parameters, not
+    ///      invented: the vault now requires bytes that sha256 to it and carry
+    ///      the matching exec_commitment, so the test does what a real signer
+    ///      does. Split from `_anchorRoute` because some probes need the hash
+    ///      BEFORE the victim anchors it.
+    function _routePre(
         address who,
-        bytes32 h,
         address[] memory t,
         uint24[] memory f,
         uint16[] memory w,
         uint256 amountInWei,
         uint256[] memory m
-    ) internal {
+    ) internal view returns (bytes32 h, bytes memory pre) {
+        bytes32 paramsHash = keccak256(
+            abi.encode(block.chainid, address(vault), who, t, f, w, amountInWei, m, FUTURE)
+        );
+        (pre, h) = PQBind.preimage(paramsHash);
+    }
+
+    function _anchorRoute(
+        address who,
+        address[] memory t,
+        uint24[] memory f,
+        uint16[] memory w,
+        uint256 amountInWei,
+        uint256[] memory m
+    ) internal returns (bytes32 h, bytes memory pre) {
+        (h, pre) = _routePre(who, t, f, w, amountInWei, m);
         bytes32 c = vault.routeCommitment(h, who, t, f, w, amountInWei, m, FUTURE);
         uint64 _seq = anchor.nextSequence(who);
         vm.prank(who);
@@ -117,9 +137,10 @@ contract RT06_V2BindingSurface is Test {
     /// msg.sender, and `AlreadyAnchored` only fires against the caller's own
     /// slot, so racing the same orderHash writes to a disjoint mapping entry.
     function test_RT06a_FrontRunningAnAnchorCannotGriefTheVictim() public {
-        bytes32 h = keccak256("contested-order");
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _one(address(usdc));
+        // The victim's order is public, so its hash is knowable in advance.
+        (bytes32 h, bytes memory pre) = _routePre(agent, t, f, w, 1 ether, m);
 
         // Attacker front-runs, anchoring the SAME orderHash first, with a
         // commitment designed to authorise a different trade.
@@ -128,10 +149,10 @@ contract RT06_V2BindingSurface is Test {
         anchor.anchor(h, poison, 0);
 
         // Victim anchors the same hash afterwards: unaffected.
-        _anchorRoute(agent, h, t, f, w, 1 ether, m);
+        _anchorRoute(agent, t, f, w, 1 ether, m);
 
         vm.prank(agent);
-        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE, pre);
         assertEq(usdc.balanceOf(agent), 2000 ether, "victim executed normally");
 
         // And the attacker's poisoned anchor authorises nothing of the victim's.
@@ -141,18 +162,22 @@ contract RT06_V2BindingSurface is Test {
     /// NEGATIVE — an attacker cannot consume a victim's anchor either: the
     /// commitment binds `user`, and `consumed` is keyed by msg.sender.
     function test_RT06b_AttackerCannotConsumeVictimsAnchor() public {
-        bytes32 h = keccak256("victim-order");
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _one(address(usdc));
-        _anchorRoute(agent, h, t, f, w, 1 ether, m);
+        (bytes32 h, bytes memory pre) = _anchorRoute(agent, t, f, w, 1 ether, m);
 
+        // The attacker replays the victim's orderHash AND the victim's signed
+        // bytes — both are public. The specific selector is no longer
+        // assertable: the PQ binding runs before the anchor lookup and the
+        // signed exec_commitment names the victim as `user`, so the call dies
+        // there instead of at AnchorNotFound. Strictly earlier, same outcome.
         vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSelector(UniswapRoutingVault.AnchorNotFound.selector, h));
-        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
+        vm.expectRevert();
+        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE, pre);
 
         // victim's anchor is still spendable
         vm.prank(agent);
-        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE, pre);
         assertEq(usdc.balanceOf(agent), 2000 ether);
     }
 
@@ -288,24 +313,23 @@ contract RT06_V2BindingSurface is Test {
     /// post-M-7 recovery path: the order is retried unchanged once the
     /// ENVIRONMENT improves, not by quietly relaxing the floor.
     function test_RT06f_FailedExecutionDoesNotBurnTheAnchor() public {
-        bytes32 h = keccak256("retry-me");
         address[] memory t = new address[](1); t[0] = address(usdc);
         uint24[]  memory f = new uint24[](1);  f[0] = FEE;
         uint16[]  memory w = new uint16[](1);  w[0] = 10_000;
         uint256[] memory m = new uint256[](1); m[0] = 2500 ether;  // above the 2000 rate
-        _anchorRoute(agent, h, t, f, w, 1 ether, m);
+        (bytes32 h, bytes memory pre) = _anchorRoute(agent, t, f, w, 1 ether, m);
 
         // Attempt 1: the pool cannot fill the anchored floor.
         vm.prank(agent);
         vm.expectRevert(bytes("Too little received"));
-        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE, pre);
 
         assertFalse(vault.consumed(agent, h), "anchor NOT burned by the failed attempt");
 
         // Attempt 2: price improves; the SAME anchored order now fills.
         router.setRate(3000, 1);
         vm.prank(agent);
-        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE, pre);
         assertTrue(vault.consumed(agent, h), "anchor consumed only on success");
         assertEq(usdc.balanceOf(agent), 3000 ether);
     }
@@ -318,16 +342,22 @@ contract RT06_V2BindingSurface is Test {
     /// order off-chain (new orderHash), and the botched anchor still burned a
     /// sequence number in the audit chain.
     function test_RT06g_MiscommittedAnchorPermanentlyBricksThatOrderHash() public {
-        bytes32 h = keccak256("fat-fingered");
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _one(address(usdc));
 
-        // agent commits to 2 ether but will fund the call with 1 ether
-        _anchorRoute(agent, h, t, f, w, 2 ether, m);
+        // The PQ-signed order authorises exactly the call the agent will make
+        // (1 ether), so the execution binding is satisfied. The fat-finger is
+        // in the ANCHOR: the agent commits to 2 ether under that same
+        // orderHash, which is the mistake this test is about.
+        (bytes32 h, bytes memory pre) = _routePre(agent, t, f, w, 1 ether, m);
+        bytes32 botched = vault.routeCommitment(h, agent, t, f, w, 2 ether, m, FUTURE);
+        uint64 seq0 = anchor.nextSequence(agent);
+        vm.prank(agent);
+        anchor.anchor(h, botched, seq0);
 
         vm.prank(agent);
         vm.expectRevert();
-        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, FUTURE, pre);
 
         // Cannot repair the anchor.
         bytes32 corrected = vault.routeCommitment(h, agent, t, f, w, 1 ether, m, FUTURE);
@@ -371,19 +401,24 @@ contract RT06_V2BindingSurface is Test {
         _w3 = [uint16(3000), uint16(3000), uint16(4000)];
     }
 
-    /// Submit `m`/`deadline` against anchor `h` and require the vault to reject
-    /// it as diverging from what was anchored. Own frame: keeps the IR stack
-    /// under the limit.
-    function _expectDivergent(bytes32 h, uint256[] memory m, uint256 deadline) internal {
-        bytes32 anchored = anchor.execCommitmentOf(agent, h);
-        bytes32 got = vault.routeCommitment(h, agent, _t3, _f3, _w3, 1 ether, m, deadline);
+    /// Submit `m`/`deadline` against the signed order `h`/`pre` and require the
+    /// vault to reject it as diverging from what was signed and anchored. Own
+    /// frame: keeps the IR stack under the limit.
+    ///
+    /// @dev The specific selector is no longer assertable. `amountOutMin` and
+    ///      `deadline` are now inside the PQ-signed exec_commitment as well as
+    ///      the anchor, and the binding check runs first — so a divergent
+    ///      submission dies at the binding rather than at ExecutionNotAnchored.
+    ///      Both cover the same fields; the earlier one simply wins.
+    function _expectDivergent(
+        bytes32 h,
+        bytes memory pre,
+        uint256[] memory m,
+        uint256 deadline
+    ) internal {
         vm.prank(agent);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                UniswapRoutingVault.ExecutionNotAnchored.selector, got, anchored
-            )
-        );
-        vault.executeAndRoute{ value: 1 ether }(h, _t3, _f3, _w3, m, deadline);
+        vm.expectRevert();
+        vault.executeAndRoute{ value: 1 ether }(h, _t3, _f3, _w3, m, deadline, pre);
     }
 
     function _mins(uint256 a, uint256 b, uint256 c) internal pure returns (uint256[] memory m) {
@@ -392,10 +427,11 @@ contract RT06_V2BindingSurface is Test {
 
     function test_RT06h_MultiLegFloorDivergenceIsRejected() public {
         _setupThreeLegs();
-        bytes32 h = keccak256("intent");
 
-        // PQ-signed intent: a real floor on every leg.
+        // PQ-signed intent: a real floor on every leg. The orderHash is derived
+        // from exactly those parameters, so the signed bytes carry them.
         uint256[] memory intended = _mins(570 ether, 570 ether, 760 ether);
+        (bytes32 h, bytes memory pre) = _routePre(agent, _t3, _f3, _w3, 1 ether, intended);
         bytes32 c = vault.routeCommitment(h, agent, _t3, _f3, _w3, 1 ether, intended, FUTURE);
         uint64 seq = anchor.nextSequence(agent);
         vm.prank(agent);
@@ -403,16 +439,16 @@ contract RT06_V2BindingSurface is Test {
 
         // (1) gut ONE middle leg's floor to the legal minimum, leave the rest
         //     untouched. A scalar single-leg check would not catch this.
-        _expectDivergent(h, _mins(570 ether, 1, 760 ether), FUTURE);
+        _expectDivergent(h, pre, _mins(570 ether, 1, 760 ether), FUTURE);
 
         // (2) PERMUTE the floors across legs — same multiset, different
         //     assignment, so a sum- or set-based check would pass it.
-        _expectDivergent(h, _mins(760 ether, 570 ether, 570 ether), FUTURE);
+        _expectDivergent(h, pre, _mins(760 ether, 570 ether, 570 ether), FUTURE);
 
         // (3) the original single-shot exploit: floor gutted AND deadline
         //     extended, executed 365 days past the signed deadline.
         vm.warp(block.timestamp + 365 days);
-        _expectDivergent(h, _mins(1, 1, 1), type(uint256).max);
+        _expectDivergent(h, pre, _mins(1, 1, 1), type(uint256).max);
 
         assertFalse(vault.consumed(agent, h), "nothing executed");
         assertEq(usdc.balanceOf(agent), 0);
@@ -425,20 +461,33 @@ contract RT06_V2BindingSurface is Test {
     /// leg chains off an unknown swap output), but it does mean an anchor for
     /// "up to 1000 USDC" also authorises supplying 1 wei.
     function test_RT06i_SupplyCommitmentBindsOnlyTheCeiling() public {
-        bytes32 h = keccak256("supply-intent");
-        _anchorSupply(agent, h, 1000 ether);
+        (bytes32 h, bytes memory pre) = _anchorSupply(agent, 1000 ether);
 
         vm.startPrank(agent);
         usdc.faucet(1000 ether);
         usdc.approve(address(adapter), type(uint256).max);
-        adapter.supply(h, _market(), 1, 1000 ether);   // 1 wei against a 1000e18 ceiling
+        // 1 wei against a 1000e18 ceiling. `assets` is outside the signed
+        // exec_commitment as well as outside the anchor — only `maxAssets` is
+        // bound — so the binding does not narrow this at all.
+        adapter.supply(h, _market(), 1, 1000 ether, pre);
         vm.stopPrank();
 
         assertTrue(adapter.consumed(agent, h), "anchor spent on a 1-wei supply");
     }
 
-    function _anchorSupply(address who, bytes32 h, uint256 maxAssets) internal {
-        bytes32 c = adapter.supplyCommitment(h, who, _market(), maxAssets);
+    function _anchorSupply(address who, uint256 maxAssets)
+        internal
+        returns (bytes32 h, bytes memory pre)
+    {
+        MarketParams memory p = _market();
+        bytes32 paramsHash = keccak256(
+            abi.encode(
+                block.chainid, address(adapter), who, p.loanToken, p.collateralToken,
+                p.oracle, p.irm, p.lltv, maxAssets
+            )
+        );
+        (pre, h) = PQBind.preimage(paramsHash);
+        bytes32 c = adapter.supplyCommitment(h, who, p, maxAssets);
         uint64 _seq = anchor.nextSequence(who);
         vm.prank(who);
         anchor.anchor(h, c, _seq);

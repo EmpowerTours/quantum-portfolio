@@ -3,6 +3,8 @@ pragma solidity 0.8.28;
 
 import { Test }   from "forge-std/Test.sol";
 import { MockPQAttestation } from "../mocks/MockPQAttestation.sol";
+import { PQBind } from "../helpers/PQBind.sol";
+import { PQExecBinding } from "../../src/PQExecBinding.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { ERC20 }  from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { WMON }                from "../../src/dex/WMON.sol";
@@ -90,9 +92,10 @@ contract AgentAccount {
         uint16[] calldata w,
         uint256[] calldata m,
         uint256 d,
-        uint256 value
+        uint256 value,
+        bytes calldata pre
     ) external {
-        VAULT.executeAndRoute{ value: value }(h, t, f, w, m, d);
+        VAULT.executeAndRoute{ value: value }(h, t, f, w, m, d, pre);
     }
 }
 
@@ -181,6 +184,28 @@ contract RT11_AnchorStateMachine is Test {
         m = new uint256[](1); m[0] = 1;
     }
 
+    /// The orderHash is now DERIVED from the execution parameters — the vault
+    /// requires bytes that sha256 to it and carry the matching
+    /// `exec_commitment`, so a test can no longer name an order with
+    /// `keccak256("literal")`. Two calls with identical parameters therefore
+    /// derive the SAME hash; where this file needs two independent orders they
+    /// differ in `value`.
+    function _deriveRoute(
+        address who,
+        address[] memory t,
+        uint24[]  memory f,
+        uint16[]  memory w,
+        uint256   value,
+        uint256[] memory m,
+        uint256   deadline
+    ) internal view returns (bytes32 h, bytes memory pre) {
+        (pre, h) = PQBind.preimage(
+            keccak256(
+                abi.encode(block.chainid, address(vault), who, t, f, w, value, m, deadline)
+            )
+        );
+    }
+
     // =====================================================================
     // (1) storage invariants of the anchor
     // =====================================================================
@@ -241,8 +266,12 @@ contract RT11_AnchorStateMachine is Test {
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _one(address(usdc));
 
-        bytes32 h1 = keccak256("order-1");
-        bytes32 h2 = keccak256("order-2");
+        // Two INDEPENDENT orders. They must differ in at least one execution
+        // parameter or they would derive the same orderHash; the deposit size
+        // is what distinguishes them (1 MON vs 2 MON), as it already did.
+        (bytes32 h1, bytes memory pre1) = _deriveRoute(agent, t, f, w, 1 ether, m, FUTURE);
+        (bytes32 h2, )                  = _deriveRoute(agent, t, f, w, 2 ether, m, FUTURE);
+        assertTrue(h1 != h2, "two distinct orders");
         bytes32 c1 = vault.routeCommitment(h1, agent, t, f, w, 1 ether, m, FUTURE);
         bytes32 c2 = vault.routeCommitment(h2, agent, t, f, w, 2 ether, m, FUTURE);
 
@@ -253,7 +282,7 @@ contract RT11_AnchorStateMachine is Test {
 
         // execute the OLDER order only
         vm.prank(agent);
-        vault.executeAndRoute{ value: 1 ether }(h1, t, f, w, m, FUTURE);
+        vault.executeAndRoute{ value: 1 ether }(h1, t, f, w, m, FUTURE, pre1);
 
         assertEq(anchor.lastHash(agent), h2, "chain head is the UNexecuted order");
         assertTrue(vault.consumed(agent, h1), "the executed order is not the chain head");
@@ -279,12 +308,18 @@ contract RT11_AnchorStateMachine is Test {
         vm.warp(1_000_000);
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _one(address(usdc));
-        uint256 deadline = block.timestamp + 60;      // PQ-signed: valid 60s
-        bytes32 h = keccak256("late-anchor");
+        // Literal timestamps, deliberately. `uint256 deadline = block.timestamp
+        // + 60` is not safe here: TIMESTAMP is a movable instruction, so under
+        // via_ir the optimiser rematerialises the expression at each use and it
+        // silently follows `vm.warp` forward — the deadline then never passes
+        // and this test reports a binding failure instead of the brick it is
+        // about. (Observed exactly that during this migration.)
+        uint256 deadline = 1_000_060;                 // PQ-signed: valid 60s
+        (bytes32 h, bytes memory pre) = _deriveRoute(agent, t, f, w, 1 ether, m, deadline);
         bytes32 c = vault.routeCommitment(h, agent, t, f, w, 1 ether, m, deadline);
 
         // the anchoring tx is delayed and lands 10 minutes late
-        vm.warp(block.timestamp + 600);
+        vm.warp(1_000_600);
         vm.prank(agent);
         anchor.anchor(h, c, 0);                       // accepted, no complaint
 
@@ -295,7 +330,7 @@ contract RT11_AnchorStateMachine is Test {
                 UniswapRoutingVault.DeadlinePassed.selector, deadline, block.timestamp
             )
         );
-        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, deadline);
+        vault.executeAndRoute{ value: 1 ether }(h, t, f, w, m, deadline, pre);
 
         // ...and unrepairable.
         bytes32 fresh = vault.routeCommitment(h, agent, t, f, w, 1 ether, m, block.timestamp + 60);
@@ -321,21 +356,34 @@ contract RT11_AnchorStateMachine is Test {
     /// vault's own `consumed[acct][h]` already set to true, and with the
     /// reentrant call carrying the ANCHORER as msg.sender (an EOA-shaped
     /// prank cannot reach here, which is why the agent is a contract).
+    ///
+    /// POST-RT12 NOTE. The rejection now happens one layer EARLIER than it did.
+    /// The reentry can only carry the one preimage that exists for `h` — the
+    /// ROUTE order — and the adapter's `PQExecBinding` check runs before the
+    /// anchor lookup, so it fires `ExecCommitmentMismatch` first. That is not a
+    /// weaker result: `ExecutionNotAnchored` is now UNREACHABLE for a
+    /// cross-executor reentry, because a single orderHash can no longer be made
+    /// to bind two executors at all (the executor's address is inside the
+    /// commitment the preimage carries — RT08c). The original property is
+    /// therefore asserted directly below as well, against the anchor's own
+    /// storage, rather than being inferred from a revert selector.
     function test_RT11e_CrossExecutorReentryOnOneAnchorIsRejectedByTheCommitment() public {
-        bytes32 h = keccak256("cross-reentry");
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _one(address(evil));
+        (bytes32 h, bytes memory pre) =
+            _deriveRoute(address(acct), t, f, w, 1 ether, m, FUTURE);
         bytes32 c = vault.routeCommitment(h, address(acct), t, f, w, 1 ether, m, FUTURE);
         acct.anchorIt(h, c, 0);
 
-        // the reentry the anchor would have to authorise
+        // the reentry the anchor would have to authorise. It carries the route
+        // order's preimage because that is the only preimage that hashes to `h`.
         acct.arm(
             address(adapter),
-            abi.encodeCall(MorphoSupplyAdapter.supply, (h, _market(), 1 ether, 1 ether))
+            abi.encodeCall(MorphoSupplyAdapter.supply, (h, _market(), 1 ether, 1 ether, pre))
         );
         evil.arm(address(acct), abi.encodeCall(AgentAccount.onTokenReceived, ()));
 
-        acct.route(h, t, f, w, m, FUTURE, 1 ether);
+        acct.route(h, t, f, w, m, FUTURE, 1 ether, pre);
 
         assertTrue(acct.fired(), "the cross-executor reentry actually happened");
         assertFalse(acct.succeeded(), "and it was rejected");
@@ -347,8 +395,18 @@ contract RT11_AnchorStateMachine is Test {
         // not span the two contracts.
         assertEq(
             bytes4(acct.lastReturndata()),
-            MorphoSupplyAdapter.ExecutionNotAnchored.selector,
-            "rejected by ExecutionNotAnchored"
+            PQExecBinding.ExecCommitmentMismatch.selector,
+            "rejected by the PQ execution binding"
+        );
+
+        // The original RT11e claim, asserted against state instead of a
+        // selector: the anchor slot for `h` holds a ROUTE commitment, and that
+        // is not the commitment the adapter would have required, so
+        // `ExecutionNotAnchored` was the very next thing in its path.
+        assertEq(anchor.execCommitmentOf(address(acct), h), c, "the one slot holds the route commitment");
+        assertTrue(
+            c != adapter.supplyCommitment(h, address(acct), _market(), 1 ether),
+            "a route commitment can never satisfy the adapter"
         );
     }
 
@@ -356,19 +414,23 @@ contract RT11_AnchorStateMachine is Test {
     /// by `nonReentrant`, and would be caught by `consumed` anyway (which is
     /// written before any external call).
     function test_RT11f_SameExecutorReentryIsCaughtByTheGuard() public {
-        bytes32 h = keccak256("self-reentry");
         (address[] memory t, uint24[] memory f, uint16[] memory w, uint256[] memory m) =
             _one(address(evil));
+        (bytes32 h, bytes memory pre) =
+            _deriveRoute(address(acct), t, f, w, 1 ether, m, FUTURE);
         bytes32 c = vault.routeCommitment(h, address(acct), t, f, w, 1 ether, m, FUTURE);
         acct.anchorIt(h, c, 0);
 
+        // The reentry replays the identical call, preimage included, so it is
+        // fully PQ-bound and would pass every authorisation check. Only
+        // `nonReentrant` stops it — which is exactly what this test asserts.
         acct.arm(
             address(vault),
-            abi.encodeCall(UniswapRoutingVault.executeAndRoute, (h, t, f, w, m, FUTURE))
+            abi.encodeCall(UniswapRoutingVault.executeAndRoute, (h, t, f, w, m, FUTURE, pre))
         );
         evil.arm(address(acct), abi.encodeCall(AgentAccount.onTokenReceived, ()));
 
-        acct.route(h, t, f, w, m, FUTURE, 1 ether);
+        acct.route(h, t, f, w, m, FUTURE, 1 ether, pre);
         assertTrue(acct.fired());
         assertFalse(acct.succeeded(), "reentry rejected");
     }

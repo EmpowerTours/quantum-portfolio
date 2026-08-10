@@ -351,8 +351,8 @@ SUPERSEDED_VALUES: list[tuple[str, str, str]] = [
     (r"~?\s*230\s*[k,]\s*(?:-\s*)?gas|230,000\s*gas",
      "1,196,224 gas", "never measured; the attest receipt says 1196224"),
     (r"\b105 (?:tests|automated)\b|\b84 tests\b|\b279 tests\b|"
-     r"\b110 Python tests\b|Two hundred seventy-nine|\b323 tests\b|\b328 tests\b|\b331 tests\b|Three hundred twenty-three",
-     "334 tests (154 Python + 180 Foundry)",
+     r"\b110 Python tests\b|Two hundred seventy-nine|\b323 tests\b|\b328 tests\b|\b331 tests\b|\b334 tests\b|Three hundred twenty-three",
+     "335 tests (154 Python + 181 Foundry)",
      "counts before the verifier's own 44 self-tests were added"),
     (r"81[- ]second",
      "90-second", "the demo video gained a scene and is now 90.0s"),
