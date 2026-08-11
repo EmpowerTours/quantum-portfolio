@@ -171,9 +171,10 @@ QAOA on IBM Heron · Hedged post-quantum signatures · On-chain provenance on Mo
 <div>
 
 - **IBM Heron**, XY-ring-mixer QAOA, reps=3. Raw counts shipped — recompute it yourself.
-- **Stocks** (`ibm_fez`, n=1): **13 → 39**, Fisher p = 0.00039 — the number we used to lead with.
-- **We then replicated it.** 20 paired runs, `ibm_marrakesh`: mitigation **worse in 15 of 20**, Wilcoxon **p = 0.0094**. *It reverses.*
-- **Why:** run-to-run variance is **3.8× shot noise**; Fisher assumes shot noise is all there is. The raw baseline moved **+56%** between sessions with nothing changed but the clock.
+- **Stocks** (`ibm_fez`, n=1): **13 → 39**, ×2.19 vs random, Fisher p = 0.00039 — the number we used to lead with.
+- **Then we built the right null.** Those qubits are biased (P(1) = 0.41–0.59, not 0.375). Against a null from the run's *own* marginals the lift is **×1.26, p = 0.12**.
+- **And replicated it.** 20 paired runs: no mitigation effect on P(opt\|feasible), **p = 0.177**.
+- **The simulator still shows real structure (×1.67).** The hardware never did.
 
 </div>
 
@@ -183,7 +184,7 @@ QAOA on IBM Heron · Hedged post-quantum signatures · On-chain provenance on Mo
 
 QAOA is **not** faster than the classical baseline at this size — that baseline is `NumPyMinimumEigensolver` (brute-force exact, `src/solvers.py:33`), which is optimal and instant on 8 assets.
 
-**We published the replication that weakens our own headline.** A single QPU run is one sample from a distribution nobody had measured; we measured it. That is the result — not a lift we cannot reproduce.
+**We dismantled our own headline and published that.** The lift was single-qubit readout bias measured against a null that assumed unbiased qubits. Finding it required attacking our own result — which is the contribution.
 
 </div>
 
@@ -323,7 +324,7 @@ We do not claim otherwise. `SECURITY.md` states this before anyone asks — it i
 <tr><th>Step</th><th>Contract</th><th>What happened (Monad mainnet)</th></tr>
 <tr><td>1. Attest</td><td><a href="https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da"><code>MLDSAAttestation</code></a></td><td>Order's <strong>ML-DSA-65 signature verified on-chain via ZK proof</strong> (1.20M gas measured, vs ~500M estimated for native EVM ML-DSA); <code>pqAttested = true</code></td></tr>
 <tr><td>2. Anchor</td><td><a href="https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd"><code>AuditAnchorV2</code></a></td><td>Hash <code>0xaee5fdf0…3ee9</code> committed, immutable</td></tr>
-<tr><td>3. Swap</td><td><a href="https://monadscan.com/address/0xdaea22d6dcb37fbf1462d6d08ade40a8fac05144"><code>UniswapRoutingVault</code></a></td><td>0.1 MON → <strong>2,123 micro-USDC</strong> (0.002123 USDC ≈ $0.002 — a deliberately tiny live-value demo) via live Uniswap v3, anchor-gated</td></tr>
+<tr><td>3. Swap</td><td><a href="https://monadscan.com/address/0xdaea22d6dcb37fbf1462d6d08ade40a8fac05144"><code>UniswapRoutingVault</code></a></td><td>0.1 MON → <strong>2,125 micro-USDC</strong> (0.002125 USDC ≈ $0.002 — a deliberately tiny live-value demo) via live Uniswap v3, anchor-gated</td></tr>
 <tr><td>4. Yield</td><td><a href="https://monadscan.com/address/0xe3de921790d04656f2640fa1edd75492e911ffa6"><code>MorphoSupplyAdapter</code></a></td><td>USDC supplied into a live <strong>Morpho</strong> market (~4.75% APY), non-custodial</td></tr>
 
 </table>

@@ -358,10 +358,13 @@ with tab_hw:
                 delta_color="off",
             )
             # The OTHER universe. Showing only the DeFi run meant the demo
-            # displayed p = 1.000 (no effect) while SUBMISSION.md leads with
-            # the stocks run at p = 0.00039 — a judge comparing the two would
-            # see a contradiction. Both are now visible, including the fact
-            # that they disagree.
+            # displayed p = 1.000 (no effect) while SUBMISSION.md led with the
+            # stocks run at p = 0.00039 — a judge comparing the two would see a
+            # contradiction. Both are now visible, including the fact that they
+            # disagree. SUBMISSION.md no longer leads with that figure: the
+            # replication reversed it (see the panel below), and these two
+            # single runs are now the *setup* for that correction rather than
+            # the result.
             other = HW_FILE_STOCKS if HW_FILE == HW_FILE_DEFI else HW_FILE_DEFI
             if other.exists():
                 try:
@@ -399,17 +402,101 @@ with tab_hw:
                 except Exception as _e:      # never break the demo on this panel
                     st.caption(f"(could not load {other.name}: {_e})")
 
-            st.caption(
-                "Reaching α = 0.05 significance on lifts of this magnitude "
-                "requires ≳10× more shots or replicated independent runs — "
-                "both shipped as funded line item #5 in SUBMISSION.md. "
-                "Methodological precedent (arXiv 2602.09047, 88 qubits, "
-                "ZNE, n=7) reports a statistically significant +31.6 % "
-                "improvement on a portfolio QUBO on the same Heron family, "
-                "but **their p-value does not transfer to our single-run "
-                "data** — we cite the paper as direction-of-effect "
-                "evidence only."
-            )
+            # THE REPLICATION HAS RUN, AND IT REVERSES THIS PANEL.
+            # This caption used to describe "replicated independent runs" as
+            # funded line item #5 — a thing we were asking to be paid to do.
+            # They ran on 2026-08-10 and the effect inverted, which turned the
+            # caption into a claim the rest of the repo had already retracted.
+            # Recomputed from the shipped artefacts rather than restated, so a
+            # future run updates the demo by existing.
+            _reps = sorted(Path("outputs").glob("replication_*.json"))
+            _sessions: list[tuple[str, str, list[int], list[int]]] = []
+            for _f in _reps:
+                try:
+                    _d = json.loads(_f.read_text())
+                    _r = [p["raw_hits"] for p in _d["pairs"]]
+                    _m = [p["mit_hits"] for p in _d["pairs"]]
+                except Exception:                       # partial write mid-run
+                    continue
+                # A run in flight writes its artefact after every pair, so a
+                # short one is an unfinished session, not a result. Below six
+                # pairs run_replication.py itself refuses to compute a p-value.
+                if len(_r) >= 6:
+                    _sessions.append((_d["backend"], _f.stem, _r, _m))
+
+            if _sessions:
+                from scipy.stats import wilcoxon as _wilcoxon
+
+                def _row(label: str, backend: str, r: list[int], m: list[int]) -> dict:
+                    d = [b - a for a, b in zip(r, m)]
+                    _, pw = _wilcoxon(m, r)
+                    return {
+                        "runs": label,
+                        "backend": backend,
+                        "pairs": len(r),
+                        "raw mean": round(sum(r) / len(r), 2),
+                        "mitigated mean": round(sum(m) / len(m), 2),
+                        "mean diff": round(sum(d) / len(d), 2),
+                        "mitigation worse": f"{sum(1 for x in d if x < 0)}/{len(d)}",
+                        "paired Wilcoxon p": round(float(pw), 5),
+                    }
+
+                rows = [_row(s.replace("replication_", ""), b, r, m)
+                        for b, s, r, m in _sessions]
+                # Pool only WITHIN a backend. Sessions on different QPUs answer
+                # different questions — pooling them would hide exactly the
+                # backend effect these runs exist to isolate.
+                headline = None
+                for backend in dict.fromkeys(b for b, _s, _r, _m in _sessions):
+                    same = [(r, m) for b2, _s, r, m in _sessions if b2 == backend]
+                    pr = [x for r, _m in same for x in r]
+                    pm = [x for _r, m in same for x in m]
+                    if len(same) > 1:
+                        rows.append(_row("**pooled**", backend, pr, pm))
+                    if headline is None or len(pr) > len(headline[1]):
+                        headline = (backend, pr, pm)
+
+                if headline is not None:
+                    _b, _pr, _pm = headline
+                    _md = sum(y - x for x, y in zip(_pr, _pm)) / len(_pr)
+                    _, _pw = _wilcoxon(_pm, _pr)
+                    _worse = sum(1 for x, y in zip(_pr, _pm) if y < x)
+                    _verdict = (
+                        "significantly **harms**" if _pw < 0.05 and _md < 0 else
+                        "significantly **helps**" if _pw < 0.05 else
+                        "shows **no significant effect on**"
+                    )
+                    st.markdown(
+                        f"**The replication.** {len(_pr)} independent paired "
+                        f"runs of this identical tuned circuit on `{_b}`: "
+                        f"mitigation worse in **{_worse} of {len(_pr)}**, mean "
+                        f"difference **{_md:+.2f}** hits, paired Wilcoxon "
+                        f"**p = {_pw:.5f}**. XY4 dynamical decoupling plus "
+                        f"measurement twirling {_verdict} P(optimal) here — "
+                        "the *opposite* of the single-run direction above. "
+                        "The single-run figures stay visible rather than being "
+                        "deleted; the correction is the more useful result."
+                    )
+                st.dataframe(pd.DataFrame(rows), hide_index=True,
+                             use_container_width=True)
+                st.caption(
+                    "**Why the single run looked so strong — and what we "
+                    "withdrew.** The ×2.19 lift was measured against "
+                    "`1/C(8,3)`, a null that assumes unbiased qubits. That "
+                    "run's own per-qubit P(1) is 0.41–0.59, not 0.375. Against "
+                    "a null built from those marginals the mitigated lift is "
+                    "**×1.26, p = 0.12** — indistinguishable from eight "
+                    "independently biased coins. The simulator still shows real "
+                    "structure (×1.67, p < 0.001); the hardware does not.\n\n"
+                    "On the paired replication, the metric the headline "
+                    "actually used — P(optimal | feasible) — is **null "
+                    "(p = 0.177)**. Run-to-run dispersion does exceed shot "
+                    "noise (3.82 / 2.15 / 2.06 / 1.21 across the four arms), so "
+                    "Fisher's exact understates uncertainty, but an earlier "
+                    "version of this panel quoted the maximum as *the* figure "
+                    "and claimed a specific ×62 correction. Both are withdrawn. "
+                    "See SUBMISSION.md for what survived and what did not."
+                )
 
         chart = Path("outputs/p_optimal.png")
         if chart.exists():

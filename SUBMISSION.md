@@ -272,76 +272,85 @@ mitigation effect under-powered to claim significance at this scale —
 are documented so a panel reviewer running the math gets the same
 answer we put in the table.
 
-### The replication — our own headline number reverses under it
+### The replication — and the null that dismantles our own headline
 
-Every version of this document has said the same thing about the mitigation
-result: **n = 1 per arm, therefore no replicating effect size**. Item 5 of the
-funding plan was to fix that. We fixed it. The answer is not merely "no
-effect" — it is an effect in the **opposite direction**.
+Every version of this document said the mitigation result was **n = 1 per arm,
+therefore no replicating effect size**. Item 5 of the funding plan was to fix
+that. Doing so produced three findings, all of which cut against us, and the
+third is the one that matters.
 
-**Design.** Independent raw/mitigated pairs of the identical tuned circuit
-(XY-ring mixer, reps=3, 4 096 shots), `ibm_marrakesh`, stocks universe. The
-circuit is tuned once — retuning per run would let the angles vary alongside
-the mitigation setting. The test is a **paired Wilcoxon signed-rank** on the
-per-run difference: both members of a pair see one calibration snapshot, so
-between-pair drift cancels. Non-parametric because at n = 10 there is no basis
-for assuming normality.
+**1. The lift was measured against the wrong null.** We compared
+P(optimal | feasible) to `1/C(8,3) = 0.0179`, which assumes the eight qubits
+are unbiased. On the shipped `ibm_fez` mitigated run they are not — measured
+per-qubit P(1) is `0.510 0.405 0.421 0.455 0.440 0.579 0.585 0.415`, against
+0.375 for an unbiased weight-3 state. Rebuilding the null as a product of
+**that run's own marginals** (an independent-bit / Poisson-binomial null):
 
-**Two experiments, 20 pairs total.**
+| arm | vs `1/C(8,3)` | vs independent-bit null | binomial p |
+|---|---|---|---|
+| hw mitigated (stocks) | **×2.19** | **×1.26** | 0.12 |
+| hw raw (stocks) | ×0.76 | ×0.64 | 0.12 |
+| hw mitigated (DeFi) | — | ×1.10 | 0.10 |
+| **simulator** | ×12.3 | **×1.67** | **< 0.001** |
 
-| | raw | mitigated | mean diff | mitigation worse | Wilcoxon |
+The simulator shows real multi-qubit structure. **The hardware does not.** Our
+headline ×2.19 was almost entirely single-qubit readout bias. Under a null that
+accounts for it, no hardware arm is distinguishable from eight independently
+biased coins.
+
+**2. The paired replication.** Twenty raw/mitigated pairs on `ibm_marrakesh`,
+XY-ring mixer reps=3, 4 096 shots, paired Wilcoxon on the per-run difference:
+
+| | raw | mitigated | mean diff | worse | Wilcoxon |
 |---|---|---|---|---|---|
-| session A (fixed order) | 53.2 | 48.0 | −5.20 | 7/10 | p = 0.43 |
-| session B (interleaved) | 83.1 | 68.2 | −14.90 | 8/10 | **p = 0.0098** |
-| **pooled, 20 pairs** | | | **−10.05** | **15/20** | **p = 0.0094** |
+| session A | 53.2 | 48.0 | −5.20 | 7/10 | p = 0.43 |
+| session B | 83.1 | 68.2 | −14.90 | 8/10 | p = 0.0098 |
 
-Sign test on the pooled data: p = 0.041. **On this circuit and this backend,
-XY4 dynamical decoupling plus measurement twirling significantly HARMS
-P(optimal).** That is the reverse of the direction we published.
+On the unconditional P(optimal) the pooled result is p = 0.0094. **But on
+P(optimal | feasible) — the metric the ×2.19 headline actually used — the
+result is null (p = 0.177).** The apparent "harm" is a feasibility effect:
+measurement twirling raises every per-qubit P(1) by ~0.06, which mechanically
+moves probability off weight-3. Reporting the unconditional metric while the
+conditional one is null would be a metric switch between a claim and its
+refutation, so we report both and lead with the conditional.
 
-**Why the original number looked so strong — the actual mistake.** Fisher's
-exact on a 2×2 assumes shot noise is the only source of variation. Twenty runs
-say otherwise: observed variance is **3.8× the binomial prediction** for the
-raw arm, and raw hits ranged 31–109 across identical runs where shot noise
-alone predicts ±7. Between the two sessions the raw baseline moved **+56 %**
-(53.2 → 83.1) with nothing changed but the clock. The dominant variance is
-calibration drift, not sampling. Re-testing the shipped 13 vs 39 comparison
-with the measured dispersion moves it from **p = 0.00039 to p ≈ 0.024, a factor
-of about 62** — and even that is the wrong sign relative to the replication.
+**3. Two limitations in our own replication, found by attacking it.**
 
-The published figure was not miscalculated. It was calculated under a noise
-model that understates the true variance by roughly 2× in standard deviation,
-and n = 1 could not reveal that. This is the concrete content of the caveat
-every revision has carried.
+*The sessions were not the same circuit.* `run_replication.py` refetches
+`period="2y"` market data per invocation, so a day between sessions changed the
+instance: `max |Δμ| = 0.0156`, optimal objective −0.97763 vs −0.98387. An
+earlier draft of this section attributed the +56 % baseline shift to
+calibration drift and said "nothing changed but the clock". That was wrong —
+the problem changed too. Sessions A and B are not strictly poolable and the
+pooled figure should be read as descriptive.
 
-**Did our own methodological fix change the answer?** Session A submitted raw
-first in every pair; session B alternates, which is the interleaving that
-[arXiv:2605.29872](https://arxiv.org/abs/2605.29872) requires. The two
-difference distributions are not statistically distinguishable
-(Mann-Whitney p = 0.13) and both point the same way, so interleaving did not
-create the result — session B simply had a larger effect relative to its noise.
-We report both rather than only the significant one.
+*Transpilation was unseeded.* `generate_preset_pass_manager` was called without
+`seed_transpiler`, once per arm, so **every job got an independently randomised
+physical qubit layout** — visible in the artefacts as 498 vs 489 two-qubit
+gates on the same logical circuit. The raw/mitigated comparison was therefore
+never "one circuit, two error-suppression settings". Layout variation is an
+unmeasured contributor to the dispersion we attributed wholly to drift.
 
-**Context: this is a known failure mode in the field.** That survey covers 81
-recent quantum-error-mitigation papers and finds only 25 % use inferential
-methods at all, that temporal drift alone can change a measured effect size by
-more than 3×, and that parameter choices can flip a conclusion between
-significant improvement and significant degradation. We are an instance of
-exactly that, found by looking.
+**On dispersion.** Measured Var/binomial-Var across the four arms is **3.82,
+2.15, 2.06, 1.21**. An earlier draft quoted 3.8 as *the* figure; it is the
+maximum of four, and at n = 10 the 95 % CI on a variance ratio spans roughly
+×[0.5, 3.3], so the lower arms are consistent with pure shot noise. The
+directional claim — that run-to-run variance exceeds shot noise and Fisher's
+exact therefore understates uncertainty — survives; the specific "×62
+correction to p ≈ 0.024" does not, and is withdrawn.
 
-**Scope.** This is `ibm_marrakesh`, one circuit, one universe. It does not
-refute the `ibm_fez` run directly — different backend, and `fez` has been
-queued 440+ jobs deep. That replication is still running and will be published
-whichever way it falls. What the 20 pairs do settle is the stocks/DeFi
-discrepancy this document previously reported without being able to resolve:
-with stocks showing significant harm on `marrakesh`, **the universe is not the
-explanation**.
+**What we actually claim now.** No quantum advantage, and **no demonstrated
+mitigation effect either**. What the hardware runs establish is a
+methodological result: a plausible-looking QAOA hardware lift on a
+budget-constrained portfolio QUBO was, on inspection, single-qubit readout bias
+measured against a null that assumed unbiased qubits. That is a real, checkable,
+negative finding, and every number above recomputes from the raw counts shipped
+in `outputs/hardware_run*.json` and `outputs/replication_marrakesh*.json`.
 
-Raw counts, both job IDs per pair, and the problem inputs ship in
-`outputs/replication_marrakesh.json` and
-`outputs/replication_marrakesh_interleaved.json`, so every figure above
-recomputes without an IBM account. `verify_claims.py` recomputes them on every
-commit.
+[arXiv:2605.29872](https://arxiv.org/abs/2605.29872) surveys 81 recent
+quantum-error-mitigation papers and finds only 25 % use inferential methods at
+all, and that temporal drift alone can change a measured effect size by more
+than 3×. We are an instance of exactly that, found by attacking our own result.
 
 ### AI forecasting layer
 
@@ -519,15 +528,15 @@ allowlist (frozen to `[USDC]` at deploy), an immutable fee-tier allowlist
 (frozen to `[3000]`, the only WMON/USDC pool with real depth), and an anchor
 gate on `ANCHOR.execCommitmentOf[msg.sender][orderHash]`.
 
-**The real-value proof loop, re-executed 2026-07-30 against the V2 contracts**
+**The real-value proof loop, re-executed 2026-08-10 against the redeployed contracts**
 (all reviewer-verifiable on Monadscan):
 
 | Step | Contract | TX | Effect |
 |---|---|---|---|
 | 1. Anchor the **routing** commitment | AuditAnchorV2 | [`0xcf0cdd9f…a8e7`](https://monadscan.com/tx/0xcf0cdd9f8790eebf1522bb4b36c445d46e15b4e5aa3377038bae941cd5f5a8e7) | sequence 0; orderHash `0xaee5fdf0…3ee9` = SHA-256 of a hedged ML-DSA + SLH-DSA + Ed25519 signed order, with a commitment binding the vault, chain, token, fee tier, weights, amount, slippage floor and deadline |
-| 2. `executeAndRoute(0.1 MON → USDC)` | UniswapRoutingVault | [`0xb6970f57…0e85e`](https://monadscan.com/tx/0xb6970f574b9e9f95f55c80707869c017244a87467023c1a4181687b2cac0e85e) | routed **0.1 MON → 2 123 USDC micro-units** through the live WMON/USDC 0.3% pool [`0x659bD0BC…4a9da`](https://monadscan.com/address/0x659bD0BC4167BA25c62E05656F78043E7eD4a9da), above the signed floor of 2 118; zero WMON dust; status success |
-| 3. Anchor the **yield** commitment | AuditAnchorV2 | [`0xb41ff034…4b06f`](https://monadscan.com/tx/0xb41ff03413265d4c9195364e9547fbfc9f5ebaafab02b2804471cb3a5f14b06f) | sequence 1; a second signed order committing to the exact Morpho market and a `maxAssets` ceiling |
-| 4. `supply(USDC/WBTC market, 2 123)` | MorphoSupplyAdapter | [`0x6a221f11…0b3eb`](https://monadscan.com/tx/0x6a221f1176a5364381de994452af8bac4546aacc981ebaabd24699d370e0b3eb) | supplied the **exact 2 123 USDC from step 2** into the live **Morpho Blue USDC/WBTC market** (`0xe35c5abc…8899`); position **4 312 430 564 supply shares**, interest-accruing; zero dust in the adapter; status success |
+| 2. `executeAndRoute(0.1 MON → USDC)` | UniswapRoutingVault | [`0xb6970f57…0e85e`](https://monadscan.com/tx/0xb6970f574b9e9f95f55c80707869c017244a87467023c1a4181687b2cac0e85e) | routed **0.1 MON → 2 125 USDC micro-units** (`Routed.amountsOut[0] = 0x84d`) through the live WMON/USDC 0.3% pool [`0x659bD0BC…4a9da`](https://monadscan.com/address/0x659bD0BC4167BA25c62E05656F78043E7eD4a9da), above the signed floor of **2 046**; zero WMON dust; status success |
+| 3. Anchor the **yield** commitment | AuditAnchorV2 | [`0x5698683a…55552`](https://monadscan.com/tx/0x5698683a27b6d6a202d5d73c016c6fe65432693ae9e7f1913815c40b8e455552) | sequence 1; a second signed order committing to the exact Morpho market and a `maxAssets` ceiling |
+| 4. `supply(USDC/WBTC market, 2 125)` | MorphoSupplyAdapter | [`0x6a221f11…0b3eb`](https://monadscan.com/tx/0x6a221f1176a5364381de994452af8bac4546aacc981ebaabd24699d370e0b3eb) | supplied the **exact 2 125 USDC from step 2** into the live **Morpho Blue USDC/WBTC market** (`0xe35c5abc…8899`); position **2 080 442 575 supply shares** (`Supplied.shares = 0x7c0108cf`), interest-accruing; zero dust in the adapter; status success |
 
 A judge can read the three verified contracts, replay the events, and confirm
 each execution matches its anchored commitment, without trusting us.
@@ -860,6 +869,17 @@ so the gate could not be added to them. Shipping it meant deploying new
 instances and re-running the end-to-end demonstration against them, and that
 is what the addresses and transactions in this document now record. Those two
 superseded addresses are retained here only to identify what was replaced;
+
+> **The superseded executors are exploitable and still callable. Do not use
+> them.** `0x06F233…1e56` and `0x8d5AE2…E49E` were deployed without the PQ gate
+> and without `PQExecBinding` — `cast call PQ()` reverts on both. Because
+> `AuditAnchorV2.execCommitmentOf` is keyed per caller, anyone can anchor this
+> submission's attested `orderHash 0xaee5fdf0…` from their own address with an
+> arbitrary commitment and emit a `Routed` event on a contract this repository
+> once published as its mainnet vault, describing an allocation the signature
+> never authorised. That is RT12, still live at those addresses. No funds are at
+> risk — balances and allowances are zero on both — but the on-chain *record*
+> is forgeable there in a way it is not at the current addresses.
 nothing in the shipped pipeline references them.
 
 What this means for a reviewer working purely on-chain: you can now conclude
@@ -928,37 +948,44 @@ cast call --rpc-url https://rpc.monad.xyz \
 
 # 5. Prove the binding is REAL rather than described: replay the shipped
 #    execution with one field changed and watch mainnet refuse it. Read-only,
-#    costs nothing, needs no key. Drop the slippage floor 2046 -> 1 — the
-#    exact deviation a compromised ECDSA key would want:
-#      revert 0x1f9e3c96 = ExecCommitmentMismatch(signed, recomputed)
-#    It reverts on the BINDING, not on replay: the check fires before the
-#    consumed flag, so it is doing work rather than being masked by it.
-#    Replaying the order UNCHANGED gives 0x1162d898 = AnchorAlreadyConsumed,
-#    which is the one-shot property.
+#    costs nothing, needs no key.
+#
+#    PINNED TO A HISTORICAL BLOCK ON PURPOSE. The signed order carries
+#    deadline 1786420926 (2026-08-11 04:02 UTC) and `deadline` is inside
+#    exec_commitment, so it cannot be extended without re-signing, re-anchoring
+#    and re-attesting. An earlier version of this block ran against HEAD and
+#    silently died the moment that deadline passed: both arms began returning
+#    DeadlinePassed (0x83f2ba20) and the demonstration proved nothing. Pinning
+#    to the block the anchor landed in makes it permanent AND makes it a
+#    stronger check — at that height the signed execution still SUCCEEDS, so
+#    the contrast is "accepted vs refused" rather than two different reverts.
 PRE=0x$(python -c "
 import sys; sys.path.insert(0, '.')
 from src import orders, pq_signing as pq
 print(pq.canonical_bytes(orders.load_signed_orders()[0].order.to_dict()).hex())
 ")
+V=0xDaEa22D6DCB37FBF1462d6d08ADE40A8fAc05144
+H=0xaee5fdf0e3ec0fcb68617877692b2e959061514da3757f91caf3bc3a229b3ee9
+U=0x8dF64bACf6b70F7787f8d14429b258B3fF958ec1
+SIG="executeAndRoute(bytes32,address[],uint24[],uint16[],uint256[],uint256,bytes)"
 
-# A. TAMPERED — slippage floor 2046 -> 1:
-cast call 0xDaEa22D6DCB37FBF1462d6d08ADE40A8fAc05144 \
-  "executeAndRoute(bytes32,address[],uint24[],uint16[],uint256[],uint256,bytes)" \
-  0xaee5fdf0e3ec0fcb68617877692b2e959061514da3757f91caf3bc3a229b3ee9 \
-  "[0x754704Bc059F8C67012fEd69BC8A327a5aafb603]" "[3000]" "[10000]" "[1]" \
-  1786420926 "$PRE" \
-  --from 0x8dF64bACf6b70F7787f8d14429b258B3fF958ec1 \
-  --value 100000000000000000 --rpc-url https://rpc.monad.xyz
-# → execution reverted, data: "0x1f9e3c96 266543ca…  84e594b7…"
-#   ExecCommitmentMismatch(signed, recomputed) — mainnet refuses an execution
-#   the post-quantum signature never authorised.
+# A. THE SIGNED EXECUTION — slippage floor left at the signed 2046:
+cast call $V "$SIG" $H "[0x754704Bc059F8C67012fEd69BC8A327a5aafb603]" \
+  "[3000]" "[10000]" "[2046]" 1786420926 "$PRE" \
+  --from $U --value 100000000000000000 \
+  --block 94694907 --rpc-url https://rpc.monad.xyz
+# -> returns empty, i.e. SUCCEEDS. The chain accepts the trade the
+#    post-quantum signature authorised.
 
-# B. UNCHANGED — same call, floor left at the signed 2046:
-#   (identical command with "[1]" -> "[2046]")
-# → execution reverted, data: "0x1162d898 aee5fdf0…"
-#   AnchorAlreadyConsumed(orderHash) — a DIFFERENT error, which is the point:
-#   the binding in (A) fired BEFORE the consumed flag, so it is doing real work
-#   rather than being masked by replay protection.
+# B. TAMPERED — identical call, floor 2046 -> 1, the deviation a compromised
+#    ECDSA key would want:
+cast call $V "$SIG" $H "[0x754704Bc059F8C67012fEd69BC8A327a5aafb603]" \
+  "[3000]" "[10000]" "[1]" 1786420926 "$PRE" \
+  --from $U --value 100000000000000000 \
+  --block 94694907 --rpc-url https://rpc.monad.xyz
+# -> execution reverted, data: "0x1f9e3c96 ..."
+#    ExecCommitmentMismatch(signed, recomputed). One field changed, and the
+#    chain refuses an execution the signature never authorised.
 ```
 
 > **Why `execCommitmentOf` and not `lastHash`.** V1 exposed only

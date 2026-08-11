@@ -158,45 +158,35 @@ solver, which is consistency at this scale (not advantage).
 > depth on a different backend, sits ~2.8σ above chance and is the stronger of
 > the two. Full detail in SUBMISSION.md.
 
-### Stocks universe — the strongest result
+### Stocks universe — and the null that dismantles it
 
 XY-ring mixer, reps=3, `ibm_fez`. Raw counts shipped in
 `outputs/hardware_run.json`, so every figure below recomputes without an IBM
-account.
+account — including the one that breaks the claim.
 
-Raw job ID `d9n20fmij12s73ftcat0` · mitigated job ID `d9n20h8qs0bc73e2tlog`
-(both on `ibm_fez`; the IDs are recorded in `outputs/hardware_run.json`).
-
-| | sim | hw raw | hw **mitigated** |
+| | sim | hw raw | hw mitigated |
 |---|---|---|---|
-| Optimal found / 4096 | 899 | 13 | **39** |
-| P(optimal \| feasible) | 0.2195 | 0.0136 | **0.0392** |
-| vs uniform-over-feasible (1/56 = 0.0179) | ×12.3 | ×0.76 | **×2.19** |
-| Two-qubit gates | — | 498 | 489 |
+| Optimal found / 4096 | 899 | 13 | 39 |
+| P(optimal \| feasible) | 0.2195 | 0.0136 | 0.0392 |
+| vs `1/C(8,3)` = 0.0179 | ×12.3 | ×0.76 | ×2.19 |
+| **vs an independent-bit null built from this run's own qubit marginals** | **×1.67** | **×0.64** | **×1.26** |
 
-**Error mitigation is what makes the signal survive.** Raw is below chance —
-noise. Mitigated (XY4 dynamical decoupling + twirling) finds the optimum 3×
-more often, and Fisher's exact test on 13 vs 39 successes gives
-**p = 0.00039**.
-
-> **We ran the replication, and this result reverses under it.** Twenty
-> independent paired runs on `ibm_marrakesh` (same circuit, same universe, two
-> sessions) give raw **83.1/53.2** vs mitigated **68.2/48.0** — mitigation
-> **worse in 15 of 20 pairs**, pooled **Wilcoxon p = 0.0094**. On this backend
-> XY4 DD + twirling *significantly harms* P(optimal), the opposite of the
-> direction above.
+> **The ×2.19 does not survive a correct null.** `1/C(8,3)` assumes the eight
+> qubits are unbiased. Measured per-qubit P(1) on that run is
+> `0.510 0.405 0.421 0.455 0.440 0.579 0.585 0.415` against 0.375 for an
+> unbiased weight-3 state. Against a null built from those marginals the
+> mitigated lift is **×1.26, binomial p = 0.12** — indistinguishable from eight
+> independently biased coins. The simulator still shows genuine multi-qubit
+> structure (×1.67, p < 0.001); the hardware does not.
 >
-> Those runs also measure why the figure above looked so strong: run-to-run
-> variance is **3.8× shot noise**, and Fisher's exact assumes shot noise is all
-> there is. The raw baseline moved **+56 %** between sessions with nothing
-> changed but the clock. Re-testing 13 vs 39 under the measured dispersion
-> gives **p ≈ 0.024, not 0.00039**.
+> We also ran the paired replication (20 runs, `ibm_marrakesh`) and found **no
+> mitigation effect on P(optimal | feasible)** (p = 0.177), plus two
+> methodological errors of our own — unseeded transpilation and a changed
+> problem instance between sessions. Full detail, including what we withdrew,
+> is in [SUBMISSION.md](SUBMISSION.md#the-replication--and-the-null-that-dismantles-our-own-headline).
 >
-> The `ibm_fez` replication is queued and will be published either way. Full
-> detail, including a methodological error of our own, is in
-> [SUBMISSION.md](SUBMISSION.md#the-replication--our-own-headline-number-reverses-under-it).
-> The original number stays visible above rather than being deleted — the
-> correction is the more useful result.
+> The original numbers stay visible above rather than being deleted. **The
+> correction is the result.**
 
 ![hardware vs noise](outputs/hardware_vs_noise_stocks.png)
 

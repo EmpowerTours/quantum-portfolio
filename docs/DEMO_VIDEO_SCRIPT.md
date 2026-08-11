@@ -6,6 +6,8 @@
 
 **Voice direction:** calm, low-energy, technical. Don't sell. Let the proof sell.
 
+> **Scenes 4–5 were rewritten on 2026-08-10.** Scene 4 narrated "error mitigation tripled how often it found the optimum — thirteen hits to thirty-nine, p equals zero point zero zero zero four." Twenty paired runs on `ibm_marrakesh` reversed that result the same day (worse in 15 of 20, Wilcoxon p = 0.0094), and the README, SUBMISSION and deck were corrected while this script was not. The narration now leads with the reversal, because a correction we found ourselves is a better pitch than a lift we cannot reproduce.
+
 ---
 
 | # | Scene (visual) | Hold | Narration (≤ words) |
@@ -13,8 +15,8 @@
 | 1 | **Title — Q-Day-resistant DeFi** | 6 s | "EmpowerTours Quantum Portfolio. Q-Day-resistant DeFi, shipped today." *(13 words, ~5 s read time)* |
 | 2 | **The threat — ECDSA hostage** | 9 s | "Every signature you publish on a public chain today is harvested. When a cryptographically relevant quantum computer arrives, every one of them is forgeable." *(25 words, ~8 s)* |
 | 3 | **The stack — 3 layers** | 10 s | "Three layers. QAOA on IBM Heron picks the allocation. Hedged post-quantum signatures authenticate it. And every order's hash is anchored on Monad before the vault will execute it." *(31 words, ~9 s)* |
-| 4 | **Streamlit — optimizer** | 9 s | "Here's the agent picking Markowitz-optimal weights, then running the same circuit on IBM Heron hardware. Error mitigation tripled how often it found the optimum — thirteen hits to thirty-nine, p equals zero point zero zero zero four." *(35 words, ~12 s)* |
-| 5 | **Streamlit — hardware tab** | 10 s | "The circuit runs on real IBM Heron hardware. We ship the raw measurement counts, so you can recompute every number yourself without an IBM account. Honest measurement is the deliverable." *(30 words, ~10 s)* |
+| 4 | **Streamlit — optimizer** | 9 s | "Here's the agent picking Markowitz-optimal weights, then running that same circuit on real IBM Heron silicon rather than a simulator." *(21 words, ~7 s)* |
+| 5 | **Streamlit — hardware tab** | 10 s | "Our headline was error mitigation tripling the hit rate. Twenty paired runs reversed it — mitigation is significantly worse. We ship the raw counts, and we published the reversal." *(29 words, ~10 s)* |
 | 6 | **Streamlit — PQ signing** | 9 s | "Every order is signed three times. ML-DSA, SLH-DSA, and Ed25519. Two lattice and hash post-quantum families, plus a classical hedge. Any one survives." *(26 words, ~9 s)* |
 | 7 | **Proof — live on Monad mainnet, 342 tests** | 10 s | "Live on Monad mainnet, all Monadscan-verified. Three hundred forty-two tests across Python and Foundry. The post-quantum signature is verified on-chain by a zero-knowledge proof. Reproducible from a cold clone." *(20 words, ~7 s)* — leave 3 s of silence for the numbers to land |
 | 8 | **Live demo TX** | 10 s | "One transaction on Monad mainnet. A tenth of a MON in, real USDC out, lent straight into a live lending market. Tiny value on purpose — the point is that the contract refuses anything the agent didn't sign for." *(35 words, ~12 s)* |
@@ -38,5 +40,5 @@ If Santander caps at 60 s, drop scenes 4 and 6 from the timeline (run `scripts/b
 ## Post-production (optional, ~5 min)
 
 - Drop the recorded audio over `DEMO_VIDEO.mp4` in iMovie / DaVinci Resolve / CapCut.
-- Add the project URL as an end-card overlay on the final 2 s of scene 9: `github.com/EmpowerTours/quantum-portfolio · commit b3d8166`.
+- Add the project URL as an end-card overlay on the final 2 s of scene 9: `github.com/EmpowerTours/quantum-portfolio · commit <sha>`, where `<sha>` is `git rev-parse --short HEAD` **at recording time**. A pinned hash here goes stale silently — this line held `b3d8166` for weeks after it stopped being the commit anyone would check out.
 - Export H.264, 1080p, ≤ 25 MB to stay under most portal upload limits.

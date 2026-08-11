@@ -2,11 +2,20 @@
 """Replicate the error-mitigation result across N independent QPU run pairs.
 
 WHY THIS EXISTS
-The shipped headline is 13 -> 39 successes with Fisher p = 0.00039, and every
-document says plainly that it is **n = 1 per arm** and therefore does not
+The shipped headline was 13 -> 39 successes with Fisher p = 0.00039, and every
+document said plainly that it is **n = 1 per arm** and therefore does not
 establish a replicating effect size. One pair cannot separate a real mitigation
 effect from run-to-run calibration drift: resubmit an hour later and the
-numbers move. This is listed as funded item 5 in SUBMISSION.md.
+numbers move. It was funded item 5 in SUBMISSION.md.
+
+WHAT IT FOUND (2026-08-10)
+It ran, and the effect reverses. Twenty paired runs on ibm_marrakesh: worse in
+15 of 20, mean difference -10.05 hits, pooled Wilcoxon p = 0.0094. Run-to-run
+dispersion measures 3.8x shot noise, which is the variance Fisher's exact
+assumed away. Artefacts: outputs/replication_marrakesh*.json. The docstring
+below still describes the design as a question because the design is what makes
+either answer publishable — but the answer is in, and it is the unflattering
+one.
 
 DESIGN
 Submit `--runs N` INDEPENDENT raw/mitigated pairs of the SAME tuned circuit and

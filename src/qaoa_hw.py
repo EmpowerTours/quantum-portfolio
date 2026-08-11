@@ -165,6 +165,15 @@ def _submit_with_retry(sampler, isa, shots, max_attempts=3, base_delay=2.0):
     raise RuntimeError(f"sampler.run failed after {max_attempts} attempts: {last_err}")
 
 
+#: Fixed so the raw and mitigated arms transpile to the SAME physical qubits.
+#: Unseeded, `generate_preset_pass_manager` randomises layout on every call, so
+#: each job landed on a different qubit set — visible in the shipped artefacts
+#: as 498 vs 489 two-qubit gates for one logical circuit. The paired comparison
+#: was therefore never "one circuit, two error-suppression settings", and layout
+#: variation contaminated the run-to-run variance we attributed to drift.
+TRANSPILER_SEED = 42
+
+
 def sample_hardware(problem, ansatz, params, optimal, backend, *, mitigate: bool,
                     shots=4096):
     """Run the tuned circuit once on a real QPU. mitigate toggles DD + meas twirling.
@@ -178,7 +187,9 @@ def sample_hardware(problem, ansatz, params, optimal, backend, *, mitigate: bool
 
     qc = ansatz.assign_parameters(params)
     qc.measure_all()
-    pm = generate_preset_pass_manager(optimization_level=3, backend=backend)
+    pm = generate_preset_pass_manager(
+        optimization_level=3, backend=backend, seed_transpiler=TRANSPILER_SEED
+    )
     isa = pm.run(qc)
 
     sampler = SamplerV2(mode=backend)

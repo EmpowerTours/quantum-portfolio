@@ -243,6 +243,53 @@ def check_replication() -> None:
             break
 
 
+# The single-run mitigation lift is NOT a superseded value. It was really
+# measured, and every document is supposed to keep showing it — deleting it
+# would hide the correction rather than publish it. What it must never appear
+# as again is a LIVE claim. So the rule here is proximity, not absence:
+# wherever the figure is quoted, the reversal has to be in view.
+#
+# This exists because on 2026-08-10 the README, SUBMISSION and deck were all
+# corrected within hours of the replication, while docs/DEMO_VIDEO_SCRIPT.md
+# kept narrating "error mitigation tripled how often it found the optimum" and
+# app.py's hardware tab kept calling replicated runs a future funded line item.
+# Nothing failed, because every existing gate scanned markdown and the two
+# stale surfaces were a narration table and a Streamlit caption.
+RETRACTED_LIFT = re.compile(
+    r"0\.00039|13\s*(?:→|->|to)\s*39|thirteen hits|"
+    r"tripl(?:ed|ing) (?:how often|the hit)", re.I)
+# Deliberately narrow. A loose pattern here (e.g. a bare "does not") would
+# excuse almost any surrounding prose and make the gate decorative.
+REVERSAL = re.compile(
+    r"revers|replicat|0\.0094|0\.024|15 of 20|worse in|used to lead|"
+    r"no longer|n\s*=\s*1", re.I)
+RETRACTION_WINDOW = 700
+
+
+def check_retracted_lift() -> None:
+    """Every quote of the retracted lift must sit beside its reversal."""
+    print("\n[retraction] the single-run lift never appears as a live claim")
+    surfaces = dict(text())
+    # The non-markdown surfaces are the ones that actually went stale.
+    for extra in ("app.py", "run_replication.py"):
+        if (ROOT / extra).exists():
+            surfaces[extra] = (ROOT / extra).read_text()
+    bad = 0
+    for path, body in surfaces.items():
+        for m in RETRACTED_LIFT.finditer(body):
+            window = body[max(0, m.start() - RETRACTION_WINDOW):
+                          m.end() + RETRACTION_WINDOW]
+            if REVERSAL.search(window):
+                continue
+            bad += 1
+            check(False,
+                  f"{path}:{body[:m.start()].count(chr(10)) + 1} states the "
+                  "retracted lift with no reversal in view", m.group(0))
+    if not bad:
+        check(True, "every mention of the retracted lift sits beside its "
+                    f"reversal ({len(surfaces)} surfaces scanned)")
+
+
 def check_execution_binding() -> None:
     """The shipped order must still be the order anchored on mainnet.
 
@@ -383,6 +430,43 @@ def check_reviewer_commands() -> None:
     onchain = r.stdout.strip()
     check(onchain == cm, "documented cast call returns the recomputed commitment",
           f"{onchain[:18]}… vs {cm[:18]}…")
+
+    # THE NEGATIVE PROOF. This is the block that silently died: it ran against
+    # HEAD, the signed order's deadline passed, and both arms started returning
+    # DeadlinePassed instead of the documented selectors. Nothing noticed for
+    # ~10 hours. It is now pinned to the anchor block and CHECKED here, because
+    # the document claims this block is executed on every commit.
+    import re as _re                                            # noqa: PLC0415
+    doc = (ROOT / "SUBMISSION.md").read_text()
+    m = _re.search(r"--block (\d+) --rpc-url", doc)
+    if not m:
+        check(False, "reviewer block pins a historical block"); return
+    blk = m.group(1)
+    from src import pq_signing as _pq                            # noqa: PLC0415
+    pre = "0x" + _pq.canonical_bytes(so.order.to_dict()).hex()
+    ex = so.order.execution
+    sig = ("executeAndRoute(bytes32,address[],uint24[],uint16[],"
+           "uint256[],uint256,bytes)")
+    base = [f"{fo}/cast", "call", ex.vault, sig, oh,
+            "[" + ",".join(ex.token_outs) + "]",
+            "[" + ",".join(map(str, ex.fee_tiers)) + "]",
+            "[" + ",".join(map(str, ex.weights_bps)) + "]"]
+    tail = [str(ex.deadline), pre, "--from", ex.user,
+            "--value", str(ex.amount_in_wei), "--block", blk, "--rpc-url", RPC]
+
+    ok_signed = subprocess.run(
+        base + ["[" + ",".join(map(str, ex.amount_out_min)) + "]"] + tail,
+        capture_output=True, text=True, timeout=180)
+    check(ok_signed.returncode == 0,
+          "reviewer step 5A: the SIGNED execution succeeds at the pinned block",
+          (ok_signed.stderr or "")[:90])
+
+    tampered = subprocess.run(base + ["[1]"] + tail,
+                              capture_output=True, text=True, timeout=180)
+    blob = (tampered.stderr or "") + (tampered.stdout or "")
+    check("0x1f9e3c96" in blob,
+          "reviewer step 5B: the TAMPERED execution reverts ExecCommitmentMismatch",
+          blob[:90])
     check(cm in docs["README.md"] and cm in docs["SUBMISSION.md"],
           "both docs publish that expected commitment")
 
@@ -669,6 +753,7 @@ def main() -> int:
     print("Verifying documented claims against chain, artefacts and tests.")
     check_artifact_metrics()
     check_replication()
+    check_retracted_lift()
     check_execution_binding()
     check_reviewer_commands()
     check_demo_video()

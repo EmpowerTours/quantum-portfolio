@@ -427,7 +427,29 @@ ROUTE_EXECUTE_SELECTOR = bytes.fromhex("0a2c848a")
 # this builder, and the golden below was pinned to the OLD 6-argument selector
 # 0x5caf7a40 — so the suite stayed green while the encoder could only produce
 # calldata the deployed vault rejects. Regenerate after any signature edit.
-ROUTE_EXECUTE_GAS_LIMIT = 550_000   # wrap + N hops + ~103k preimage binding
+# Base cost: wrap + N Uniswap hops + anchor lookup + the consumed write.
+# The PREIMAGE SCAN is charged separately because it scales with the order's
+# byte length, and that length is not bounded by anything — `order.pools`
+# carries free-text labels. A flat 550_000 was measured against the live
+# mainnet order at ~1_011_000 estimated (915-byte preimage), i.e. it was under
+# by 46 %. Broadcasting that would run out of gas AND burn the anchor, since
+# AuditAnchorV2 refuses to re-anchor an orderHash — the order would need
+# re-signing, re-anchoring and a fresh Groth16 proof to recover.
+ROUTE_EXECUTE_GAS_BASE = 620_000
+#: measured ~533 gas per preimage byte for the marker scan + hex parse
+ROUTE_EXECUTE_GAS_PER_PREIMAGE_BYTE = 560
+#: 25 % headroom over the measured mainnet figure
+ROUTE_EXECUTE_GAS_MARGIN = 1.25
+
+
+def route_execute_gas_limit(preimage_len: int) -> int:
+    """Gas limit for executeAndRoute, scaled to the preimage it must scan."""
+    return int((ROUTE_EXECUTE_GAS_BASE
+                + ROUTE_EXECUTE_GAS_PER_PREIMAGE_BYTE * preimage_len)
+               * ROUTE_EXECUTE_GAS_MARGIN)
+
+
+ROUTE_EXECUTE_GAS_LIMIT = 550_000   # retained for callers that pass it explicitly
 
 
 def encode_route_calldata(
@@ -554,13 +576,18 @@ def build_route_tx(
     *,
     nonce: int,
     trusted: TrustedKeys,
-    gas_limit: int = ROUTE_EXECUTE_GAS_LIMIT,
+    gas_limit: int | None = None,
     max_fee_gwei: int = DEFAULT_MAX_FEE_GWEI,
     priority_gwei: int = DEFAULT_PRIORITY_GWEI,
     require_hedged: bool = True,
     require_execution: bool | None = None,
 ) -> UnsignedMonadTx:
     """Build the unsigned `executeAndRoute` TX for a PQ-signed schema-v2 order.
+
+    `gas_limit=None` derives the limit from the preimage length rather than
+    using a flat constant — the marker scan costs ~533 gas/byte and the order's
+    byte length is unbounded (free-text pool labels). See
+    `route_execute_gas_limit`.
 
     EVERY execution parameter comes from `signed.order.execution` — the block
     the ML-DSA signature covers and that `AuditAnchorV2.execCommitment` binds.
@@ -595,6 +622,9 @@ def build_route_tx(
     token_outs, fee_tiers = ex.token_outs, ex.fee_tiers
     weights_bps, amount_out_min = ex.weights_bps, ex.amount_out_min
     deadline, chain_id = ex.deadline, ex.chain_id
+    preimage = pq.canonical_bytes(signed.order.to_dict())
+    if gas_limit is None:
+        gas_limit = route_execute_gas_limit(len(preimage))
 
     return UnsignedMonadTx(
         chainId=chain_id,
@@ -607,7 +637,7 @@ def build_route_tx(
         value=amount_wei,
         data=encode_route_calldata(
             order_hash, token_outs, fee_tiers, weights_bps, amount_out_min,
-            deadline, pq.canonical_bytes(signed.order.to_dict()),
+            deadline, preimage,
         ),
         accessList=[],
     )
