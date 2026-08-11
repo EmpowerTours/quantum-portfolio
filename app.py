@@ -483,8 +483,10 @@ with tab_pq:
     #     "agentPkHash()(bytes32)" --rpc-url https://rpc.monad.xyz
     # Hardcoded rather than fetched so the panel needs no RPC at render time.
     _ANCHOR_V2 = "0x8422b555DCE11913A4657C2f47C839637FC71ffd"
-    _ANCHOR_TX = ("0x8702d6a99fa070ed97032e73351e7167f8ef278d"
-                  "a20b7b9ce3d1730866d40a7d")
+    # (No _ANCHOR_TX constant: the panel reads the executed transaction from
+    # outputs/executed_anchor_tx.json so it cannot drift from the artefact. A
+    # hardcoded copy sat here unused through the 2026-08-10 redeploy, still
+    # holding the superseded 0x8702d6a9 hash.)
     _ONCHAIN_PK_HASH = (
         "0xac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad"
     )
