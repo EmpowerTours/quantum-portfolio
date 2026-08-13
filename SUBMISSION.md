@@ -179,6 +179,45 @@ all-to-all XY routes badly on heavy-hex connectivity. The complete graph was
 hardcoded; nothing on hardware would have revealed either of these, and
 running the default would have produced a guaranteed zero.
 
+**A third finding: minimising ⟨H⟩ is the wrong objective, and it costs
+roughly half the hit rate.** The reps=2 collapse above is the extreme form of
+a pathology that survives at reps=3 in milder form. Tuned on ⟨H⟩, the
+circuit's most-likely feasible state on the replication instance is the
+**7th-best portfolio of 56** — on a noiseless simulator, before any hardware
+noise. Swapping the classical tuner's objective to **CVaR_α** (the mean of the
+best α probability mass, α=0.5, Barkoutsos et al., *Quantum* **4**, 256
+(2020)) moves the mode onto the true optimum and lifts simulator P(optimal)
+from **0.1848 to 0.3155**:
+
+| tuner objective | sim P(optimal) | modal feasible state |
+|---|---|---|
+| ⟨H⟩ (textbook) | 0.1848 | rank 7 of 56 |
+| **CVaR α=0.50** | **0.3155** | **the optimum** |
+| CVaR α=0.25 | 0.2500 | the optimum |
+| CVaR α=0.10 | 0.1036 | rank 19 |
+
+**The circuit is unchanged** — same gates, same depth, same two-qubit count —
+so on hardware the gain is free. α is not monotone: below ~0.25 the tail holds
+too few states to estimate, the known failure mode in the paper, which is why
+0.5 is the default rather than the smallest value. Swept over seeds
+1/7/42/123/2024/31337, ⟨H⟩ converges on the *same* rank-7 portfolio at all
+six and CVaR on the optimum at all six, so this is a property of the objective
+and not a seed artefact.
+
+**Two limits on that claim, stated because they bound it sharply.** First, it
+is a **simulator** result: every hardware artefact in this document was tuned
+on ⟨H⟩, and no QPU run has been tuned on CVaR, so nothing here is a measured
+hardware improvement. Second, it does **not** mean the shipped runs answered
+wrongly. This pipeline does not decode modally — `_score_counts` scans every
+sampled feasible bitstring and keeps the lowest-objective one, so a mean-tuned
+run at 4 096 shots still reports the optimum. What ⟨H⟩-tuning costs is
+P(optimal) itself, and that is not cosmetic: it is the quantity the hardware
+arms are scored on, and what decides whether a run clears the
+uniform-over-feasible null of 1/C(8,3). Nearly doubling it on a noiseless
+simulator raises the ceiling every noisy arm below is working under. Tuning is
+opt-in (`--objective cvar`), recorded in the artefact, and `run_replication.py`
+refuses to pool CVaR pairs with mean-tuned ones.
+
 **Stocks universe — XY-mixer run, ibm_fez, reps=3, ring topology.
 This is the strongest quantum result in the project and the only statistically
 significant one.**
