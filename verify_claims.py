@@ -21,6 +21,7 @@ import re
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -134,6 +135,35 @@ def check_artifact_metrics() -> None:
                   f"{Path(f).stem}:{r['method']} feasible", f"{fea:.4f}")
 
 
+# Spelled-out counts are claims too. The narration in docs/DEMO_VIDEO_SCRIPT.md
+# said "Three hundred forty-two tests" for a day after every digit in the repo
+# had been bumped to 355, because the scanner only ever read digits and the
+# recording instructions are prose by nature. A number a human will SPEAK is
+# exactly the kind that gets missed, so it gets read here.
+_ONES = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+         "seven": 7, "eight": 8, "nine": 9}
+_TEENS = {"ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+          "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+          "eighteen": 18, "nineteen": 19}
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+         "seventy": 70, "eighty": 80, "ninety": 90}
+SPELLED_COUNT = re.compile(
+    r"\b(?:(%s)\s+hundred)(?:\s+(?:and\s+)?((?:%s)(?:[- ](?:%s))?|(?:%s)|(?:%s)))?"
+    r"\s+(?:automated\s+)?tests?\b"
+    % ("|".join(_ONES), "|".join(_TENS), "|".join(_ONES),
+       "|".join(_TEENS), "|".join(_ONES)), re.I)
+
+
+def spelled_to_int(hundreds: str, rest: str | None) -> int:
+    """Parse the "three hundred fifty-five" forms SPELLED_COUNT captures."""
+    n = _ONES[hundreds.lower()] * 100
+    if not rest:
+        return n
+    for word in re.split(r"[- ]", rest.lower()):
+        n += _ONES.get(word) or _TEENS.get(word) or _TENS.get(word, 0)
+    return n
+
+
 def check_test_counts() -> None:
     """The documented totals must equal what the suites actually report."""
     print("\n[tests] documented counts vs actual")
@@ -160,11 +190,30 @@ def check_test_counts() -> None:
     # skipped" next to `forge test`) as well as the combined total. Only a
     # number matching none of the three is a stale claim. Without this the
     # checker flags true statements, which trains people to ignore it.
-    valid = {total, npy, nfo}
+    #
+    # Per-FILE counts are legitimate for the same reason: README annotates the
+    # tree with "test_verify_claims.py  50 tests OF THE VERIFIER". Those are
+    # collected rather than hardcoded, so adding a test to a file that a doc
+    # counts fails here instead of quietly making the annotation a lie.
+    coll = subprocess.run([sys.executable, "-m", "pytest", "tests/", "-q",
+                           "--collect-only"],
+                          cwd=ROOT, capture_output=True, text=True, timeout=900).stdout
+    per_file = Counter(line.split("::", 1)[0] for line in coll.splitlines()
+                       if "::" in line)
+    valid = {total, npy, nfo} | set(per_file.values())
+    # The old pattern required "tests," / "tests passing" / "tests total", so
+    # "# 154 tests" at the end of a reviewer command line and "342 tests**" in
+    # a markdown table cell both sat stale through every run of this gate. A
+    # count is a count wherever the sentence happens to end.
     for path, s in text().items():
-        for claimed in set(int(x) for x in re.findall(r"(\d{2,4}) tests(?:,| passing| total)", s)):
+        for claimed in set(int(x) for x in re.findall(r"(\d{2,4})[- ]tests?\b", s)):
             check(claimed in valid, f"{path} test count {claimed}",
                   f"expected one of {sorted(valid)} (total {total})")
+        for hundreds, rest in set(SPELLED_COUNT.findall(s)):
+            claimed = spelled_to_int(hundreds, rest)
+            check(claimed in valid, f"{path} spelled test count {claimed}",
+                  f"'{hundreds} hundred {rest}'.strip() — expected one of "
+                  f"{sorted(valid)} (total {total})")
     check_skip_claims_are_qualified()
 
 
@@ -537,9 +586,12 @@ SUPERSEDED_VALUES: list[tuple[str, str, str]] = [
     (r"~?\s*230\s*[k,]\s*(?:-\s*)?gas|230,000\s*gas",
      "1,196,224 gas", "never measured; the attest receipt says 1196224"),
     (r"\b105 (?:tests|automated)\b|\b84 tests\b|\b279 tests\b|"
-     r"\b110 Python tests\b|Two hundred seventy-nine|\b323 tests\b|\b328 tests\b|\b331 tests\b|\b334 tests\b|\b335 tests\b|\b336 tests\b|Three hundred twenty-three|Three hundred thirty-five",
-     "342 tests (161 Python + 181 Foundry)",
-     "counts before the preimage-mismatch regression test was added"),
+     r"\b110 Python tests\b|Two hundred seventy-nine|\b323 tests\b|\b328 tests\b|\b331 tests\b|\b334 tests\b|\b335 tests\b|\b336 tests\b|\b342 tests\b|\b154 tests\b|\b355 tests\b|\b161 Python tests\b|\b174 Python tests\b|Three hundred twenty-three|Three hundred thirty-five|Three hundred forty-two|Three hundred fifty-five",
+     "370 tests (189 Python + 181 Foundry)",
+     "counts before tests/test_cvar_qaoa.py added the CVaR tuning arm and the "
+     "spoken-count probes grew tests/test_verify_claims.py; 154 and 342 "
+     "outlived the first bump because the count scanner only read digits "
+     "followed by a comma, and never read the spoken narration at all"),
     (r"81[- ]second",
      "90-second", "the demo video gained a scene and is now 90.0s"),
     (r"fe44195b|d8bf1551",
