@@ -107,7 +107,24 @@ def main() -> None:
                          "construction. xy raises the random-guess ceiling from "
                          "1/2^n to 1/C(n,k) and drops the dense penalty layer that "
                          "dominates two-qubit gate count after routing.")
+    ap.add_argument("--objective", choices=("mean", "cvar"), default="mean",
+                    help="(xy only) what the classical tuner minimises. mean is "
+                         "<H>, the textbook objective, and is the DEFAULT because "
+                         "every shipped artefact was tuned that way. cvar is "
+                         "CVaR_alpha over the low-energy tail: on the shipped "
+                         "8-asset instance it nearly doubles simulator "
+                         "P(optimal) (0.185 -> 0.316) with an UNCHANGED circuit "
+                         "-- same gates, same depth, same 2Q count. Decoding is "
+                         "best-of-N either way, so this raises the sampling "
+                         "ceiling rather than fixing a wrong answer.")
+    ap.add_argument("--alpha", type=float, default=0.5,
+                    help="(--objective cvar) tail mass. NOT monotone — below ~0.25 "
+                         "the tail holds too few states and P(optimal) falls again.")
     args = ap.parse_args()
+
+    if args.objective == "cvar" and args.mixer != "xy":
+        raise SystemExit("--objective cvar only applies to --mixer xy; the "
+                         "penalty path tunes through optimize_angles.")
 
     if args.universe == "defi":
         from src.defi_data import get_defi_market_data
@@ -139,10 +156,15 @@ def main() -> None:
                 "minimises <H> by rotating deterministically onto ONE basis "
                 "state, giving 100% feasibility and P(optimal) = 0."
             )
+        obj_desc = (f"CVaR(alpha={args.alpha})" if args.objective == "cvar"
+                    else "<H>")
         print(f"Tuning XY-mixer QAOA(reps={reps}, topology={args.xy_topology}) "
-              "on simulator (feasible-subspace init, TQA warm starts)...")
+              f"on simulator against {obj_desc} "
+              "(feasible-subspace init, TQA warm starts)...")
         bound, angles, energy = optimize_xy_qaoa(problem, reps=reps,
-                                                 topology=args.xy_topology)
+                                                 topology=args.xy_topology,
+                                                 objective=args.objective,
+                                                 alpha=args.alpha)
         ansatz, params = bound, {}          # already bound
         print(f"  tuned in {time.perf_counter()-t0:.1f}s  best energy {energy:.6f}\n")
     else:
@@ -201,6 +223,12 @@ def main() -> None:
         "shots": SHOTS,
         "reps": reps,
         "xy_topology": args.xy_topology if args.mixer == "xy" else None,
+        # What the ANGLES were tuned against. Two artefacts with identical
+        # circuits, backends and shot counts can still differ in P(optimal)
+        # purely because of this, so it has to be on the record.
+        "tuning_objective": args.objective if args.mixer == "xy" else None,
+        "cvar_alpha": (args.alpha if args.mixer == "xy"
+                       and args.objective == "cvar" else None),
         "tickers": list(market.tickers),
         "budget": args.budget,
         # The problem INPUTS, so the stated optimum can be checked rather than

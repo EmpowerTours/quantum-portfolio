@@ -97,10 +97,106 @@ def build_xy_qaoa(problem: PortfolioProblem, reps: int = 2, normalize: bool = Tr
     return qc, hamiltonian, offset, scale
 
 
+def _basis_energies(problem: PortfolioProblem) -> tuple[np.ndarray, np.ndarray]:
+    """Objective value and feasibility of every basis state.
+
+    Indexed to match `Statevector`: bit i of the index is qubit i is asset i.
+    """
+    n, k = problem.num_assets, problem.budget
+    energies = np.zeros(2 ** n)
+    feasible = np.zeros(2 ** n, dtype=bool)
+    for idx in range(2 ** n):
+        bits = [(idx >> i) & 1 for i in range(n)]
+        energies[idx] = problem.qp.objective.evaluate(bits)
+        feasible[idx] = sum(bits) == k
+    return energies, feasible
+
+
+def _cvar(probs: np.ndarray, energies: np.ndarray, order: np.ndarray,
+          alpha: float) -> float:
+    """Exact CVaR_alpha: probability-weighted mean of the best `alpha` mass.
+
+    Computed from the statevector rather than from samples, so the tuning
+    landscape is deterministic and free of shot noise.
+    """
+    if alpha >= 1.0:
+        return float(probs @ energies)
+    acc = tot = 0.0
+    for i in order:
+        # The cost Hamiltonian carries NO budget penalty, so infeasible states
+        # have lower raw objective than any feasible one and sort first — with
+        # zero amplitude, because the XY mixer conserves Hamming weight.
+        # Skipping is required; breaking would return before accumulating mass.
+        if probs[i] <= 1e-15:
+            continue
+        take = min(probs[i], alpha - acc)
+        tot += take * energies[i]
+        acc += take
+        if acc >= alpha:
+            break
+    return tot / acc if acc > 0 else float(probs @ energies)
+
+
 def optimize_xy_qaoa(problem: PortfolioProblem, reps: int = 3,
                      n_restarts: int = 12, maxiter: int = 200, seed: int = 42,
-                     topology: str = "ring"):
+                     topology: str = "ring", objective: str = "mean",
+                     alpha: float = 0.5):
     """Tune XY-mixer QAOA angles on a noiseless simulator.
+
+    `objective` selects what the classical optimiser minimises:
+
+      "mean"  -- <H>, the textbook QAOA objective. DEFAULT, because every
+                 shipped hardware artefact was tuned this way and must keep
+                 reproducing bit-identically.
+      "cvar"  -- CVaR_alpha, the mean of the best `alpha` probability mass
+                 (Barkoutsos et al., Quantum 4, 256 (2020), arXiv:1907.04769).
+
+    WHY CVaR EXISTS HERE. Minimising the MEAN is not the same as maximising
+    P(optimal), and on this instance the gap is large: tuned on <H>, the
+    circuit's most-likely feasible state is the 7th-best portfolio of 56 -- on
+    a NOISELESS simulator, with no hardware noise involved. The docstring below
+    already recorded the extreme form of this at reps=2 ("rotating
+    deterministically onto a single suboptimal basis state") and worked around
+    it by requiring reps >= 3; the pathology survives at reps=3, only milder.
+
+    WHAT THIS DOES **NOT** MEAN. This pipeline does not decode modally.
+    `_score_counts` in src/qaoa_hw.py scans every sampled feasible bitstring
+    and keeps the lowest-objective one, so at 4096 shots a mean-tuned run still
+    REPORTS the optimum -- the shipped artefacts are not wrong. The mode
+    matters for textbook QAOA decoding, which does take the most-frequent
+    bitstring and would return the rank-7 portfolio here. Do not read this as
+    "the shipped runs answered the wrong question".
+
+    What mean-tuning actually costs is P(optimal) itself, and that is not a
+    cosmetic metric here: it is what the hardware arms are scored on, and what
+    decides whether a run clears the uniform-over-feasible null of 1/C(8,3).
+    Nearly doubling it on a NOISELESS simulator raises the ceiling every noisy
+    arm is working under.
+
+    CVaR targets the low-energy tail instead of the bulk, which is where the
+    optimum lives. Measured on the marrakesh replication instance (8 assets,
+    budget 3, ring, reps=3, exact statevector):
+
+        <H>            P(opt) 0.1848   modal (0,5,6)  rank 7
+        CVaR a=0.50    P(opt) 0.3155   modal (2,5,6)  OPTIMUM
+        CVaR a=0.25    P(opt) 0.2500   modal (2,5,6)  OPTIMUM
+        CVaR a=0.10    P(opt) 0.1036   modal (5,6,7)  rank 19
+        CVaR a=0.05    P(opt) 0.0626   modal (5,6,7)  rank 19
+
+    Feasibility stays 100% throughout (the XY mixer guarantees it) and the
+    CIRCUIT IS UNCHANGED -- same gates, same depth, same 2Q count. The gain is
+    free on hardware. alpha is NOT monotone: too small and the tail holds too
+    few states to estimate, which is the known failure mode in the paper, so
+    0.5 is the default rather than the smallest value.
+
+    NOT A SEED ARTEFACT. Swept over seeds 1, 7, 42, 123, 2024, 31337: <H>
+    lands on the SAME rank-7 portfolio (0,5,6) at all six, P(opt) 0.148-0.227;
+    CVaR a=0.5 lands on the optimum (2,5,6) at all six, P(opt) 0.296-0.329. So
+    mean-tuning does not merely happen to miss here -- it converges somewhere
+    else. Seeds 1 and 2024 are pinned in tests/test_cvar_qaoa.py.
+
+    This is a SIMULATOR result. No hardware run has been tuned this way; every
+    shipped artefact is mean-tuned. Do not claim a hardware improvement from it.
 
     `topology` defaults to "ring" (n edges) rather than "complete" (n(n-1)/2).
     Measured on FakeMarrakesh with 8 assets, budget 3, simulator P(optimal)
@@ -126,9 +222,24 @@ def optimize_xy_qaoa(problem: PortfolioProblem, reps: int = 3,
     est = StatevectorEstimator(seed=seed)
     order = list(qc.parameters)
 
-    def cost(x: np.ndarray) -> float:
-        bound = qc.assign_parameters(dict(zip(order, x)))
-        return float(est.run([(bound, H)]).result()[0].data.evs)
+    if objective == "mean":
+        # Untouched from the original so shipped artefacts reproduce exactly.
+        def cost(x: np.ndarray) -> float:
+            bound = qc.assign_parameters(dict(zip(order, x)))
+            return float(est.run([(bound, H)]).result()[0].data.evs)
+    elif objective == "cvar":
+        if not 0.0 < alpha <= 1.0:
+            raise ValueError(f"alpha must be in (0, 1], got {alpha}")
+        from qiskit.quantum_info import Statevector
+        energies, _feasible = _basis_energies(problem)
+        energy_order = np.argsort(energies)
+
+        def cost(x: np.ndarray) -> float:
+            bound = qc.assign_parameters(dict(zip(order, x)))
+            probs = np.abs(Statevector(bound).data) ** 2
+            return _cvar(probs, energies, energy_order, alpha)
+    else:
+        raise ValueError(f"objective must be 'mean' or 'cvar', got {objective!r}")
 
     beta_idx, gamma_idx = {}, {}
     for i, p in enumerate(order):

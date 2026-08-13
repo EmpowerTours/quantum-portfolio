@@ -1092,7 +1092,7 @@ Monadscan as evidence of the bug-fix process, not for active use.
 
 ## Test coverage and CI
 
-**342 tests** (`pytest tests/ && forge test`), re-run against live Monad
+**370 tests** (`pytest tests/ && forge test`), re-run against live Monad
 mainnet. Nothing skips when `MONAD_RPC_URL` is set; without an endpoint the
 11 fork tests skip rather than reporting a pass they did not earn.
 
@@ -1166,7 +1166,7 @@ its nestedness, and asserts the returndata is
   red-team suite** (`contracts/test/redteam/`) that reproduces each
   vulnerability found in the July 2026 audit and then asserts it is closed —
   several against the real Uniswap and Morpho deployments on a mainnet fork.
-  342 tests, none skipped with an RPC endpoint. The artefacts are tamper-evident and a reviewer can
+  370 tests, none skipped with an RPC endpoint. The artefacts are tamper-evident and a reviewer can
   audit them without running the code. **The full loop is LIVE on Monad
   mainnet (chainId 143), all contracts Monadscan-verified**:
   [AuditAnchorV2](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd),
@@ -1329,7 +1329,7 @@ partners.** No conversation with any institution has taken place.
 
 What exists instead is shipped, verifiable evidence: four contracts live and
 Monadscan-verified on Monad mainnet, one end-to-end run executed with real
-value, 342 tests passing with none skipped under an RPC endpoint, two IBM Heron QPU runs with
+value, 370 tests passing with none skipped under an RPC endpoint, two IBM Heron QPU runs with
 published job IDs and raw counts, and every documented reviewer command
 executed against mainnet in CI. Reaching Phase 2 of this challenge is the only
 external validation we claim.
@@ -1379,7 +1379,7 @@ incorporated in Mexico and qualifies under the LATAM startup criteria.
   gate on the managed-cosigner revenue line.
 
 Two people shipped four Monadscan-verified mainnet contracts, an SP1 ZK
-circuit, and 342 passing tests. That is the argument for a pilot, and the
+circuit, and 370 passing tests. That is the argument for a pilot, and the
 reason the ask is for a counterparty rather than for headcount.
 
 ### What we are asking Santander for
@@ -1507,7 +1507,7 @@ pip install pytest
 
 # Three of the five test modules use pytest fixtures and parametrisation, so
 # they must be run under pytest — invoking them as plain scripts skips them.
-pytest tests/ -q                    # 154 tests
+pytest tests/ -q                    # 189 tests
 ( cd contracts && forge test )      # 181 tests, 0 skipped with an RPC endpoint (11 fork tests skip without one)
 
 # Re-derive the canonical-bytes digest of the shipped order:

@@ -135,13 +135,28 @@ def main() -> int:
                          "so two backends can run CONCURRENTLY without clobbering "
                          "each other — the fez queue is hours deep, so overlapping "
                          "runs are the normal case, not an edge case.")
+    ap.add_argument("--objective", choices=("mean", "cvar"), default="mean",
+                    help="tuner objective. mean is <H> and reproduces the shipped "
+                         "replication artefacts; cvar targets the low-energy tail "
+                         "instead of the bulk. See optimize_xy_qaoa's docstring — "
+                         "on this instance it nearly doubles simulator P(optimal) "
+                         "with an unchanged circuit. A cvar run is a NEW arm, not "
+                         "a re-run: do not pool its pairs with mean-tuned ones.")
+    ap.add_argument("--alpha", type=float, default=0.5,
+                    help="(--objective cvar) tail probability mass")
     ap.add_argument("--report-only", action="store_true",
                     help="re-print the analysis from the existing artefact")
     args = ap.parse_args()
 
     global OUT
+    # The objective is part of the default filename for the same reason the
+    # backend is: a cvar-tuned run is a different experiment, and writing it to
+    # the mean-tuned path would silently replace an artefact that cost real
+    # queue time with one that is not comparable to it.
+    suffix = ("" if args.objective == "mean"
+              else f"_cvar{args.alpha:g}".replace(".", "p"))
     OUT = Path(args.out) if args.out else Path(
-        f"outputs/replication_{args.backend.replace('ibm_', '')}.json")
+        f"outputs/replication_{args.backend.replace('ibm_', '')}{suffix}.json")
 
     if args.report_only:
         d = json.loads(OUT.read_text())
@@ -158,9 +173,12 @@ def main() -> int:
     print(f"  uniform-over-feasible null: 1/C({n},{k}) = {1/math.comb(n,k):.5f}\n")
 
     # Tune ONCE — see module docstring.
-    print(f"Tuning XY-ring QAOA(reps={args.reps}) on simulator...")
+    obj_desc = f"CVaR(alpha={args.alpha})" if args.objective == "cvar" else "<H>"
+    print(f"Tuning XY-ring QAOA(reps={args.reps}) on simulator against {obj_desc}...")
     t0 = time.perf_counter()
-    bound, _params, energy = optimize_xy_qaoa(problem, reps=args.reps, topology="ring")
+    bound, _params, energy = optimize_xy_qaoa(problem, reps=args.reps, topology="ring",
+                                              objective=args.objective,
+                                              alpha=args.alpha)
     print(f"  tuned in {time.perf_counter()-t0:.1f}s   energy {energy:.6f}\n")
 
     svc = get_service()
@@ -170,11 +188,25 @@ def main() -> int:
 
     pairs: list[dict] = []
     if args.resume and OUT.exists():
-        pairs = json.loads(OUT.read_text())["pairs"]
+        prior = json.loads(OUT.read_text())
+        # Artefacts written before the objective flag existed are mean-tuned.
+        prior_obj = prior.get("tuning_objective", "mean")
+        prior_alpha = prior.get("cvar_alpha")
+        want_alpha = args.alpha if args.objective == "cvar" else None
+        if (prior_obj, prior_alpha) != (args.objective, want_alpha):
+            raise SystemExit(
+                f"{OUT} holds {prior_obj}-tuned pairs (alpha={prior_alpha}) but "
+                f"this run tunes {args.objective} (alpha={want_alpha}). Appending "
+                "would put two different circuits in one paired analysis. Use a "
+                "different --out."
+            )
+        pairs = prior["pairs"]
         print(f"Resuming: {len(pairs)} pairs already recorded\n")
 
     meta = {"backend": backend.name, "shots": SHOTS, "reps": args.reps,
             "mixer": "xy", "xy_topology": "ring", "universe": "stocks",
+            "tuning_objective": args.objective,
+            "cvar_alpha": args.alpha if args.objective == "cvar" else None,
             "tickers": list(market.tickers), "budget": args.budget,
             "optimal_selection": exact.selection,
             "optimal_objective": exact.objective,
