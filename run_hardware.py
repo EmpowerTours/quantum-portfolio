@@ -118,8 +118,10 @@ def main() -> None:
                          "best-of-N either way, so this raises the sampling "
                          "ceiling rather than fixing a wrong answer.")
     ap.add_argument("--alpha", type=float, default=0.5,
-                    help="(--objective cvar) tail mass. NOT monotone — below ~0.25 "
-                         "the tail holds too few states and P(optimal) falls again.")
+                    help="(--objective cvar) tail mass. NOT monotone: alpha soft-"
+                         "caps P(optimal), because the objective stops rewarding "
+                         "overlap beyond alpha. Measured: a=0.25 -> 0.2500, "
+                         "a=0.10 -> 0.1036, both sitting on the cap.")
     args = ap.parse_args()
 
     if args.objective == "cvar" and args.mixer != "xy":

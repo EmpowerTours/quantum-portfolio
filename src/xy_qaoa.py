@@ -185,9 +185,21 @@ def optimize_xy_qaoa(problem: PortfolioProblem, reps: int = 3,
 
     Feasibility stays 100% throughout (the XY mixer guarantees it) and the
     CIRCUIT IS UNCHANGED -- same gates, same depth, same 2Q count. The gain is
-    free on hardware. alpha is NOT monotone: too small and the tail holds too
-    few states to estimate, which is the known failure mode in the paper, so
-    0.5 is the default rather than the smallest value.
+    free on hardware.
+
+    ALPHA IS NOT MONOTONE, for the reason the paper gives: alpha "introduces a
+    soft cap on the maximum probability of sampling a ground state ... because
+    the CVaR objective function with alpha = 1% does not reward increasing the
+    overlap with the ground state beyond 1% probability" (sec. 6). The table
+    above lands on that cap almost exactly -- a=0.25 gives 0.2500, a=0.10 gives
+    0.1036. The tail stops paying for overlap it already has.
+
+    So 0.5 is the default even though the paper recommends alpha in [0.1, 0.25].
+    That recommendation optimises convergence of the variational loop under a
+    sampling-accuracy argument (CVaR needs ~1/alpha more samples for equal
+    accuracy). This code optimises P(optimal) at a fixed shot count instead,
+    and under the soft cap any alpha below ~0.32 caps the result beneath the
+    0.3155 that alpha=0.5 reaches. Deliberate divergence, not an oversight.
 
     NOT A SEED ARTEFACT. Swept over seeds 1, 7, 42, 123, 2024, 31337: <H>
     lands on the SAME rank-7 portfolio (0,5,6) at all six, P(opt) 0.148-0.227;
