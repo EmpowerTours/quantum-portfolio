@@ -39,8 +39,12 @@ contract UniswapRoutingVaultForkTest is Test {
         vm.createSelectFork(rpc);
         require(block.chainid == 143, "fork is not Monad mainnet");
 
-        tokenOut = vm.envAddress("FORK_TOKEN_OUT");
-        fee = uint24(vm.envUint("FORK_FEE"));
+        // envAddress/envUint REVERT on a missing key, so an RPC set WITHOUT the
+        // pool params turned an incomplete reviewer setup into a hard failure
+        // in setUp rather than the clean skip this file's header promises.
+        tokenOut = vm.envOr("FORK_TOKEN_OUT", address(0));
+        fee = uint24(vm.envOr("FORK_FEE", uint256(0)));
+        if (tokenOut == address(0) || fee == 0) return;  // vault unset -> skips
 
         anchor = new AuditAnchorV2();
         address[] memory approved = new address[](1);
@@ -54,7 +58,11 @@ contract UniswapRoutingVaultForkTest is Test {
 
     function test_RoutesNativeMonThroughLiveUniswapPool() public {
         if (address(vault) == address(0)) {
-            emit log("SKIP: set MONAD_RPC_URL / FORK_TOKEN_OUT / FORK_FEE to run the fork test");
+            // vm.skip, NOT emit-log-and-return: the latter reports PASS, which
+            // is how this test sat in the "170 passed" column for months while
+            // never touching a chain. The 2026-08-09 sweep that fixed the same
+            // pattern in the RT suites missed this file.
+            vm.skip(true);
             return;
         }
 

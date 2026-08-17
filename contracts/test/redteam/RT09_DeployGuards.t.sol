@@ -331,8 +331,11 @@ contract RT09_ThinTierFork is Test {
         if (bytes(rpc).length == 0) return;
         vm.createSelectFork(rpc);
         require(block.chainid == 143, "fork is not Monad mainnet");
+        // See RT01: read the pool param before arming `forked`, and self-skip
+        // rather than reverting when an RPC is set without it.
+        tokenOut = vm.envOr("FORK_TOKEN_OUT", address(0));
+        if (tokenOut == address(0)) return;  // forked stays false -> skips
         forked = true;
-        tokenOut = vm.envAddress("FORK_TOKEN_OUT");
         vm.deal(trader, 1_000 ether);
     }
 

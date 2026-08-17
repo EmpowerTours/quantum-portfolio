@@ -63,10 +63,14 @@ contract RT01_ZeroAmountRouterSentinel is Test {
 
         vm.createSelectFork(rpc);
         require(block.chainid == 143, "fork is not Monad mainnet");
-        forked = true;
 
-        tokenOut = vm.envAddress("FORK_TOKEN_OUT");
-        fee = uint24(vm.envUint("FORK_FEE"));
+        // Read the pool params BEFORE arming `forked`: envAddress/envUint revert
+        // on a missing key, so an RPC without them used to fail setUp outright
+        // instead of self-skipping like the no-RPC path.
+        tokenOut = vm.envOr("FORK_TOKEN_OUT", address(0));
+        fee = uint24(vm.envOr("FORK_FEE", uint256(0)));
+        if (tokenOut == address(0) || fee == 0) return;  // forked stays false -> skips
+        forked = true;
 
         anchor = new AuditAnchorV2();
         address[] memory approved = new address[](1);

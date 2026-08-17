@@ -509,9 +509,9 @@ No conversation with any institution has happened. We would rather be marked dow
 **What does exist, and is checkable:**
 - 4 contracts live on Monad **mainnet**, Monadscan-verified
 - one end-to-end run with **real value**
-- **370 tests**, 0 skipped with an RPC endpoint
+- **370 tests**, 0 skipped with the fork env set
 - 2 IBM Heron runs, job IDs + raw counts published
-- every documented reviewer command **executed in CI**
+- every documented reviewer command **run and reproducible**
 
 </div>
 

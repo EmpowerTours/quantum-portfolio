@@ -45,7 +45,7 @@ Pre-flight verified 2026-07-30 at block 91684549:
 | Balance | 0.989160532 MON |
 | Nonce | 394 |
 | Gas price | 102 gwei (forge pads its estimate to ~202) |
-| Tests *(as of the 2026-07-30 deploy)* | 142 Solidity, 85 Python. Recorded as "0 skipped", but that reading was wrong: the fork tests returned early without an RPC endpoint and reported PASS instead of skipping, so 11 of them never ran. Fixed 2026-08-09; a bare `forge test` now honestly reports them skipped. |
+| Tests *(as of the 2026-07-30 deploy)* | 142 Solidity, 85 Python. Recorded as "0 skipped" — which is only ever true with the full fork env (`MONAD_RPC_URL` + `FORK_TOKEN_OUT` + `FORK_FEE`) — and that reading was wrong anyway: the fork tests returned early without an RPC endpoint and reported PASS instead of skipping, so 11 of them never ran. Fixed 2026-08-09 — **incompletely**: the sweep missed `UniswapRoutingVaultFork`, which went on reporting PASS until 2026-08-15, so the honest bare-run skip count is 12, not 11. A bare `forge test` now reports all 12 skipped, and 0 skipped requires the full fork env (`MONAD_RPC_URL` + `FORK_TOKEN_OUT` + `FORK_FEE`), not merely an RPC endpoint. |
 | External env | SwapRouter02 / WMON / USDC / Morpho Blue / V3Factory all unchanged; USDC not paused |
 
 Deployment cost *(estimate at the time — not the attest-tx gas)*: **~2,308,043 gas ≈ 0.235 MON** at 102 gwei, **≈0.466 MON** at forge's

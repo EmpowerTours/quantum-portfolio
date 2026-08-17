@@ -1153,16 +1153,36 @@ Monadscan as evidence of the bug-fix process, not for active use.
 
 ## Test coverage and CI
 
-**370 tests** (`pytest tests/ && forge test`), re-run against live Monad
-mainnet. Nothing skips when `MONAD_RPC_URL` is set; without an endpoint the
-11 fork tests skip rather than reporting a pass they did not earn.
+**370 tests** (`pytest tests/ && forge test`). Nothing skips when
+`MONAD_RPC_URL`, `FORK_TOKEN_OUT` and `FORK_FEE` are all set — an RPC endpoint
+alone is **not** sufficient, and until 2026-08-15 this section claimed it was.
+Bare, the 12 fork tests skip rather than reporting a pass they did not earn.
 
-**154 Python tests**
+**What CI does and does not do, stated exactly.** CI runs the Python suite and
+a bare `forge test`, and it runs `verify_claims.py` **without** `--chain`. It
+therefore sets no fork environment and makes no RPC call: the 12 fork tests
+skip there and the on-chain half of the claim gate does not execute. The
+mainnet-facing checks are run by hand, against live Monad mainnet, and the
+commands to reproduce them are documented below. An earlier draft of this
+document said every reviewer command was "executed against mainnet in CI".
+That was false, and it is corrected here rather than quietly deleted.
+
+**189 Python tests**
+- `test_verify_claims.py` (65) — tests OF the claim gate: every retired figure
+  is planted next to a heading, a code comment and inside an explanatory
+  sentence, asserting the gate catches the first two and excuses the third.
+  Includes the spoken-count parser, added after narration in the video script
+  stayed stale through a full repo-wide bump because the scanner read only
+  digits.
+- `test_cvar_qaoa.py` (13) — the CVaR tuning arm: that it moves the modal
+  feasible state onto the true optimum and raises P(optimal) at two
+  off-default seeds, that feasibility stays 100 %, and that the shipped `mean`
+  default is unchanged so existing hardware artefacts still reproduce.
 - `test_pq_signing.py` (32) — SLH-DSA variant lock-in; round-trip and
   tamper detection for ML-DSA, SLH-DSA and Ed25519; strict
   canonicalisation (NFC validation, sorted keys, no NaN); strict `verify`
   typing; `ensure_keypair` refuses to silently generate a new identity.
-- `test_monad_tx.py` (35) — calldata round trip against the PQ-signing
+- `test_monad_tx.py` (36) — calldata round trip against the PQ-signing
   layer; selectors verified against `forge inspect`; `MONAD_CHAIN_ID`
   locked at 143; fractional-weights → basis-points round-trip sums to
   10 000; commitment goldens pinned to `cast`; the twelve brickable
@@ -1222,12 +1242,13 @@ its nestedness, and asserts the returndata is
 
 - **Area 3 (primary) — Digital Infrastructure Secured Against Quantum
   Computing.** The PQ signing layer is not narrative — it is verified by
-  **154 Python tests** (32 PQ-signing, 35 Monad-TX encoding, 18 live-quote,
-  17 key-pinning/hedge-policy, 8 audit-chain, 44 verifier self-tests) and **181 Foundry tests**, of which **70 are an adversarial
+  **189 Python tests** (32 PQ-signing, 36 Monad-TX encoding, 18 live-quote,
+  17 key-pinning/hedge-policy, 8 audit-chain, 65 verifier self-tests, 13 CVaR
+  tuning) and **181 Foundry tests**, of which **70 are an adversarial
   red-team suite** (`contracts/test/redteam/`) that reproduces each
   vulnerability found in the July 2026 audit and then asserts it is closed —
   several against the real Uniswap and Morpho deployments on a mainnet fork.
-  370 tests, none skipped with an RPC endpoint. The artefacts are tamper-evident and a reviewer can
+  370 tests, none skipped once the fork environment is set. The artefacts are tamper-evident and a reviewer can
   audit them without running the code. **The full loop is LIVE on Monad
   mainnet (chainId 143), all contracts Monadscan-verified**:
   [AuditAnchorV2](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd),
@@ -1390,10 +1411,11 @@ partners.** No conversation with any institution has taken place.
 
 What exists instead is shipped, verifiable evidence: four contracts live and
 Monadscan-verified on Monad mainnet, one end-to-end run executed with real
-value, 370 tests passing with none skipped under an RPC endpoint, two IBM Heron QPU runs with
-published job IDs and raw counts, and every documented reviewer command
-executed against mainnet in CI. Reaching Phase 2 of this challenge is the only
-external validation we claim.
+value, 370 tests passing with none skipped once the fork environment is set,
+two IBM Heron QPU runs with published job IDs and raw counts, and every
+documented reviewer command executed by hand against live Monad mainnet (CI
+runs the deterministic suite only — see "Test coverage and CI"). Reaching
+Phase 2 of this challenge is the only external validation we claim.
 
 We would rather be marked down for an empty pipeline than imply one we do not
 have. The go-to-market below is therefore a **hypothesis with a validation
@@ -1569,7 +1591,9 @@ pip install pytest
 # Three of the five test modules use pytest fixtures and parametrisation, so
 # they must be run under pytest — invoking them as plain scripts skips them.
 pytest tests/ -q                    # 189 tests
-( cd contracts && forge test )      # 181 tests, 0 skipped with an RPC endpoint (11 fork tests skip without one)
+( cd contracts && forge test )      # 181 tests; bare, the 12 fork tests skip (169 passed, 12 skipped).
+                                   # 0 skipped needs the RPC endpoint AND the pool params:
+                                   # MONAD_RPC_URL=… FORK_TOKEN_OUT=… FORK_FEE=3000
 
 # Re-derive the canonical-bytes digest of the shipped order:
 python -c "

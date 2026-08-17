@@ -410,10 +410,13 @@ contract RT07_SentinelBypassFork is Test {
         if (bytes(rpc).length == 0) return;
         vm.createSelectFork(rpc);
         require(block.chainid == 143, "fork is not Monad mainnet");
-        forked = true;
 
-        tokenOut = vm.envAddress("FORK_TOKEN_OUT");
-        fee = uint24(vm.envUint("FORK_FEE"));
+        // See RT01: read the pool params before arming `forked`, and self-skip
+        // rather than reverting when an RPC is set without them.
+        tokenOut = vm.envOr("FORK_TOKEN_OUT", address(0));
+        fee = uint24(vm.envOr("FORK_FEE", uint256(0)));
+        if (tokenOut == address(0) || fee == 0) return;  // forked stays false -> skips
+        forked = true;
 
         anchor = new AuditAnchorV2();
         address[] memory approved = new address[](1);

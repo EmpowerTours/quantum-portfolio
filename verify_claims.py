@@ -206,7 +206,17 @@ def check_test_counts() -> None:
     # a markdown table cell both sat stale through every run of this gate. A
     # count is a count wherever the sentence happens to end.
     for path, s in text().items():
-        for claimed in set(int(x) for x in re.findall(r"(\d{2,4})[- ]tests?\b", s)):
+        # Two shapes. The bare one, plus SUITE TOTALS that name their language:
+        # the repo said "154 Python tests" while the suite reported 189, and a
+        # bare `(\d+) tests` scanner cannot see a word in between.
+        #
+        # Deliberately NOT any word: "70 adversarial tests" and "11 guard
+        # tests" are SUBSET counts, and "12 fork tests" counts what skips.
+        # Those are true statements about parts, so admitting them here would
+        # force every subset into `valid` and license any number at all.
+        for claimed in set(int(x) for x in re.findall(r"(\d{2,4})[- ]tests?\b", s)
+                           ) | set(int(x) for x in re.findall(
+                r"(\d{2,4})[- ](?:Python|Foundry|Solidity)[- ]tests?\b", s)):
             check(claimed in valid, f"{path} test count {claimed}",
                   f"expected one of {sorted(valid)} (total {total})")
         for hundreds, rest in set(SPELLED_COUNT.findall(s)):
@@ -226,7 +236,13 @@ _SKIP_ANY = re.compile(r"(?:\b0\b|none|nothing)\s+skip(?:s|ped)?", re.I)
 # The qualifier may sit on either side of the claim ("0 skipped with an RPC
 # endpoint", "with MONAD_RPC_URL set, nothing skips"), so match the window
 # rather than a fixed order — a one-sided regex fails the correct phrasings.
-_SKIP_QUALIFIER = re.compile(r"RPC|endpoint|MONAD_RPC_URL|fork", re.I)
+# Naming an RPC endpoint is NOT enough, and accepting it is why every "0
+# skipped with an RPC endpoint" claim in the repo was wrong at once: with
+# MONAD_RPC_URL alone the fork suites used to fail outright, and after the
+# self-skip fix they still leave 10 skipped. A "0 skipped" claim is only true
+# when the pool parameters are set too, so the qualifier has to name them.
+_SKIP_QUALIFIER = re.compile(
+    r"FORK_TOKEN_OUT|FORK_FEE|fork env(?:ironment)?|pool param", re.I)
 
 
 def check_skip_claims_are_qualified() -> None:
@@ -237,7 +253,9 @@ def check_skip_claims_are_qualified() -> None:
             window = s[max(0, m.start() - 160): m.end() + 160]
             check(bool(_SKIP_QUALIFIER.search(window)),
                   f"{path} '{m.group(0)}' qualified",
-                  "say 'with an RPC endpoint' — bare `forge test` skips 11 fork tests")
+                  "name the fork env (MONAD_RPC_URL + FORK_TOKEN_OUT + FORK_FEE) "
+                  "— bare `forge test` skips 12 fork tests, and an RPC endpoint "
+                  "on its own still leaves 10")
 
 
 def check_replication() -> None:

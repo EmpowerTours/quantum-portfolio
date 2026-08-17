@@ -11,7 +11,7 @@ the shipped demonstration.
 1. **[Open the interactive Streamlit demo](https://quantum-portfolio-awhfbfwtbqmp2swgpsvxwf.streamlit.app/)** — run the cached optimizer, inspect AI forecasts and backtesting, verify the real IBM hardware artefacts, and exercise PQ signing/tamper detection.
 2. **[Watch the 90-second product walkthrough](docs/DEMO_VIDEO.mp4)**.
 3. **[Review the Santander submission narrative](SUBMISSION.md)** and the linked IBM Quantum jobs and Monad transactions.
-4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 189 Python tests plus 181 Foundry tests (370 total) are documented below. The 11 fork tests need a Monad RPC endpoint and skip without one; with `MONAD_RPC_URL` set, nothing skips.
+4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 189 Python tests plus 181 Foundry tests (370 total) are documented below. The 12 fork tests need a Monad RPC endpoint **and** the pool parameters, and skip without them; with `MONAD_RPC_URL`, `FORK_TOKEN_OUT` and `FORK_FEE` all set, nothing skips.
 5. **[Read the business case](SUBMISSION.md#business-model-market-and-go-to-market)** — who buys this, why the 31 December 2031 deadline is the forcing function, how it is priced, and what we are asking Santander for.
 
 **Traction, stated up front so it is not a discovery:** we have no customers, no
@@ -224,8 +224,13 @@ curl -L https://foundry.paradigm.xyz | bash && foundryup
 #    they must run under pytest — as plain scripts they error out.
 pip install pytest && pytest tests/ -q
 
-# 2. Foundry tests (181 across 26 suites). 0 skipped with an RPC endpoint;
-#    without one the 11 fork tests skip and you get 170 passed, 11 skipped.
+# 2. Foundry tests (181 across 26 suites). Bare, the 12 fork tests skip and you
+#    get 169 passed, 12 skipped. For 181 passed / 0 skipped the fork suites need
+#    the pool parameters too, not just an RPC endpoint — an RPC on its own runs
+#    the two that need nothing else and still skips 10:
+#      MONAD_RPC_URL=https://rpc.monad.xyz \
+#      FORK_TOKEN_OUT=0x754704Bc059F8C67012fEd69BC8A327a5aafb603 FORK_FEE=3000 \
+#      forge test
 ( cd contracts && forge test )
 
 # 3. Re-derive the canonical-bytes SHA-256 of the shipped signed order:
