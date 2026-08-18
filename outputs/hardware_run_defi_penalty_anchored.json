@@ -1,0 +1,61 @@
+{
+  "backend": "ibm_marrakesh",
+  "universe": "defi",
+  "shots": 4096,
+  "reps": 2,
+  "tickers": [
+    "Morpho STEAKETH (Monad)",
+    "Upshift earnAUSD (Monad)",
+    "Morpho hyperUSDC (Monad)",
+    "Neverland USDC (Monad)",
+    "shMONAD (Monad)",
+    "Sky sUSDS (ETH)",
+    "Ethena sUSDe (ETH)",
+    "Maple USDC (ETH)"
+  ],
+  "budget": 3,
+  "optimal": {
+    "selection": [
+      0,
+      3,
+      4
+    ],
+    "objective": -0.44768139279841657
+  },
+  "random_baseline_objective": -0.36718958324701134,
+  "results": [
+    {
+      "method": "QAOA (sim, tuned)",
+      "best_selection": [
+        0,
+        3,
+        4
+      ],
+      "best_objective": -0.44768139279841657,
+      "p_optimal": 0.007080078125,
+      "job_id": null
+    },
+    {
+      "method": "QAOA (hw, raw)",
+      "best_selection": [
+        0,
+        3,
+        4
+      ],
+      "best_objective": -0.44768139279841657,
+      "p_optimal": 0.003662109375,
+      "job_id": "d9loihrhdfks73cl9i10"
+    },
+    {
+      "method": "QAOA (hw, mitigated)",
+      "best_selection": [
+        0,
+        3,
+        4
+      ],
+      "best_objective": -0.44768139279841657,
+      "p_optimal": 0.003662109375,
+      "job_id": "d9loj33hdfks73cl9in0"
+    }
+  ]
+}

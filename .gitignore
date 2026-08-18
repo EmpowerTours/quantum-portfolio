@@ -15,6 +15,11 @@ outputs/*
 # to be admitted deliberately, and evidence a document names is not optional.
 !outputs/hardware_run_cvar0p5.json
 !outputs/hardware_run_mean_20260817.json
+# The penalty-mixer DeFi run. SUBMISSION.md cites it as the archive that makes
+# the ANCHORED order's qpu_job_id (d9loj33hdfks73cl9in0) still resolve — the
+# provenance link for the run that actually settled on mainnet. It was untracked,
+# so that trail dead-ended in every clone.
+!outputs/hardware_run_defi_penalty_anchored.json
 !outputs/backtest.json
 !outputs/signed_orders.json
 # mainnet_route_order.json is deliberately NOT tracked: it was a schema-v1

@@ -169,6 +169,36 @@ def spelled_to_int(hundreds: str, rest: str | None) -> int:
     return n
 
 
+def check_cited_artefacts_are_shipped() -> None:
+    """Every outputs/ file a document names must be TRACKED, not just present.
+
+    `outputs/*` is gitignored with an explicit allowlist, which is the right
+    default — but it means a new artefact is invisible to git unless someone
+    remembers to admit it. On 2026-08-17 both hardware artefacts behind the
+    CVaR reversal were cited by name in SUBMISSION.md and would have shipped
+    to nobody: present on the author's disk, absent from every clone. A local
+    existence check would have passed. Only `git ls-files` catches it.
+    """
+    print("\n[evidence] artefacts cited by the docs are tracked")
+    cited: dict[str, set[str]] = {}
+    for path, s in text().items():
+        # `jsonl` BEFORE `json`, plus \b: the greedy class swallows the whole
+        # name and backtracks, so a "json"-first alternation matches
+        # outputs/audit_log.json inside the real outputs/audit_log.jsonl and
+        # reports a tracked file as missing.
+        for m in re.findall(r"outputs/[A-Za-z0-9_.\-]+\.(?:jsonl|json|png)\b", s):
+            cited.setdefault(m, set()).add(path)
+    if not cited:
+        check(False, "docs cite at least one artefact"); return
+    r = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True)
+    tracked = set(r.stdout.split())
+    for art in sorted(cited):
+        where = ", ".join(sorted(cited[art]))
+        check(art in tracked, f"{art} tracked (cited by {where})",
+              "cited by a document but not tracked — it would be missing from "
+              "every clone. Add a `!` allowlist line to .gitignore.")
+
+
 def check_test_counts() -> None:
     """The documented totals must equal what the suites actually report."""
     print("\n[tests] documented counts vs actual")
@@ -837,6 +867,7 @@ def main() -> int:
     check_superseded_values()
     check_addresses()
     check_test_counts()
+    check_cited_artefacts_are_shipped()
     if "--chain" in sys.argv:
         check_chain()
     print(f"\n{'ALL CLAIMS VERIFIED' if not fails else f'{len(fails)} FAILED:'}")

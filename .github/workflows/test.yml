@@ -154,3 +154,59 @@ jobs:
           py_compile.compile('app.py', doraise=True)
           print('app.py compiles OK')
           PY
+
+  # Everything above runs in-place with no chain access, which is the right
+  # default for speed — but it means the mainnet-facing half of the claim gate
+  # and the fork-gated contract tests were only ever exercised BY HAND. That is
+  # not a control: on 2026-08-17 an audit found "every documented reviewer
+  # command executed against mainnet in CI" was false, that a fork test had been
+  # reporting PASS without touching a chain, and that "0 skipped with an RPC
+  # endpoint" was unreachable because the fork suites need the pool parameters
+  # too. This job runs what a reviewer actually runs.
+  mainnet-verification:
+    name: fork tests + on-chain claim gate (live Monad mainnet)
+    runs-on: ubuntu-latest
+    # A public RPC can rate-limit or blip. This job asserts real things, so a
+    # red here is worth investigating — but it must not gate the deterministic
+    # suites above, which depend on nothing external.
+    continue-on-error: true
+    env:
+      MONAD_RPC_URL: https://rpc.monad.xyz
+      # The only genuinely liquid WMON pair on Monad mainnet: USDC, 0.3% tier.
+      FORK_TOKEN_OUT: "0x754704Bc059F8C67012fEd69BC8A327a5aafb603"
+      FORK_FEE: "3000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install contract dependencies
+        working-directory: contracts
+        run: |
+          forge install foundry-rs/forge-std@v1.16.1 --shallow --no-git
+          forge install OpenZeppelin/openzeppelin-contracts@v5.6.1 --shallow --no-git
+
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      # With the full fork env the documented promise is 0 skipped. Assert it
+      # rather than eyeballing it: a skip here means a fork test silently
+      # stopped exercising mainnet, which is how the last one hid.
+      - name: Foundry suite against live mainnet (0 skipped)
+        working-directory: contracts
+        run: |
+          set -o pipefail
+          forge test | tee /tmp/forge.txt
+          tail -3 /tmp/forge.txt | grep -qE '[0-9]+ tests passed, 0 failed, 0 skipped' \
+            || { echo "::error::expected 0 skipped with the full fork env"; exit 1; }
+
+      # The half CI never ran: recomputes the anchored execCommitment against
+      # AuditAnchorV2 on chain, replays the documented cast calls, and asserts
+      # the tampered execution still reverts.
+      - name: Claim gate including on-chain checks
+        run: python verify_claims.py --chain
