@@ -207,8 +207,22 @@ def optimize_xy_qaoa(problem: PortfolioProblem, reps: int = 3,
     mean-tuning does not merely happen to miss here -- it converges somewhere
     else. Seeds 1 and 2024 are pinned in tests/test_cvar_qaoa.py.
 
-    This is a SIMULATOR result. No hardware run has been tuned this way; every
-    shipped artefact is mean-tuned. Do not claim a hardware improvement from it.
+    IT DOES NOT REPLICATE ON A SECOND INSTANCE, AND IT REVERSES. On 2026-08-17
+    a matched pair was run on ibm_marrakesh -- same tickers, budget 3, risk
+    factor 0.5, reps=3 ring, same market window, minutes apart, objective the
+    only difference. mean BEAT cvar on every column:
+
+        mean        sim 0.2305   hw raw 0.0264   hw mitigated 0.0186
+        cvar a=0.5  sim 0.1865   hw raw 0.0112   hw mitigated 0.0164
+
+    (artefacts: outputs/hardware_run_mean_20260817.json and
+    outputs/hardware_run_cvar0p5.json). The two instances differ only in the
+    market-data window -- same tickers, same budget, same risk factor -- so the
+    table above is a property of THAT instance, not of the objective.
+
+    So: do NOT claim cvar improves P(optimal). Two instances, one each way. The
+    default stays "mean", every shipped artefact is mean-tuned, and settling
+    this needs a paired sweep across many windows rather than another anecdote.
 
     `topology` defaults to "ring" (n edges) rather than "complete" (n(n-1)/2).
     Measured on FakeMarrakesh with 8 assets, budget 3, simulator P(optimal)

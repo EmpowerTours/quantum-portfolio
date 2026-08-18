@@ -92,10 +92,15 @@ def check_artifact_metrics() -> None:
     assert the stored summaries match. If these drift, every downstream
     document is quoting a number the artefact does not support."""
     print("\n[artefacts] stored summaries vs raw counts")
-    for f in ("outputs/hardware_run.json", "outputs/hardware_run_defi.json"):
-        p = ROOT / f
-        if not p.exists():
-            check(False, f"{f} missing"); continue
+    # GLOB, not a hardcoded pair. The list named exactly two files, so the
+    # 2026-08-17 CVaR/mean hardware pair was quoted in SUBMISSION.md while
+    # sitting outside the only check that recomputes P(optimal) from raw
+    # counts. Any artefact this repo cites has to be inside the gate, and a
+    # new filename must not be able to opt itself out by existing.
+    found = sorted(ROOT.glob("outputs/hardware_run*.json"))
+    check(bool(found), "hardware artefacts present")
+    for p in found:
+        f = p.relative_to(ROOT).as_posix()
         d = json.loads(p.read_text())
         n, k = len(d["tickers"]), d["budget"]
         opt = set(d["optimal"]["selection"])

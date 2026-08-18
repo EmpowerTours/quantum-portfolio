@@ -8,6 +8,13 @@ __pycache__/
 outputs/*
 !outputs/hardware_run.json
 !outputs/hardware_run_defi.json
+# The 2026-08-17 matched CVaR/mean pair on ibm_marrakesh. SUBMISSION.md cites
+# both by filename and quotes their P(optimal) figures, so a reviewer cloning
+# the repo has to receive them — under `outputs/*` they would have been cited
+# but never shipped. This allowlist is fail-closed by design: new evidence has
+# to be admitted deliberately, and evidence a document names is not optional.
+!outputs/hardware_run_cvar0p5.json
+!outputs/hardware_run_mean_20260817.json
 !outputs/backtest.json
 !outputs/signed_orders.json
 # mainnet_route_order.json is deliberately NOT tracked: it was a schema-v1

@@ -107,16 +107,28 @@ def main() -> None:
                          "construction. xy raises the random-guess ceiling from "
                          "1/2^n to 1/C(n,k) and drops the dense penalty layer that "
                          "dominates two-qubit gate count after routing.")
+    ap.add_argument("--out", default=None,
+                    help="output filename under outputs/. Use it for a REPEAT of "
+                         "a shipped configuration: a mean-tuned stocks run writes "
+                         "hardware_run.json, which is the artefact SUBMISSION.md "
+                         "cites by job ID, and re-running would overwrite it.")
+    ap.add_argument("--backend", default=None,
+                    help="pin a backend by name (e.g. ibm_marrakesh). Default is "
+                         "least_busy, which is fine for a one-off but makes two "
+                         "runs non-comparable if it picks different machines — "
+                         "pin it when the run is an ARM of a comparison.")
     ap.add_argument("--objective", choices=("mean", "cvar"), default="mean",
                     help="(xy only) what the classical tuner minimises. mean is "
                          "<H>, the textbook objective, and is the DEFAULT because "
                          "every shipped artefact was tuned that way. cvar is "
-                         "CVaR_alpha over the low-energy tail: on the shipped "
-                         "8-asset instance it nearly doubles simulator "
-                         "P(optimal) (0.185 -> 0.316) with an UNCHANGED circuit "
-                         "-- same gates, same depth, same 2Q count. Decoding is "
-                         "best-of-N either way, so this raises the sampling "
-                         "ceiling rather than fixing a wrong answer.")
+                         "CVaR_alpha over the low-energy tail. NOT a "
+                         "recommendation: it nearly doubled simulator P(optimal) "
+                         "on the replication window (0.185 -> 0.316) and then "
+                         "LOST on a matched hardware pair on 2026-08-17 (sim "
+                         "0.2305 vs 0.1865, hw raw 0.0264 vs 0.0112). Two "
+                         "instances, one each way -- the objective choice is "
+                         "instance-dependent here, so this switch records what "
+                         "it did rather than claiming an improvement.")
     ap.add_argument("--alpha", type=float, default=0.5,
                     help="(--objective cvar) tail mass. NOT monotone: alpha soft-"
                          "caps P(optimal), because the objective stops rewarding "
@@ -179,7 +191,8 @@ def main() -> None:
 
     print("Connecting to IBM Quantum...")
     svc = get_service()
-    backend = svc.least_busy(operational=True, simulator=False, min_num_qubits=8)
+    backend = (svc.backend(args.backend) if args.backend
+               else svc.least_busy(operational=True, simulator=False, min_num_qubits=8))
     print(f"  backend: {backend.name}  qubits={backend.num_qubits}\n")
 
     print("Submitting RAW hardware job...")
@@ -218,7 +231,14 @@ def main() -> None:
           f"{uniform_null:.5f} is indistinguishable from noise.")
 
     Path("outputs").mkdir(exist_ok=True)
-    out_name = "hardware_run.json" if args.universe == "stocks" else "hardware_run_defi.json"
+    # The objective is part of the filename for the same reason it is in
+    # run_replication.py: a cvar-tuned run is a DIFFERENT experiment, and the
+    # mean-tuned path holds the artefact SUBMISSION.md cites by job ID. Without
+    # this, `--objective cvar` silently overwrites the shipped evidence.
+    obj_suffix = ("" if args.objective == "mean"
+                  else f"_cvar{args.alpha:g}".replace(".", "p"))
+    out_name = args.out or (f"hardware_run{obj_suffix}.json" if args.universe == "stocks"
+                            else f"hardware_run_defi{obj_suffix}.json")
     Path(f"outputs/{out_name}").write_text(json.dumps({
         "backend": backend.name,
         "universe": args.universe,

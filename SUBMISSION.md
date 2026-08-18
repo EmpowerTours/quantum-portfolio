@@ -179,15 +179,17 @@ all-to-all XY routes badly on heavy-hex connectivity. The complete graph was
 hardcoded; nothing on hardware would have revealed either of these, and
 running the default would have produced a guaranteed zero.
 
-**A third finding: minimising ⟨H⟩ is the wrong objective, and it costs a
-factor of 1.7 in hit rate.** The reps=2 collapse above is the extreme form of
-a pathology that survives at reps=3 in milder form. Tuned on ⟨H⟩, the
-circuit's most-likely feasible state on the replication instance is the
-**7th-best portfolio of 56** — on a noiseless simulator, before any hardware
-noise. Swapping the classical tuner's objective to **CVaR_α** (the mean of the
-best α probability mass, α=0.5, Barkoutsos et al., *Quantum* **4**, 256
-(2020)) moves the mode onto the true optimum and lifts simulator P(optimal)
-from **0.1848 to 0.3155**:
+**A third finding, and it did not survive contact with a second instance.**
+The reps=2 collapse above is the extreme form of a pathology that survives at
+reps=3 in milder form: tuned on ⟨H⟩, the circuit's most-likely feasible state
+on the replication instance is the **7th-best portfolio of 56**, on a noiseless
+simulator, before any hardware noise. Swapping the classical tuner's objective
+to **CVaR_α** (the mean of the best α probability mass, Barkoutsos et al.,
+*Quantum* **4**, 256 (2020)) fixed that on the instance it was measured on —
+and then failed to reproduce on the next one. We report both.
+
+**Instance A — the replication window** (mu/sigma in
+`outputs/replication_marrakesh_interleaved.json`), exact statevector:
 
 | tuner objective | sim P(optimal) | modal feasible state |
 |---|---|---|
@@ -196,49 +198,62 @@ from **0.1848 to 0.3155**:
 | CVaR α=0.25 | 0.2500 | the optimum |
 | CVaR α=0.10 | 0.1036 | rank 19 |
 
-**The circuit is unchanged** — same gates, same depth, same two-qubit count —
-so on hardware the gain is free. Swept over seeds 1/7/42/123/2024/31337, ⟨H⟩
-converges on the *same* rank-7 portfolio at all six and CVaR on the optimum at
-all six, so this is a property of the objective and not a seed artefact.
+That result is robust *within* instance A: swept over seeds 1/7/42/123/2024/
+31337, ⟨H⟩ converges on the same rank-7 portfolio at all six and CVaR on the
+optimum at all six. So it is a property of the objective on that instance, not
+a seed artefact.
 
-**α is not monotone, and the reason is the one the paper gives.** Barkoutsos
-et al. note that α "introduces a soft cap on the maximum probability of
-sampling a ground state… because the CVaR objective function with α = 1% does
-not reward increasing the overlap with the ground state beyond 1 %
-probability." Our numbers land on that cap almost exactly: α=0.25 yields
-P(optimal) = 0.2500 and α=0.10 yields 0.1036. The tail simply stops paying for
-overlap it already has. That is a reproduction of a published effect, not a
-new claim.
+**Instance B — a matched pair run on real hardware, 2026-08-17.** Same eight
+tickers, same budget 3, same risk factor 0.5, same reps=3 ring circuit, same
+backend (`ibm_marrakesh`), both arms submitted minutes apart against the same
+market window. The only difference is the tuner objective. **CVaR loses on
+every column, on the simulator and on the QPU:**
 
-It is also why our default (0.5) sits **outside** the α ∈ [0.1, 0.25] range
-that paper recommends, and the divergence is deliberate rather than an
-oversight. Their recommendation optimises convergence of the variational loop
-under a sampling-accuracy argument (CVaR needs ~1/α more samples for equal
-accuracy). We are optimising a different quantity — P(optimal) at a fixed
-4 096 shots, because that is what the hardware arms are scored on — and under
-the soft cap any α below ~0.32 would cap us beneath the 0.3155 that α=0.5
-actually achieves.
+| tuner objective | sim P(opt) | hw raw P(opt) | hw mitigated P(opt) |
+|---|---|---|---|
+| **⟨H⟩ (mean)** | **0.2305** | **0.0264** | **0.0186** |
+| CVaR α=0.50 | 0.1865 | 0.0112 | 0.0164 |
 
-**Which instance this is measured on.** Both arms use the same problem, the
-mu/sigma stored in `outputs/replication_marrakesh_interleaved.json`, so the
-0.1848 → 0.3155 comparison is internally controlled. It is **not** directly
-comparable to the 0.2078 and 0.2195 simulator figures elsewhere in this
-section, which come from different runs and market-data windows; do not read
-the three as competing measurements of one number.
+Job IDs, with raw counts in the artefacts: `da1q6o4dedkc73ercci0` /
+`da1q6q6g52gs73clvj6g` (mean, `outputs/hardware_run_mean_20260817.json`) and
+`da1q58qein7c73bdo9g0` / `da1q5b4dedkc73ercb20` (CVaR,
+`outputs/hardware_run_cvar0p5.json`). These are the **first CVaR-tuned QPU runs
+in this project**, and they are a negative result.
 
-**Two limits on that claim, stated because they bound it sharply.** First, it
-is a **simulator** result: every hardware artefact in this document was tuned
-on ⟨H⟩, and no QPU run has been tuned on CVaR, so nothing here is a measured
-hardware improvement. Second, it does **not** mean the shipped runs answered
-wrongly. This pipeline does not decode modally — `_score_counts` scans every
-sampled feasible bitstring and keeps the lowest-objective one, so a mean-tuned
-run at 4 096 shots still reports the optimum. What ⟨H⟩-tuning costs is
-P(optimal) itself, and that is not cosmetic: it is the quantity the hardware
-arms are scored on, and what decides whether a run clears the
-uniform-over-feasible null of 1/C(8,3). Nearly doubling it on a noiseless
-simulator raises the ceiling every noisy arm below is working under. Tuning is
-opt-in (`--objective cvar`), recorded in the artefact, and `run_replication.py`
-refuses to pool CVaR pairs with mean-tuned ones.
+**What we therefore claim: nothing about CVaR being better.** Two instances,
+one each way, is not evidence of an effect — it is evidence that the objective
+choice is instance-dependent on this problem family, and that the instance-A
+gain was not the general property the first write-up of it implied. `mean`
+remains the default everywhere and every shipped artefact is mean-tuned.
+`--objective cvar` stays in the codebase as a switch whose result is recorded
+in the artefact, not as a recommendation. Establishing which objective wins,
+and when, needs a paired sweep across many windows — the same n ≥ 10 design the
+mitigation question needs, and the same funded work.
+
+**The α mechanism is still the one the paper describes**, and it is worth
+keeping because it is checkable independently of which objective wins.
+Barkoutsos et al. note that α "introduces a soft cap on the maximum probability
+of sampling a ground state… because the CVaR objective function with α = 1%
+does not reward increasing the overlap with the ground state beyond 1 %
+probability." The instance-A numbers land on that cap almost exactly: α=0.25
+yields P(optimal) = 0.2500 and α=0.10 yields 0.1036. That is a reproduction of
+a published effect. It also explains why α=0.5 was chosen over the
+α ∈ [0.1, 0.25] the paper recommends — their range optimises convergence of the
+variational loop under a sampling-accuracy argument, we were optimising
+P(optimal) at a fixed 4 096 shots — but it does not predict which objective wins
+on a given instance, and instance B is the demonstration that it does not.
+
+**One thing this never meant.** The pipeline does not decode modally.
+`_score_counts` scans every sampled feasible bitstring and keeps the
+lowest-objective one, so a mean-tuned run at 4 096 shots still reports the
+optimum — every arm in both tables above returned the exact optimum
+(-0.8681). What the tuning objective moves is P(optimal), the quantity that
+decides whether a run clears the uniform-over-feasible null of 1/C(8,3); it was
+never the difference between a right answer and a wrong one.
+
+**The simulator figures in this section — 0.2078, 0.2195, 0.1848, 0.2305 — are
+different market windows, not competing measurements of one number.** Each
+comparison above is internally controlled; none is comparable across rows.
 
 **Stocks universe — XY-mixer run, ibm_fez, reps=3, ring topology.
 This is the strongest quantum result in the project and the only statistically
