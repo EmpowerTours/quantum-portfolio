@@ -211,13 +211,18 @@ def check_test_counts() -> None:
         check(False, "forge available for test-count verification",
               "install foundry, or run this where forge is on PATH")
         return
-    env = {"PATH": f"{Path.home()}/.foundry/bin:{os.environ.get('PATH','')}",
-           "MONAD_RPC_URL": RPC,
-           "FORK_TOKEN_OUT": "0x754704Bc059F8C67012fEd69BC8A327a5aafb603",
-           "FORK_FEE": "3000"}
+    # Count the SUITE, not one run of it. This used to read "(\d+) tests
+    # passed" from a forge run carrying the full fork env, which made the
+    # documented total a function of live RPC behaviour: locally every fork
+    # test ran and it reported 181, in CI three did not and it reported 178,
+    # so every count claim in every document failed at once for a network
+    # reason. "(N total tests)" is the same number bare, with an RPC only, and
+    # with the full fork env — which is what "181 Foundry tests" actually
+    # means. No fork env is passed, so this neither needs nor touches a chain.
+    env = {"PATH": f"{Path.home()}/.foundry/bin:{os.environ.get('PATH','')}"}
     fo = subprocess.run(["forge", "test"], cwd=ROOT / "contracts",
                         capture_output=True, text=True, env=env, timeout=1800).stdout
-    m = re.search(r"(\d+) tests passed", fo)
+    m = re.search(r"\((\d+) total tests\)", fo)
     nfo = int(m.group(1)) if m else -1
     total = npy + nfo
     print(f"    actual: {npy} Python + {nfo} Foundry = {total}")
