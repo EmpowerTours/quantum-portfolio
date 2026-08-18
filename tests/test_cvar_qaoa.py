@@ -13,12 +13,19 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 from qiskit.quantum_info import Statevector
+
+# Matches every other module in tests/. Redundant with the root conftest.py,
+# and deliberately so: this file imported src.* with no bootstrap and passed
+# under `python -m pytest` (which adds the CWD) while CI's bare `pytest`
+# could not collect it at all.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.data import MarketData
 from src.problem import build_problem
