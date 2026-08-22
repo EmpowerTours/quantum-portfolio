@@ -65,7 +65,7 @@ jobs:
           pip install -r requirements.txt
           pip install pytest
 
-      # Previously this ran two files directly as scripts. Three of the five
+      # Previously this ran two files directly as scripts. Six of the seven
       # test modules use pytest fixtures and parametrisation, so they never
       # ran in CI at all — including the negative tests covering key pinning
       # and the hedge policy, which are the two highest-severity fixes here.
