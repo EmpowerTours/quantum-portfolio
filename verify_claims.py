@@ -199,11 +199,62 @@ def check_cited_artefacts_are_shipped() -> None:
               "every clone. Add a `!` allowlist line to .gitignore.")
 
 
+# A gate that dies with a raw TimeoutExpired traceback reports a red build for
+# an unhelpful reason: on a loaded machine this printed "103 PASS, 0 FAIL" and
+# then crashed with exit 1, which reads as a broken checker rather than a slow
+# one. A timeout is a FAILED CHECK with a name, like every other outcome here.
+def _run_or_fail(cmd, *, cwd, timeout, what, env=None):
+    """Run `cmd`; on timeout or launch failure record a FAIL and return None."""
+    try:
+        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
+                              env=env, timeout=timeout).stdout
+    except subprocess.TimeoutExpired:
+        check(False, f"{what} completed within {timeout}s",
+              "the suite did not finish — re-run on an idle machine, or raise "
+              "the timeout; the counts were NOT verified")
+        return None
+    except OSError as e:
+        check(False, f"{what} could be launched", str(e))
+        return None
+
+
+# The count scanner, as named patterns so tests can import and attack them
+# rather than re-declaring a copy that drifts from the real one.
+#
+# Three shapes escaped the original `(\d{2,4})[- ]tests?\b`, and all three were
+# stale in the repo while this gate reported PASS:
+#   1. The count in PARENTHESES AFTER the word — "# 1. Python tests (155)."
+#      A number-before-word scanner structurally cannot see it.
+#   2. An HTML TAG as the separator — "<div>279<small>tests passing" in the
+#      pitch deck, whose PDF is the judge-facing artefact.
+#   3. Language counts JOINED, with "tests" appearing only once for the pair —
+#      "189 Python + 181 Foundry". The second number has no noun after it.
+COUNT_BARE = re.compile(r"(\d{2,4})(?:[-\s]|<[^>]{1,24}>)*tests?\b")
+COUNT_PAREN = re.compile(r"tests?\s*\((\d{2,4})\)")
+COUNT_LANG = re.compile(
+    r"(\d{2,4})[-\s](?:Python|Foundry|Solidity)\b"
+    r"(?=[-\s]tests?\b|\s*[+&]|\s*<|\s*\)|\s*,)")
+COUNT_PATTERNS = (COUNT_BARE, COUNT_PAREN, COUNT_LANG)
+
+
+def scan_counts(s: str) -> set:
+    """Every test-count claim in `s`, by any of the shapes above."""
+    return {v for v, _ in scan_counts_positioned(s)}
+
+
+def scan_counts_positioned(s: str):
+    """(value, offset) for each count, so callers can inspect its context."""
+    return [(int(m.group(1)), m.start())
+            for rx in COUNT_PATTERNS for m in rx.finditer(s)]
+
+
 def check_test_counts() -> None:
     """The documented totals must equal what the suites actually report."""
     print("\n[tests] documented counts vs actual")
-    py = subprocess.run([sys.executable, "-m", "pytest", "tests/", "-q"],
-                        cwd=ROOT, capture_output=True, text=True, timeout=900).stdout
+    py = _run_or_fail([sys.executable, "-m", "pytest", "tests/", "-q"],
+                      cwd=ROOT, timeout=900, what="pytest")
+    if py is None:
+        return
     m = re.search(r"(\d+) passed", py)
     npy = int(m.group(1)) if m else -1
     if not shutil.which("forge", path=f"{Path.home()}/.foundry/bin:{os.environ.get('PATH','')}"):
@@ -220,8 +271,10 @@ def check_test_counts() -> None:
     # with the full fork env — which is what "181 Foundry tests" actually
     # means. No fork env is passed, so this neither needs nor touches a chain.
     env = {"PATH": f"{Path.home()}/.foundry/bin:{os.environ.get('PATH','')}"}
-    fo = subprocess.run(["forge", "test"], cwd=ROOT / "contracts",
-                        capture_output=True, text=True, env=env, timeout=1800).stdout
+    fo = _run_or_fail(["forge", "test"], cwd=ROOT / "contracts",
+                      timeout=1800, what="forge test", env=env)
+    if fo is None:
+        return
     m = re.search(r"\((\d+) total tests\)", fo)
     nfo = int(m.group(1)) if m else -1
     total = npy + nfo
@@ -235,9 +288,11 @@ def check_test_counts() -> None:
     # tree with "test_verify_claims.py  50 tests OF THE VERIFIER". Those are
     # collected rather than hardcoded, so adding a test to a file that a doc
     # counts fails here instead of quietly making the annotation a lie.
-    coll = subprocess.run([sys.executable, "-m", "pytest", "tests/", "-q",
-                           "--collect-only"],
-                          cwd=ROOT, capture_output=True, text=True, timeout=900).stdout
+    coll = _run_or_fail([sys.executable, "-m", "pytest", "tests/", "-q",
+                         "--collect-only"],
+                        cwd=ROOT, timeout=900, what="pytest --collect-only")
+    if coll is None:
+        return
     per_file = Counter(line.split("::", 1)[0] for line in coll.splitlines()
                        if "::" in line)
     valid = {total, npy, nfo} | set(per_file.values())
@@ -254,9 +309,16 @@ def check_test_counts() -> None:
         # tests" are SUBSET counts, and "12 fork tests" counts what skips.
         # Those are true statements about parts, so admitting them here would
         # force every subset into `valid` and license any number at all.
-        for claimed in set(int(x) for x in re.findall(r"(\d{2,4})[- ]tests?\b", s)
-                           ) | set(int(x) for x in re.findall(
-                r"(\d{2,4})[- ](?:Python|Foundry|Solidity)[- ]tests?\b", s)):
+        for claimed, at in scan_counts_positioned(s):
+            # A count explicitly dated to a past state is a true statement
+            # about history, not a stale claim. DEPLOY_RUNBOOK records "142
+            # Solidity, 85 Python (as of the 2026-07-30 deploy)" on purpose.
+            # This reuses the same excuse the superseded-value gate already
+            # applies, rather than narrowing the pattern until the sentence
+            # stops matching — which is how a gate goes quietly blind.
+            window = s[max(0, at - 200): at + 200]
+            if SUPERSEDED_EXCUSED_LINE.search(window) or "<details>" in window:
+                continue
             check(claimed in valid, f"{path} test count {claimed}",
                   f"expected one of {sorted(valid)} (total {total})")
         for hundreds, rest in set(SPELLED_COUNT.findall(s)):

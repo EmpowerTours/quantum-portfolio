@@ -284,7 +284,7 @@ We do not claim otherwise. `SECURITY.md` states this before anyone asks — it i
 
 <h3>Proof, not promises</h3>
 
-# Live on Monad MAINNET.<br>370 tests. ZK-verified.
+# Live on Monad MAINNET.<br>382 tests. ZK-verified.
 
 <div class="grid-3">
 
@@ -293,7 +293,7 @@ We do not claim otherwise. `SECURITY.md` states this before anyone asks — it i
 </div>
 
 <div>
-<div class="big">279<small>tests passing<br>154 Python + 181 Foundry</small></div>
+<div class="big">382<small>tests passing<br>201 Python + 181 Foundry</small></div>
 </div>
 
 <div>
@@ -322,7 +322,7 @@ We do not claim otherwise. `SECURITY.md` states this before anyone asks — it i
 <table>
 
 <tr><th>Step</th><th>Contract</th><th>What happened (Monad mainnet)</th></tr>
-<tr><td>1. Attest</td><td><a href="https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da"><code>MLDSAAttestation</code></a></td><td>Order's <strong>ML-DSA-65 signature verified on-chain via ZK proof</strong> (1.20M gas measured, vs ~500M estimated for native EVM ML-DSA); <code>pqAttested = true</code></td></tr>
+<tr><td>1. Attest</td><td><a href="https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da"><code>MLDSAAttestation</code></a></td><td>Order's <strong>ML-DSA-65 signature verified on-chain via ZK proof</strong> (1.20M gas measured, vs 8.1M measured for native EVM ML-DSA); <code>pqAttested = true</code></td></tr>
 <tr><td>2. Anchor</td><td><a href="https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd"><code>AuditAnchorV2</code></a></td><td>Hash <code>0xaee5fdf0…3ee9</code> committed, immutable</td></tr>
 <tr><td>3. Swap</td><td><a href="https://monadscan.com/address/0xdaea22d6dcb37fbf1462d6d08ade40a8fac05144"><code>UniswapRoutingVault</code></a></td><td>0.1 MON → <strong>2,125 micro-USDC</strong> (0.002125 USDC ≈ $0.002 — a deliberately tiny live-value demo) via live Uniswap v3, anchor-gated</td></tr>
 <tr><td>4. Yield</td><td><a href="https://monadscan.com/address/0xe3de921790d04656f2640fa1edd75492e911ffa6"><code>MorphoSupplyAdapter</code></a></td><td>USDC supplied into a live <strong>Morpho</strong> market (~4.75% APY), non-custodial</td></tr>
@@ -410,9 +410,9 @@ Everything we built sits on the **2031** line.
 
 <br>
 
-Native EVM ML-DSA verification is estimated at **~500M gas**. Monad's whole block is **150M** — that is **3.3 blocks**, so a native verifier can never be included at all.
+Native EVM ML-DSA verification costs a measured **8.1M gas** (NIST-compliant) or **4.9M** (ZKNoxHQ's optimised ETHDilithium), both KAT-passing and deployed on Sepolia under the Ethereum Foundation's Kohaku project. Against Monad's 150M block that is includable — just expensive.
 
-**We measured 1.20M — 0.8% of one block.** It fits, it ran, and it needs no chain migration and no change to key storage.
+**We measured 1.20M — 6.8x cheaper than the native NIST verifier, and 0.8% of one block.** It ran on mainnet, and it needs no chain migration and no change to key storage.
 
 > Which makes them channel partners, not incumbents.
 
@@ -509,7 +509,7 @@ No conversation with any institution has happened. We would rather be marked dow
 **What does exist, and is checkable:**
 - 4 contracts live on Monad **mainnet**, Monadscan-verified
 - one end-to-end run with **real value**
-- **370 tests**, 0 skipped with the fork env set
+- **382 tests**, 0 skipped with the fork env set
 - 2 IBM Heron runs, job IDs + raw counts published
 - every documented reviewer command **run and reproducible**
 
@@ -577,7 +577,7 @@ Runs everything outside the codebase — company, operations and delivery. Empow
 
 <br>
 
-> Two people shipped four verified mainnet contracts, a ZK circuit, and 370 passing tests. That is the argument for a pilot — and the reason the ask is a counterparty, not headcount.
+> Two people shipped four verified mainnet contracts, a ZK circuit, and 382 passing tests. That is the argument for a pilot — and the reason the ask is a counterparty, not headcount.
 
 </div>
 

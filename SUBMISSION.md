@@ -516,8 +516,8 @@ the 32-byte digest to `AuditAnchor.anchor(bytes32, uint64)`, which:
 giving roughly **27–30 K gas** end-to-end once the 21 K base TX cost,
 ~600 bytes of warm-storage calldata, and warm-SSTORE overhead are
 added. We deliberately do **not** verify ML-DSA on-chain: a pure-
-Solidity verifier would cost an estimated ~500 M gas (literature figure, not measured by us)
-([hackernoon 2026](https://hackernoon.com/comparing-on-chain-post-quantum-signature-verification-for-ethereum)).
+Solidity verifier costs **8.1 M gas** (NIST-compliant) or **4.9 M** (ZKNoxHQ's
+optimised ETHDilithium) — both measured by `make bench` in [ZKNoxHQ/ETHDILITHIUM](https://github.com/ZKNoxHQ/ETHDILITHIUM), NIST MLDSA KAT passing, deployed on Sepolia under the Ethereum Foundation's Kohaku project.
 Anchoring the digest, not the signature, is the cost-feasible cell in
 the off-chain-PQ × on-chain-classical design space — and remains
 useful even after EVM chains adopt native PQ signatures.
@@ -811,7 +811,7 @@ row "Q-Day quantum attacker (on-chain)" documents this explicitly.
 
 **Closing the on-chain gap without waiting for the chain — ZK ML-DSA
 verification (`zk-mldsa/`).** Verifying ML-DSA-65 directly in the EVM
-is estimated at ~500M gas — infeasible against any block limit. That figure is a published estimate we did not measure; what we DID measure is the replacement. Instead we move the lattice verification
+costs a measured 8.1M gas (ZKNoxHQ/ETHDILITHIUM `make bench`, NIST KAT passing) — feasible against Monad's 150M block limit, but 6.8x our route. Instead we move the lattice verification
 off-chain into the **SP1 zkVM** and check a Groth16 proof on-chain for a
 **measured 1 196 224 gas** (`attest()` tx `0x12b7cd0c…7429`)
 on-chain. The guest verifies the **real mainnet order's** ML-DSA-65
@@ -864,7 +864,7 @@ is deterministic.
 
 So the agent's decision now carries an **on-chain, zero-knowledge proof
 of its post-quantum ML-DSA-65 signature** on Monad mainnet, without the
-estimated ~500M-gas cost of verifying ML-DSA natively in the EVM. Measured replacement: 1 196 224 gas, a ~420x reduction.
+measured 8.1M-gas cost of verifying ML-DSA natively in the EVM. Measured replacement: 1 196 224 gas, a 6.8x reduction (4.1x against the optimised 4.9M ETHDilithium variant).
 
 **Precisely what this does and does not do.** `pqAttested[orderHash]` is an
 on-chain *record* that a valid ML-DSA-65 signature by the pinned key exists
@@ -1168,7 +1168,7 @@ Monadscan as evidence of the bug-fix process, not for active use.
 
 ## Test coverage and CI
 
-**370 tests** (`pytest tests/ && forge test`). Nothing skips when
+**382 tests** (`pytest tests/ && forge test`). Nothing skips when
 `MONAD_RPC_URL`, `FORK_TOKEN_OUT` and `FORK_FEE` are all set — an RPC endpoint
 alone is **not** sufficient, and until 2026-08-15 this section claimed it was.
 Bare, the 12 fork tests skip rather than reporting a pass they did not earn.
@@ -1182,7 +1182,7 @@ commands to reproduce them are documented below. An earlier draft of this
 document said every reviewer command was "executed against mainnet in CI".
 That was false, and it is corrected here rather than quietly deleted.
 
-**189 Python tests**
+**201 Python tests**
 - `test_verify_claims.py` (65) — tests OF the claim gate: every retired figure
   is planted next to a heading, a code comment and inside an explanatory
   sentence, asserting the gate catches the first two and excuses the third.
@@ -1257,13 +1257,13 @@ its nestedness, and asserts the returndata is
 
 - **Area 3 (primary) — Digital Infrastructure Secured Against Quantum
   Computing.** The PQ signing layer is not narrative — it is verified by
-  **189 Python tests** (32 PQ-signing, 36 Monad-TX encoding, 18 live-quote,
+  **201 Python tests** (32 PQ-signing, 36 Monad-TX encoding, 18 live-quote,
   17 key-pinning/hedge-policy, 8 audit-chain, 65 verifier self-tests, 13 CVaR
   tuning) and **181 Foundry tests**, of which **70 are an adversarial
   red-team suite** (`contracts/test/redteam/`) that reproduces each
   vulnerability found in the July 2026 audit and then asserts it is closed —
   several against the real Uniswap and Morpho deployments on a mainnet fork.
-  370 tests, none skipped once the fork environment is set. The artefacts are tamper-evident and a reviewer can
+  382 tests, none skipped once the fork environment is set. The artefacts are tamper-evident and a reviewer can
   audit them without running the code. **The full loop is LIVE on Monad
   mainnet (chainId 143), all contracts Monadscan-verified**:
   [AuditAnchorV2](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd),
@@ -1356,11 +1356,12 @@ The industry response so far targets **key storage and chain migration**:
 
 All of that protects the key. **None of it proves, on-chain, that a specific
 settlement was authorised by that key.** That gap exists for a concrete
-engineering reason: verifying an ML-DSA-65 signature in native EVM is estimated
-at **~500 M gas** — a published literature figure we did not measure ourselves.
-Whatever its exact value, it is not merely expensive: Monad's own block gas
-limit, read from a live block, is **150 000 000**, so a native verifier
-overruns an entire block by more than 3× and cannot be included at all.
+engineering reason: verifying an ML-DSA-65 signature in native EVM costs
+**8.1 M gas** (NIST-compliant) or **4.9 M** (ETHDilithium) — measured by `make bench` in [ZKNoxHQ/ETHDILITHIUM](https://github.com/ZKNoxHQ/ETHDILITHIUM), NIST MLDSA KAT passing, deployed on Sepolia under the Ethereum Foundation's Kohaku project.
+Against Monad's block gas limit of **150 000 000**, read from a live block, a
+native verifier is entirely includable — it is 5.4% of a block. The reason to
+avoid it is cost, not feasibility: our Groth16 check is 1 196 224 gas, 6.8x
+cheaper than the NIST-compliant native verifier.
 
 **That is the gap we closed.** `MLDSAAttestation` verifies a Groth16 proof of an
 ML-DSA-65 signature on Monad mainnet for a **measured 1 196 224 gas — 0.8 % of
@@ -1426,7 +1427,7 @@ partners.** No conversation with any institution has taken place.
 
 What exists instead is shipped, verifiable evidence: four contracts live and
 Monadscan-verified on Monad mainnet, one end-to-end run executed with real
-value, 370 tests passing with none skipped once the fork environment is set,
+value, 382 tests passing with none skipped once the fork environment is set,
 two IBM Heron QPU runs with published job IDs and raw counts, and every
 documented reviewer command executed by hand against live Monad mainnet (CI
 runs the deterministic suite only — see "Test coverage and CI"). Reaching
@@ -1477,7 +1478,7 @@ incorporated in Mexico and qualifies under the LATAM startup criteria.
   gate on the managed-cosigner revenue line.
 
 Two people shipped four Monadscan-verified mainnet contracts, an SP1 ZK
-circuit, and 370 passing tests. That is the argument for a pilot, and the
+circuit, and 382 passing tests. That is the argument for a pilot, and the
 reason the ask is for a counterparty rather than for headcount.
 
 ### What we are asking Santander for
@@ -1603,9 +1604,9 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 pip install pytest
 
-# Three of the five test modules use pytest fixtures and parametrisation, so
+# Six of the seven test modules use pytest fixtures and parametrisation, so
 # they must be run under pytest — invoking them as plain scripts skips them.
-pytest tests/ -q                    # 189 tests
+pytest tests/ -q                    # 201 tests
 ( cd contracts && forge test )      # 181 tests; bare, the 12 fork tests skip (169 passed, 12 skipped).
                                    # 0 skipped needs the RPC endpoint AND the pool params:
                                    # MONAD_RPC_URL=… FORK_TOKEN_OUT=… FORK_FEE=3000

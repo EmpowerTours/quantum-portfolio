@@ -5,9 +5,10 @@
 //! agent's post-quantum ML-DSA-65 key — identified by the committed `pkHash` —
 //! signed an order whose hash is the committed `orderHash`, the same hash
 //! anchored on-chain by AuditAnchor.
-//! This is the buildable path to on-chain PQ settlement: the ~500M-gas EVM
-//! ML-DSA verification is moved off-chain into the zkVM and replaced by a
-//! Groth16 proof check, measured at 1,196,224 gas on Monad mainnet.
+//! This is the cheaper path to on-chain PQ settlement: the 8.1M-gas EVM
+//! ML-DSA verification (ZKNoxHQ/ETHDILITHIUM, measured) is moved off-chain into
+//! the zkVM and replaced by a Groth16 proof check, measured at 1,196,224 gas
+//! on Monad mainnet.
 
 #![no_main]
 sp1_zkvm::entrypoint!(main);

@@ -176,8 +176,9 @@ happen with funding" section.
 ### MonadAllocationVault accepts ANY 32-byte hash from ANY caller
 The vault's `execute(bytes32 orderHash, ...)` makes no on-chain check
 that `orderHash` corresponds to a real PQ-signed RebalanceOrder — the
-contract has no way to do this, since ML-DSA verification on-chain
-costs ~500M gas. **An attacker can spend their own gas to call
+contract has no way to do this cheaply — native ML-DSA verification on-chain
+costs a measured 8.1M gas (ZKNoxHQ/ETHDILITHIUM `make bench`), which is
+includable but 6.8x the ZK route this repo ships. **An attacker can spend their own gas to call
 `execute` with a garbage `orderHash`, polluting the on-chain
 `Allocated` event stream with hashes that do not appear in any
 shipped `signed_orders.json`.** This is by design:
@@ -236,9 +237,9 @@ python -c "from src import orders; \
   [print('verified:', orders.verify_signed_order(s, trusted=t)) \
    for s in orders.load_signed_orders()]"
 
-# The full suite. Three of the five modules use pytest fixtures, so running
+# The full suite. Six of the seven modules use pytest fixtures or parametrisation, so running
 # them as plain scripts skips most of what they cover.
-pip install pytest && pytest tests/ -q          # 189 tests
+pip install pytest && pytest tests/ -q          # 201 tests
 ( cd contracts && forge test )                  # 181 tests; bare, the 12 fork tests skip (169 passed, 12 skipped).
                                                 # 0 skipped needs the RPC endpoint AND the pool params:
                                                 # MONAD_RPC_URL=… FORK_TOKEN_OUT=… FORK_FEE=3000

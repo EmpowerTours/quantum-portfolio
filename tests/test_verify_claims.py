@@ -196,3 +196,76 @@ def test_bare_count_is_scanned_regardless_of_what_follows():
               "355 tests. ZK-verified.",
               "- **355 tests**, 0 skipped with an RPC endpoint"):
         assert rx.search(s), f"{s!r} still invisible to the count scanner"
+
+
+# --- the three shapes that sat stale WHILE this gate reported PASS ------------
+# Each string below was really in the repo on 2026-08-21 and really carried a
+# wrong number. They import the live patterns rather than re-declaring a copy,
+# so a regex that drifts fails here instead of going quietly blind again.
+
+@pytest.mark.parametrize("shape,text,expected", [
+    ("count in parentheses AFTER the word",
+     "# 1. Python tests (155). Six of the seven modules use pytest fixtures",
+     155),
+    ("HTML tag as the separator",
+     '<div class="big">279<small>tests passing</small></div>',
+     279),
+    ("second language count, with no noun after it",
+     "279<small>tests passing<br>154 Python + 181 Foundry</small>",
+     181),
+])
+def test_escaped_count_shapes_are_now_seen(shape, text, expected):
+    assert expected in vc.scan_counts(text), (
+        f"{shape}: {expected} still invisible in {text!r}")
+
+
+def test_old_pattern_really_was_blind_to_all_three():
+    """Guards the reason these patterns exist, not just their current output."""
+    old = vc.re.compile(r"(\d{2,4})[- ]tests?\b")
+    for text in ("# 1. Python tests (155).",
+                 '<div class="big">279<small>tests passing</small></div>',
+                 "154 Python + 181 Foundry</small>"):
+        assert not old.search(text), (
+            f"{text!r} was NOT actually a blind spot — this test is wrong")
+
+
+@pytest.mark.parametrize("text", [
+    "70 adversarial tests",        # a SUBSET count, deliberately excluded
+    "12 fork tests",               # counts what skips, not the total
+    "requires Python 3.12",        # a version, not a count
+    "Solidity 0.8.28",
+    "supports 3 Python versions and 2 Foundry profiles",
+    "1952-bit key",
+])
+def test_count_scanner_has_no_false_positives(text):
+    assert not vc.scan_counts(text), f"{text!r} misread as a test count"
+
+
+def test_every_count_pattern_is_reachable():
+    """A pattern nobody can trigger is dead weight that looks like coverage."""
+    for rx in vc.COUNT_PATTERNS:
+        assert rx.pattern, "empty pattern in COUNT_PATTERNS"
+    assert len(vc.COUNT_PATTERNS) == 3
+
+
+def test_dated_historical_count_is_excused_but_live_one_is_not():
+    """A count dated to a past state is history, not a stale claim.
+
+    DEPLOY_RUNBOOK records "142 Solidity, 85 Python" against the 2026-07-30
+    deploy on purpose. Narrowing the pattern until that sentence stops matching
+    is how a gate goes blind; excusing it by its own stated context is not.
+    """
+    historical = ("| Tests *(as of the 2026-07-30 deploy)* | 142 Solidity, "
+                  "85 Python. Recorded as 0 skipped |")
+    seen = vc.scan_counts_positioned(historical)
+    assert seen, "the scanner must still SEE the number, then excuse it"
+    for _, at in seen:
+        window = historical[max(0, at - 200): at + 200]
+        assert vc.SUPERSEDED_EXCUSED_LINE.search(window), \
+            "dated historical count was not excused"
+
+    live = "the suite is 999 Python + 998 Foundry"
+    for _, at in vc.scan_counts_positioned(live):
+        window = live[max(0, at - 200): at + 200]
+        assert not vc.SUPERSEDED_EXCUSED_LINE.search(window), \
+            "an undated live claim must NOT be excused"

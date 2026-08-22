@@ -2,10 +2,14 @@
 
 The Q-Day gap in the on-chain leg was: the audit trail is post-quantum
 (ML-DSA-65) but the on-chain settlement TX is secp256k1, and verifying ML-DSA
-directly in the EVM is estimated at ~500M gas — more than three times Monad's
-entire 150M block gas limit, so it cannot be included at all. This closes that
-gap the **buildable** way: run the lattice verification off-chain in the **SP1
-zkVM** and check a Groth16 proof on-chain for a **measured 1 196 224 gas**.
+directly in the EVM costs **8.1M gas** (NIST-compliant) or **4.9M**
+(ZKNoxHQ's optimised ETHDilithium) — both measured by `make bench` in
+[ZKNoxHQ/ETHDILITHIUM](https://github.com/ZKNoxHQ/ETHDILITHIUM), KAT-passing and
+deployed on Sepolia under the Ethereum Foundation's Kohaku project. That fits in
+a Monad block; it is simply expensive. This closes the gap the cheaper way: run
+the lattice verification off-chain in the **SP1 zkVM** and check a Groth16 proof
+on-chain for a **measured 1 196 224 gas** — 6.8x cheaper than native NIST ML-DSA
+and 4.1x cheaper than ETHDilithium.
 
 ## What it does
 
@@ -141,4 +145,4 @@ proving box.
   a **measured 1 196 224 gas**. Earlier drafts of this file said ~230k, which
   was never measured — the figure above comes from the transaction receipt.
 - Honest: no quantum advantage anywhere here; this is the PQ-*settlement* path,
-  moving a 500M-gas EVM verification into a succinct proof.
+  moving an 8.1M-gas EVM verification into a 1.2M-gas succinct proof check.

@@ -10,9 +10,12 @@ pragma solidity 0.8.28;
 ///         the order existed at a given block height without storing
 ///         the (~33 KB) hedged signatures on-chain.
 /// @dev    We deliberately do NOT verify ML-DSA or SLH-DSA on-chain. A
-///         pure-Solidity ML-DSA verifier costs ~500 M gas per call (see
-///         hackernoon.com/comparing-on-chain-post-quantum-signature-verification-for-ethereum,
-///         2026). The signed-order JSON, the three signatures, and the three
+///         pure-Solidity ML-DSA verifier costs 8.1 M gas per call, and 4.9 M
+///         for ZKNoxHQ's optimised ETHDilithium variant — both measured by
+///         `make bench` in github.com/ZKNoxHQ/ETHDILITHIUM, NIST MLDSA KAT
+///         passing, deployed on Sepolia under the Ethereum Foundation's
+///         Kohaku project. Feasible, but 4-7x our ZK route's measured
+///         1,196,224 gas. The signed-order JSON, the three signatures, and the three
 ///         public keys all stay in the off-chain audit log; this contract
 ///         only anchors the SHA-256 digest, which is ~30 K gas per call and
 ///         remains useful even after EVM chains adopt native PQ signatures.
