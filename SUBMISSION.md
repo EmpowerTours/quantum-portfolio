@@ -558,11 +558,21 @@ loop with real MON**, from deployer wallet
 `0x8dF64bACf6b70F7787f8d14429b258B3fF958ec1`. Both contracts are
 Monadscan-verified (source + ABI public):
 
-| | Address (Monadscan-verified) |
+| | Address |
 |---|---|
-| **AuditAnchorV2** (mainnet) | [`0x8422b555DCE11913A4657C2f47C839637FC71ffd`](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd) |
-| **UniswapRoutingVault** (mainnet) | [`0xDaEa22D6DCB37FBF1462d6d08ADE40A8fAc05144`](https://monadscan.com/address/0xdaea22d6dcb37fbf1462d6d08ade40a8fac05144) |
-| **MorphoSupplyAdapter** (mainnet) | [`0xE3de921790d04656F2640fA1eDD75492e911Ffa6`](https://monadscan.com/address/0xe3de921790d04656f2640fa1edd75492e911ffa6) |
+| **AuditAnchorV2** (mainnet, Monadscan-verified) | [`0x8422b555DCE11913A4657C2f47C839637FC71ffd`](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd) |
+| **UniswapRoutingVault** (mainnet, Monadscan-verified) | [`0xcC60db5E123Cb3150d5F11CA5526a79B4f31113F`](https://monadscan.com/address/0xcc60db5e123cb3150d5f11ca5526a79b4f31113f) |
+| **MorphoSupplyAdapter** (mainnet, Monadscan-verified) | [`0x6D42fA32880aDd1d794abBF98c5Cd104Fe332D89`](https://monadscan.com/address/0x6d42fa32880add1d794abbf98c5cd104fe332d89) |
+| **MLDSAAttestationV2** (mainnet, Monadscan-verified) | [`0xFeEf24A5dBF43E9dE8AC0d0EaB0f0141E980A52c`](https://monadscan.com/address/0xfeef24a5dbf43e9de8ac0d0eab0f0141e980a52c) |
+
+**Read that table together with this paragraph.** The two executors and the
+attestation were redeployed on 2026-08-25 so the agent's ML-DSA identity became
+rotatable (see `zk-mldsa/README.md`). The loop described in this section was
+executed *before* that, against the now-**superseded** executors and the **v1**
+attestation. Those transactions are real and are cited throughout with their
+own addresses; they are evidence that the loop works, not evidence about the
+contracts in the table above, which have not yet carried a settlement of their
+own. Only `AuditAnchorV2` appears on both sides — it was reused unchanged.
 
 <details>
 <summary>Superseded 2026-07-30 (the first deployment, still on chain)</summary>
@@ -836,7 +846,8 @@ settlement, executed:
 
 | | Address / TX (Monadscan-verified) |
 |---|---|
-| MLDSAAttestation (mainnet) | [`0xb0aADaFe68647578520E988b4444e556c300b4Da`](https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da) |
+| MLDSAAttestation **v1**, which produced this attestation and is now superseded | [`0xb0aADaFe68647578520E988b4444e556c300b4Da`](https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da) |
+| MLDSAAttestationV2, live since 2026-08-25, same verifier and vkey | [`0xFeEf24A5dBF43E9dE8AC0d0EaB0f0141E980A52c`](https://monadscan.com/address/0xfeef24a5dbf43e9de8ac0d0eab0f0141e980a52c) |
 | SP1 Groth16 verifier used | `0x7DA83eC4…2abd` (Succinct's canonical Monad deployment) |
 | Program vkey (immutable) | `0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5` |
 | Agent pkHash (immutable) | `0xac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad` |
@@ -850,7 +861,7 @@ contract runs the source in this repository:
 ```bash
 cd zk-mldsa/script && cargo build --release   # builds in ghcr.io/succinctlabs/sp1:v6.3.1
 cargo run --release --bin vkey                # 0x00ed29f3…cbd5
-cast call 0xb0aADaFe68647578520E988b4444e556c300b4Da "mldsaProgramVKey()(bytes32)"
+cast call 0xFeEf24A5dBF43E9dE8AC0d0EaB0f0141E980A52c "mldsaProgramVKey()(bytes32)"
 ```
 
 Both return `0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5`.
@@ -1035,12 +1046,21 @@ cast call --rpc-url https://rpc.monad.xyz \
 #    to the block the anchor landed in makes it permanent AND makes it a
 #    stronger check — at that height the signed execution still SUCCEEDS, so
 #    the contrast is "accepted vs refused" rather than two different reverts.
+**These two commands need an ARCHIVE endpoint.** They replay execution against
+the state at block 94694907, and `https://rpc.monad.xyz` prunes historical
+state — by 2026-08-25 that pin was ~4.4M blocks back and the public endpoint
+answers `-32602: Block requested not found`. That is a limit of the endpoint,
+not of the claim: the transactions themselves are still on chain and still
+inspectable with `cast tx` / `cast receipt` against any node. To re-run the
+accepted-vs-refused contrast below, point `--rpc-url` at an archive node that
+retains state at that height.
+
 PRE=0x$(python -c "
 import sys; sys.path.insert(0, '.')
 from src import orders, pq_signing as pq
 print(pq.canonical_bytes(orders.load_signed_orders()[0].order.to_dict()).hex())
 ")
-V=0xDaEa22D6DCB37FBF1462d6d08ADE40A8fAc05144
+V=0xDaEa22D6DCB37FBF1462d6d08ADE40A8fAc05144   # the retired vault this ran on
 H=0xaee5fdf0e3ec0fcb68617877692b2e959061514da3757f91caf3bc3a229b3ee9
 U=0x8dF64bACf6b70F7787f8d14429b258B3fF958ec1
 SIG="executeAndRoute(bytes32,address[],uint24[],uint16[],uint256[],uint256,bytes)"
@@ -1168,7 +1188,7 @@ Monadscan as evidence of the bug-fix process, not for active use.
 
 ## Test coverage and CI
 
-**382 tests** (`pytest tests/ && forge test`). Nothing skips when
+**424 tests** (`pytest tests/ && forge test`). Nothing skips when
 `MONAD_RPC_URL`, `FORK_TOKEN_OUT` and `FORK_FEE` are all set — an RPC endpoint
 alone is **not** sufficient, and until 2026-08-15 this section claimed it was.
 Bare, the 12 fork tests skip rather than reporting a pass they did not earn.
@@ -1182,8 +1202,8 @@ commands to reproduce them are documented below. An earlier draft of this
 document said every reviewer command was "executed against mainnet in CI".
 That was false, and it is corrected here rather than quietly deleted.
 
-**201 Python tests**
-- `test_verify_claims.py` (65) — tests OF the claim gate: every retired figure
+**243 Python tests**
+- `test_verify_claims.py` (77) — tests OF the claim gate: every retired figure
   is planted next to a heading, a code comment and inside an explanatory
   sentence, asserting the gate catches the first two and excuses the third.
   Includes the spoken-count parser, added after narration in the video script
@@ -1208,6 +1228,12 @@ That was false, and it is corrected here rather than quietly deleted.
 - `test_orders_auditlog.py` (8) — writer and verifier normalise a log
   line identically under five terminator variants; reverse scan survives
   entries beyond the initial window; the shipped log still verifies.
+- `test_pq_rotation.py` (17) — the agent-key rotation statements for
+  `MLDSAAttestationV2`: the 137-byte layout and its parity goldens against the
+  Solidity side; that every bound field (action, subject, nonce, chain id,
+  contract) actually reaches the digest, so no replay guard is decorative; that
+  a statement can never be confused with an order (`M` vs `{`); and that
+  `sign_bytes` cannot be reached through the canonical-JSON path by accident.
 - `test_pq_policy.py` (17) — the negative tests for the two policy flags
   that carry the M-1 and Z-2 defences: key pinning rejects a
   self-consistent forgery signed with the attacker's own three keypairs;
@@ -1257,21 +1283,24 @@ its nestedness, and asserts the returndata is
 
 - **Area 3 (primary) — Digital Infrastructure Secured Against Quantum
   Computing.** The PQ signing layer is not narrative — it is verified by
-  **201 Python tests** (32 PQ-signing, 36 Monad-TX encoding, 18 live-quote,
-  17 key-pinning/hedge-policy, 8 audit-chain, 65 verifier self-tests, 13 CVaR
-  tuning) and **181 Foundry tests**, of which **70 are an adversarial
+  **243 Python tests** (32 PQ-signing, 36 Monad-TX encoding, 18 live-quote,
+  17 key-pinning/hedge-policy, 17 key-rotation, 8 audit-chain, 102 verifier
+  self-tests, 13 CVaR tuning) and **181 Foundry tests**, of which **70 are an adversarial
   red-team suite** (`contracts/test/redteam/`) that reproduces each
   vulnerability found in the July 2026 audit and then asserts it is closed —
   several against the real Uniswap and Morpho deployments on a mainnet fork.
-  382 tests, none skipped once the fork environment is set. The artefacts are tamper-evident and a reviewer can
-  audit them without running the code. **The full loop is LIVE on Monad
-  mainnet (chainId 143), all contracts Monadscan-verified**:
-  [AuditAnchorV2](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd),
-  [UniswapRoutingVault](https://monadscan.com/address/0xdaea22d6dcb37fbf1462d6d08ade40a8fac05144) (real Uniswap v3 swap),
-  [MorphoSupplyAdapter](https://monadscan.com/address/0xe3de921790d04656f2640fa1edd75492e911ffa6) (real Morpho lending deposit), and
-  [MLDSAAttestation](https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da)
+  424 tests, none skipped once the fork environment is set. The artefacts are tamper-evident and a reviewer can
+  audit them without running the code. **The full loop was EXECUTED on Monad
+  mainnet (chainId 143) with real value**, against the contracts live at the
+  time — all Monadscan-verified, all still on chain, and all **superseded** by
+  the 2026-08-25 key-rotation migration except the anchor:
+  [AuditAnchorV2](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd) (still live, reused unchanged),
+  [UniswapRoutingVault](https://monadscan.com/address/0xdaea22d6dcb37fbf1462d6d08ade40a8fac05144) (real Uniswap v3 swap; retired 2026-08-25),
+  [MorphoSupplyAdapter](https://monadscan.com/address/0xe3de921790d04656f2640fa1edd75492e911ffa6) (real Morpho lending deposit; retired 2026-08-25), and
+  [MLDSAAttestation v1](https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da)
   (the order's ML-DSA-65 post-quantum signature **verified on-chain via a
-  zero-knowledge proof**). One PQ-signed agent decision → SHA-256 anchored
+  zero-knowledge proof**; superseded by
+  [MLDSAAttestationV2](https://monadscan.com/address/0xfeef24a5dbf43e9de8ac0d0eab0f0141e980a52c)). One PQ-signed agent decision → SHA-256 anchored
   → real MON→USDC swap → real USDC supplied to a live lending market →
   on-chain ZK attestation of the PQ signature. The routing leg and the ZK
   attestation share `orderHash 0xaee5fdf0…3ee9`; the yield leg carries its
@@ -1427,7 +1456,7 @@ partners.** No conversation with any institution has taken place.
 
 What exists instead is shipped, verifiable evidence: four contracts live and
 Monadscan-verified on Monad mainnet, one end-to-end run executed with real
-value, 382 tests passing with none skipped once the fork environment is set,
+value, 424 tests passing with none skipped once the fork environment is set,
 two IBM Heron QPU runs with published job IDs and raw counts, and every
 documented reviewer command executed by hand against live Monad mainnet (CI
 runs the deterministic suite only — see "Test coverage and CI"). Reaching
@@ -1478,7 +1507,7 @@ incorporated in Mexico and qualifies under the LATAM startup criteria.
   gate on the managed-cosigner revenue line.
 
 Two people shipped four Monadscan-verified mainnet contracts, an SP1 ZK
-circuit, and 382 passing tests. That is the argument for a pilot, and the
+circuit, and 424 passing tests. That is the argument for a pilot, and the
 reason the ask is for a counterparty rather than for headcount.
 
 ### What we are asking Santander for
@@ -1606,7 +1635,7 @@ pip install pytest
 
 # Six of the seven test modules use pytest fixtures and parametrisation, so
 # they must be run under pytest — invoking them as plain scripts skips them.
-pytest tests/ -q                    # 201 tests
+pytest tests/ -q                    # 243 tests
 ( cd contracts && forge test )      # 181 tests; bare, the 12 fork tests skip (169 passed, 12 skipped).
                                    # 0 skipped needs the RPC endpoint AND the pool params:
                                    # MONAD_RPC_URL=… FORK_TOKEN_OUT=… FORK_FEE=3000

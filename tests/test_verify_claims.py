@@ -14,6 +14,8 @@ caught — so the verifier is verified on every commit.
 """
 from __future__ import annotations
 
+import json
+import re
 import sys
 from pathlib import Path
 
@@ -38,7 +40,7 @@ import verify_claims as vc  # noqa: E402
 PROBES: dict[str, str | tuple[str, ...]] = {
     r"~?\s*230\s*[k,]\s*(?:-\s*)?gas|230,000\s*gas": "The attest call costs 230k gas.",
     (r"\b105 (?:tests|automated)\b|\b84 tests\b|\b279 tests\b|"
-     r"\b110 Python tests\b|Two hundred seventy-nine|\b323 tests\b|\b328 tests\b|\b331 tests\b|\b334 tests\b|\b335 tests\b|\b336 tests\b|\b342 tests\b|\b154 tests\b|\b355 tests\b|\b161 Python tests\b|\b174 Python tests\b|Three hundred twenty-three|Three hundred thirty-five|Three hundred forty-two|Three hundred fifty-five"): (
+     r"\b110 Python tests\b|Two hundred seventy-nine|\b323 tests\b|\b328 tests\b|\b331 tests\b|\b334 tests\b|\b335 tests\b|\b336 tests\b|\b342 tests\b|\b154 tests\b|\b355 tests\b|\b399 tests\b|\b161 Python tests\b|\b174 Python tests\b|\b218 Python tests\b|Three hundred twenty-three|Three hundred thirty-five|Three hundred forty-two|Three hundred fifty-five|Three hundred ninety-nine"): (
         "The suite has 279 tests.",
         "**Proof — live on Monad mainnet, 342 tests** | 10 s |",
         "pytest tests/ -q                    # 154 tests",
@@ -47,6 +49,9 @@ PROBES: dict[str, str | tuple[str, ...]] = {
         "Live on Monad MAINNET.<br>355 tests. ZK-verified.",
         "Three hundred fifty-five tests across Python and Foundry.",
         "174 Python tests plus 181 Foundry tests.",
+        "399 tests, none skipped once the fork environment is set.",
+        "218 Python tests plus 181 Foundry tests.",
+        "Three hundred ninety-nine tests across Python and Foundry.",
     ),
     r"81[- ]second": "Watch the 81-second walkthrough.",
     r"fe44195b|d8bf1551": "orderHash 0xd8bf15515669ef1f1d912c6d505d056b1f4ccd5cc6aebcae1b223c05cb8915f9",
@@ -55,6 +60,19 @@ PROBES: dict[str, str | tuple[str, ...]] = {
     r"not yet on the hardware path|not in current HW path": (
         "src/xy_qaoa.py is not yet on the hardware path."),
     r"depth-2 (?:QAOA|penalty)": "A depth-2 QAOA runs on IBM Heron.",
+    (r"0x00364772d1d557782109c04c8041ea0b05fb55705356a621d37c35d6ecdaba72|"
+     r"0x00aa9611944c5e6c493d79011881d42dc28126e0de50a5f4dae1373e3b06c169|"
+     r"\b87ece7e02e2464947a30399983346d2da7a8182f176c065e5635414ea138a376\b|"
+     r"\beccfe103ebebcd43480e42cafc83e5e60ef7357da663634da8a620fc2d0d7faf\b"): (
+        # Both vkeys and both ELF hashes get their own probe: they escaped in
+        # different shapes — a table cell asserting a live value, and prose
+        # explaining a build. One probe would prove the regex matches
+        # something, not that it matches what actually shipped.
+        "| Program vkey | `0x00364772d1d557782109c04c8041ea0b05fb55705356a621d37c35d6ecdaba72` |",
+        "the guest now hashes to 0x00aa9611944c5e6c493d79011881d42dc28126e0de50a5f4dae1373e3b06c169",
+        "Guest ELF SHA-256: `87ece7e02e2464947a30399983346d2da7a8182f176c065e5635414ea138a376`",
+        "built ELF eccfe103ebebcd43480e42cafc83e5e60ef7357da663634da8a620fc2d0d7faf",
+    ),
     r"lastHash\[(?:deployer|anchorer)\]\s*(?:returns|==)": (
         "Confirm AuditAnchor.lastHash[deployer] returns the same hash."),
 }
@@ -269,3 +287,126 @@ def test_dated_historical_count_is_excused_but_live_one_is_not():
         window = live[max(0, at - 200): at + 200]
         assert not vc.SUPERSEDED_EXCUSED_LINE.search(window), \
             "an undated live claim must NOT be excused"
+
+
+# ---------------------------------------------------------------------------
+# The guest gate.
+#
+# MLDSAAttestation pins the vkey as an immutable and the vkey is a hash of the
+# compiled guest ELF, so a one-byte change to the guest is a redeploy of three
+# contracts. On 2026-08-21 a `//!` doc comment grew by one line, which moved
+# `.expect(...)`'s embedded core::panic::Location and therefore the ELF, the
+# vkey and the on-chain identity of the program. Nothing caught it for four
+# days; it surfaced only when a freshly proved fixture would not attest, after
+# the proving box had been paid for.
+#
+# These tests exercise the gate over a SYNTHETIC tree so they prove the
+# sensitivity itself rather than restating the current pin, and so they never
+# edit the working tree.
+
+GUEST_TREE = {
+    "Cargo.toml": "[workspace]\nmembers = [\"lib\", \"program\"]\n",
+    "Cargo.lock": "# lockfile\n",
+    "rust-toolchain": "[toolchain]\nchannel = \"1.90.0\"\n",
+    "script/build.rs": "fn main() {}\n",
+    "program/Cargo.toml": "[package]\nname = \"p\"\n",
+    "program/src/main.rs": "//! one\n//! two\nfn main() { x().expect(\"boom\"); }\n",
+    "lib/Cargo.toml": "[package]\nname = \"l\"\n",
+    "lib/src/lib.rs": "pub fn x() {}\n",
+    "vendor/keccak/Cargo.toml": "[package]\nname = \"keccak\"\n",
+    "vendor/keccak/src/lib.rs": "pub fn f() {}\n",
+}
+
+
+def _tree(tmp_path: Path, **overrides: str) -> Path:
+    files = dict(GUEST_TREE)
+    files.update(overrides)
+    for rel, body in files.items():
+        f = tmp_path / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(body)
+    return tmp_path
+
+
+def test_guest_digest_is_stable_for_identical_trees(tmp_path):
+    a = vc.guest_source_digest(_tree(tmp_path / "a"))[0]
+    b = vc.guest_source_digest(_tree(tmp_path / "b"))[0]
+    assert a == b, "the digest must not depend on anything outside the files"
+
+
+def test_guest_digest_moves_when_a_comment_line_is_added(tmp_path):
+    """The exact 2026-08-21 defect: a doc comment grows by one line."""
+    before = vc.guest_source_digest(_tree(tmp_path / "before"))[0]
+    after = vc.guest_source_digest(_tree(
+        tmp_path / "after",
+        **{"program/src/main.rs":
+           "//! one\n//! two\n//! three\nfn main() { x().expect(\"boom\"); }\n"}))[0]
+    assert before != after, (
+        "a comment-only edit left the digest unchanged — this gate would have "
+        "slept through the defect it exists to catch")
+
+
+@pytest.mark.parametrize("rel", sorted(GUEST_TREE))
+def test_every_guest_input_is_covered_by_the_digest(rel, tmp_path):
+    """Each build input must be able to move the digest on its own.
+
+    A glob that silently stops matching a file is invisible otherwise: the
+    digest keeps validating, and an edit to that file rides through.
+    """
+    before = vc.guest_source_digest(_tree(tmp_path / "before"))[0]
+    after = vc.guest_source_digest(
+        _tree(tmp_path / "after", **{rel: GUEST_TREE[rel] + "\n// touched\n"}))[0]
+    assert before != after, f"{rel} is not covered by GUEST_INPUT_GLOBS"
+
+
+def test_guest_digest_notices_a_renamed_file(tmp_path):
+    """Path-tagging: moving content between files must change the digest."""
+    base = _tree(tmp_path / "base")
+    moved = _tree(tmp_path / "moved")
+    (moved / "lib/src/lib.rs").write_text(GUEST_TREE["vendor/keccak/src/lib.rs"])
+    (moved / "vendor/keccak/src/lib.rs").write_text(GUEST_TREE["lib/src/lib.rs"])
+    assert vc.guest_source_digest(base)[0] != vc.guest_source_digest(moved)[0]
+
+
+def test_empty_tree_does_not_produce_a_passing_digest(tmp_path):
+    """A glob set that matches nothing must not look like a valid tree."""
+    digest, files = vc.guest_source_digest(tmp_path)
+    assert files == []
+    assert digest != vc.GUEST_SOURCE_DIGEST
+
+
+def test_the_repo_still_matches_its_pinned_guest_digest():
+    digest, files = vc.guest_source_digest()
+    assert len(files) >= 10, f"guest input set collapsed to {files}"
+    assert digest == vc.GUEST_SOURCE_DIGEST, (
+        "a guest build input changed. Re-derive with "
+        "`python verify_claims.py --rebuild-guest`; if the vkey moved this is a "
+        "redeploy of MLDSAAttestation and both executors, not a docs edit")
+
+
+@pytest.mark.parametrize("stale", sorted(vc.STALE_VKEYS))
+def test_superseded_vkeys_are_not_the_pinned_one(stale):
+    assert stale != vc.GUEST_VKEY
+
+
+def test_pinned_guest_values_are_wellformed():
+    assert re.fullmatch(r"0x[0-9a-f]{64}", vc.GUEST_VKEY)
+    assert re.fullmatch(r"[0-9a-f]{64}", vc.GUEST_ELF_SHA256)
+    assert re.fullmatch(r"[0-9a-f]{64}", vc.GUEST_SOURCE_DIGEST)
+
+
+def test_shipped_fixtures_carry_the_pinned_vkey():
+    """A fixture proved from a drifted guest reverts on chain.
+
+    prove-both.sh validates a fixture's orderHash and pkHash and only PRINTS
+    its vkey, which is why a proof built from the wrong guest passed its own
+    validation on 2026-08-25 and would have reverted.
+    """
+    fixtures = sorted((ROOT / "zk-mldsa/contracts/src/fixtures")
+                      .glob("groth16-mldsa-*.json"))
+    assert fixtures, "no ML-DSA Groth16 fixtures shipped"
+    for f in fixtures:
+        vk = json.loads(f.read_text()).get("vkey", "").lower()
+        assert vk == vc.GUEST_VKEY, (
+            f"{f.name} carries {vc.STALE_VKEYS.get(vk, vk)}, "
+            f"which MLDSAAttestation does not pin")

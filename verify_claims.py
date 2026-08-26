@@ -10,11 +10,14 @@ Sources of truth, in order of authority:
   2. shipped artefacts  (outputs/*.json — raw counts recompute the metrics)
   3. the test suites    (actual pass counts)
 
-Usage:  python verify_claims.py            (add --chain to include RPC checks)
+Usage:  python verify_claims.py            (add --chain to include RPC checks,
+                                            --rebuild-guest to rebuild the SP1
+                                            guest and re-derive its vkey)
 Exit code is non-zero if any claim fails, so CI can gate on it.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -40,16 +43,21 @@ DOCS = ["README.md", "SUBMISSION.md", "SECURITY.md",
         "zk-mldsa/README.md", "zk-mldsa/contracts/README.md"]
 RPC = "https://rpc.monad.xyz"
 
-# The anchor and the attestation are UNCHANGED across the 2026-08-10 redeploy:
-# AuditAnchorV2 was last edited 2026-07-28 and deployed 2026-07-30, and
-# MLDSAAttestation's verifier / vkey / agentPkHash are immutable and still
-# match the guest. Only the two executors gained the PQExecBinding argument,
-# so only they moved.
+# 2026-08-25: MLDSAAttestationV2 replaced the v1 attestation, and because PQ()
+# is immutable on both executors they had to move with it. AuditAnchorV2 is the
+# only contract that survived unchanged.
+#
+# NOTE THE GAP THIS MAP CANNOT SEE. The six TXS below are the provenance trail,
+# and they ran against the PREVIOUS executors under the v1 attestation — only
+# the two anchor() calls hit a contract still in this map. So "live" here means
+# "this is what a new order would execute against", NOT "this is what the cited
+# proofs demonstrate". Both facts are true and the documents must state which is
+# which; a reader who conflates them has been misled.
 LIVE = {
     "AuditAnchorV2":       "0x8422b555DCE11913A4657C2f47C839637FC71ffd",
-    "UniswapRoutingVault": "0xDaEa22D6DCB37FBF1462d6d08ADE40A8fAc05144",
-    "MorphoSupplyAdapter": "0xE3de921790d04656F2640fA1eDD75492e911Ffa6",
-    "MLDSAAttestation":    "0xb0aADaFe68647578520E988b4444e556c300b4Da",
+    "UniswapRoutingVault": "0xcC60db5E123Cb3150d5F11CA5526a79B4f31113F",
+    "MorphoSupplyAdapter": "0x6D42fA32880aDd1d794abBF98c5Cd104Fe332D89",
+    "MLDSAAttestationV2":  "0xFeEf24A5dBF43E9dE8AC0d0EaB0f0141E980A52c",
 }
 SUPERSEDED = ["0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c",
               "0xe2fcada067227c817b8a47b850d727ba065e16dd",
@@ -60,7 +68,14 @@ SUPERSEDED = ["0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c",
               # upgrade path, which is why shipping the fix meant new
               # addresses rather than a patch.
               "0x06F233062eE23590e5CC873df511024f3d981e56",
-              "0x8d5AE2f23E5d20bFb7915168d6b2a3Ce753fE49E"]
+              "0x8d5AE2f23E5d20bFb7915168d6b2a3Ce753fE49E",
+              # Retired 2026-08-25 by the MLDSAAttestationV2 migration. These
+              # still hold the provenance trail, so unlike the pairs above they
+              # are cited on purpose — but every citation has to say they are
+              # the retired ones, which is exactly what this gate enforces.
+              "0xDaEa22D6DCB37FBF1462d6d08ADE40A8fAc05144",
+              "0xE3de921790d04656F2640fA1eDD75492e911Ffa6",
+              "0xb0aADaFe68647578520E988b4444e556c300b4Da"]
 # Two orders, not one. AuditAnchorV2 stores exactly one execution commitment
 # per (user, orderHash) and refuses to re-anchor, and both executors read that
 # same slot expecting to find THEIR OWN commitment — so the routing leg and the
@@ -74,6 +89,54 @@ TXS = {
     "attest(supply)":  "0xc6ff8b7c7c8e83f07cd015b5f353eb4cd0af9f4bf2ddee4b200138a5968a2a57",
     "anchor(supply)":  "0x5698683a27b6d6a202d5d73c016c6fe65432693ae9e7f1913815c40b8e455552",
     "supply":          "0x6a221f1176a5364381de994452af8bac4546aacc981ebaabd24699d370e0b3eb",
+}
+
+# ---------------------------------------------------------------------------
+# The SP1 guest is consensus-critical bytes, not source.
+#
+# MLDSAAttestation pins `mldsaProgramVKey` as an IMMUTABLE and the vkey is a
+# hash of the compiled guest ELF, so any change that moves the ELF by one byte
+# silently invalidates every proof the deployed contract will ever accept.
+# attest() reverts, and the only remedy is redeploying the attestation AND both
+# executors, because PQ() is immutable on those too.
+#
+# Not theoretical. Commit 1e2ec67 rewrote a `//!` doc comment in
+# program/src/main.rs from three lines to four to correct a gas figure. It
+# changed no logic and no string that any code reads. But
+# `.expect("ML-DSA-65 verification failed")` embeds a
+# core::panic::Location{file, line, col} as static data, so shifting every line
+# below it down by one changed the ELF, the vkey, and therefore the on-chain
+# identity of the program. It went unnoticed for four days and surfaced only
+# when a freshly proved fixture would not attest — after the proving box had
+# already been paid for.
+#
+# GUEST_SOURCE_DIGEST covers every file the guest build reads. It is
+# deliberately a SUPERSET of what can move the vkey: an edit that leaves the
+# ELF alone still trips it. A false alarm costs one --rebuild-guest run. A miss
+# costs a redeploy.
+GUEST_VKEY = "0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5"
+GUEST_ELF_SHA256 = "d82d45eed9f1388d20079446be4acc695cfe99f9ab168b9847c26188ac61c902"
+GUEST_SOURCE_DIGEST = "35d0fdbac7de5a4272251c34baa2a7ffeae5c4e3ae3d5544147611a65af1b99d"
+GUEST_INPUT_GLOBS = ("Cargo.toml", "Cargo.lock", "rust-toolchain",
+                     "script/build.rs",
+                     "program/Cargo.toml", "program/src/**/*.rs",
+                     "lib/Cargo.toml", "lib/src/**/*.rs",
+                     "vendor/keccak/Cargo.toml", "vendor/keccak/src/**/*.rs")
+# Superseded guest builds. Each is a different SOURCE state — NOT a toolchain
+# difference. The build reproduces byte-for-byte across machines and across
+# docker/non-docker, which is the opposite of what 1183bbc concluded when it
+# added `docker: true` to fix a non-existent nondeterminism.
+STALE_VKEYS = {
+    "0x00364772d1d557782109c04c8041ea0b05fb55705356a621d37c35d6ecdaba72":
+        "pre-7ea4020 guest, ELF 87ece7e0... (2026-07-28)",
+    "0x00aa9611944c5e6c493d79011881d42dc28126e0de50a5f4dae1373e3b06c169":
+        "post-1e2ec67 guest, ELF eccfe103... (the four-day comment drift)",
+}
+# v1 is retired but pins the SAME vkey, so it is a second independent witness
+# that the repo and the chain still agree.
+VKEY_PINNED_BY = {
+    "MLDSAAttestationV2":   LIVE["MLDSAAttestationV2"],
+    "MLDSAAttestation(v1)": "0xb0aADaFe68647578520E988b4444e556c300b4Da",
 }
 
 fails: list[str] = []
@@ -626,16 +689,40 @@ def check_reviewer_commands() -> None:
     ok_signed = subprocess.run(
         base + ["[" + ",".join(map(str, ex.amount_out_min)) + "]"] + tail,
         capture_output=True, text=True, timeout=180)
-    check(ok_signed.returncode == 0,
-          "reviewer step 5A: the SIGNED execution succeeds at the pinned block",
-          (ok_signed.stderr or "")[:90])
-
     tampered = subprocess.run(base + ["[1]"] + tail,
                               capture_output=True, text=True, timeout=180)
     blob = (tampered.stderr or "") + (tampered.stdout or "")
-    check("0x1f9e3c96" in blob,
-          "reviewer step 5B: the TAMPERED execution reverts ExecCommitmentMismatch",
-          blob[:90])
+
+    # ARCHIVE DEPTH, NOT A BROKEN CLAIM. These two calls need the STATE at the
+    # pinned block, and the public RPC prunes it — by 2026-08-25 the pin was
+    # ~4.4M blocks back and both arms returned -32602. Reporting that as a
+    # failed claim is worse than useless: the claim is fine, the endpoint
+    # cannot answer, and a gate that cries wolf for environmental reasons is a
+    # gate people learn to ignore.
+    #
+    # But it must not go quietly blind either. So the requirement TRANSFERS: if
+    # the state is unreachable, the document must TELL the reader they need an
+    # archive node, because otherwise they run a published command and get a
+    # bare RPC error with no explanation. That is enforced, and the skip is
+    # printed loudly.
+    pruned = "historical state that is not available"
+    if pruned in ((ok_signed.stderr or "") + blob):
+        print(f"    SKIP  steps 5A/5B: block {blk} is past this RPC's pruning "
+              f"horizon — NOT verified here; needs an archive endpoint")
+        doc_warns = any(
+            w in doc.lower() for w in ("archive node", "archive rpc",
+                                       "archive endpoint", "pruning horizon"))
+        check(doc_warns,
+              "SUBMISSION.md warns that steps 5A/5B need an archive endpoint",
+              "the pinned block's state is pruned on the public RPC, so a "
+              "reviewer following these commands gets -32602 and no reason why")
+    else:
+        check(ok_signed.returncode == 0,
+              "reviewer step 5A: the SIGNED execution succeeds at the pinned block",
+              (ok_signed.stderr or "")[:90])
+        check("0x1f9e3c96" in blob,
+              "reviewer step 5B: the TAMPERED execution reverts ExecCommitmentMismatch",
+              blob[:90])
     check(cm in docs["README.md"] and cm in docs["SUBMISSION.md"],
           "both docs publish that expected commitment")
 
@@ -706,8 +793,8 @@ SUPERSEDED_VALUES: list[tuple[str, str, str]] = [
     (r"~?\s*230\s*[k,]\s*(?:-\s*)?gas|230,000\s*gas",
      "1,196,224 gas", "never measured; the attest receipt says 1196224"),
     (r"\b105 (?:tests|automated)\b|\b84 tests\b|\b279 tests\b|"
-     r"\b110 Python tests\b|Two hundred seventy-nine|\b323 tests\b|\b328 tests\b|\b331 tests\b|\b334 tests\b|\b335 tests\b|\b336 tests\b|\b342 tests\b|\b154 tests\b|\b355 tests\b|\b161 Python tests\b|\b174 Python tests\b|Three hundred twenty-three|Three hundred thirty-five|Three hundred forty-two|Three hundred fifty-five",
-     "370 tests (189 Python + 181 Foundry)",
+     r"\b110 Python tests\b|Two hundred seventy-nine|\b323 tests\b|\b328 tests\b|\b331 tests\b|\b334 tests\b|\b335 tests\b|\b336 tests\b|\b342 tests\b|\b154 tests\b|\b355 tests\b|\b399 tests\b|\b161 Python tests\b|\b174 Python tests\b|\b218 Python tests\b|Three hundred twenty-three|Three hundred thirty-five|Three hundred forty-two|Three hundred fifty-five|Three hundred ninety-nine",
+     "424 tests (243 Python + 181 Foundry)",
      "counts before tests/test_cvar_qaoa.py added the CVaR tuning arm and the "
      "spoken-count probes grew tests/test_verify_claims.py; 154 and 342 "
      "outlived the first bump because the count scanner only read digits "
@@ -726,6 +813,14 @@ SUPERSEDED_VALUES: list[tuple[str, str, str]] = [
      "xy_qaoa IS the hardware path", "the XY mixer produced both shipped runs"),
     (r"depth-2 (?:QAOA|penalty)",
      "reps=3 XY-ring mixer", "both shipped runs are reps=3 XY"),
+    (r"0x00364772d1d557782109c04c8041ea0b05fb55705356a621d37c35d6ecdaba72|"
+     r"0x00aa9611944c5e6c493d79011881d42dc28126e0de50a5f4dae1373e3b06c169|"
+     r"\b87ece7e02e2464947a30399983346d2da7a8182f176c065e5635414ea138a376\b|"
+     r"\beccfe103ebebcd43480e42cafc83e5e60ef7357da663634da8a620fc2d0d7faf\b",
+     "vkey 0x00ed29f3... / guest ELF d82d45ee...",
+     "vkeys and ELF hashes of guest SOURCE STATES the chain does not pin; "
+     "attest() reverts on every one of them, so a doc that quotes one is "
+     "telling a reviewer to expect a proof that cannot verify"),
     (r"lastHash\[(?:deployer|anchorer)\]\s*(?:returns|==)",
      "execCommitmentOf[anchorer][orderHash]",
      "lastHash is last-write-wins and rots; execCommitmentOf is keyed by order"),
@@ -864,6 +959,132 @@ def check_addresses() -> None:
                       "" if ok else "appears without a superseded marker")
 
 
+def guest_source_digest(root: Path | None = None) -> tuple[str, list[str]]:
+    """SHA-256 over every file the SP1 guest build reads, path-tagged.
+
+    Path-tagged so that renaming a file changes the digest, and NUL-delimited
+    so that concatenation cannot be gamed by moving bytes across a boundary.
+
+    `root` exists so the TEST SUITE can run this over a synthetic tree and
+    prove the digest actually moves when a comment line is added — the defect
+    it was written for. A test that could only read the real repo would have to
+    edit it in place, which is unsafe with concurrent sessions and proves
+    nothing on a clean checkout.
+    """
+    z = root if root is not None else ROOT / "zk-mldsa"
+    files: list[Path] = []
+    for pat in GUEST_INPUT_GLOBS:
+        if "*" in pat:
+            files.extend(sorted(z.glob(pat)))
+        elif (z / pat).exists():
+            files.append(z / pat)
+    files = sorted(set(files))
+    h = hashlib.sha256()
+    for f in files:
+        rel = f.relative_to(z).as_posix()
+        h.update(rel.encode()); h.update(b"\0")
+        h.update(f.read_bytes()); h.update(b"\0")
+    return h.hexdigest(), [f.relative_to(z).as_posix() for f in files]
+
+
+def check_guest_vkey() -> None:
+    print("\n[guest] the SP1 guest still hashes to the vkey the chain pins")
+    digest, files = guest_source_digest()
+    # An empty or truncated input set would make the digest a constant that
+    # matches nothing real, so assert the set is populated before trusting it.
+    check(len(files) >= 10, "guest input set is populated", f"{len(files)} files")
+    same = digest == GUEST_SOURCE_DIGEST
+    check(same, "guest source digest unchanged",
+          f"{len(files)} files" if same
+          else f"{digest[:16]}... != pinned {GUEST_SOURCE_DIGEST[:16]}...")
+    if not same:
+        print("        A guest build input changed. If that was deliberate:")
+        print("          python verify_claims.py --rebuild-guest")
+        print("        and if the vkey moved, this is a REDEPLOY of the")
+        print("        attestation and both executors, not a docs edit.")
+
+    # The check that was missing on 2026-08-25. prove-both.sh validates a
+    # fixture's orderHash and pkHash, PRINTS its vkey, and asserts nothing
+    # about it — so a proof built from the drifted guest passed its own
+    # validation, looked correct, and would have reverted on chain.
+    fixdir = ROOT / "zk-mldsa/contracts/src/fixtures"
+    fixtures = sorted(fixdir.glob("groth16-mldsa-*.json"))
+    check(bool(fixtures), "groth16 ML-DSA fixtures present", str(fixdir))
+    for f in fixtures:
+        vk = json.loads(f.read_text()).get("vkey", "").lower()
+        check(vk == GUEST_VKEY, f"fixture {f.name} carries the pinned vkey",
+              "" if vk == GUEST_VKEY else STALE_VKEYS.get(vk, vk or "absent"))
+
+    # A stale vkey or ELF hash in a document tells a reviewer to expect a value
+    # that no build produces — the failure that stood for 24 days.
+    # Superseded vkeys and ELF hashes are policed tree-wide by the
+    # SUPERSEDED_VALUES registry. What that cannot see is a NEW wrong hash it
+    # has never been told about, so assert directly that whatever a document
+    # presents as the guest ELF is the one this source actually builds.
+    for path, body in text().items():
+        for m in re.finditer(r"[Gg]uest ELF SHA-?256\D{0,12}([0-9a-f]{64})", body):
+            check(m.group(1) == GUEST_ELF_SHA256, f"{path} guest ELF hash",
+                  f"documents {m.group(1)[:16]}..., built {GUEST_ELF_SHA256[:16]}...")
+
+    if "--chain" in sys.argv:
+        fo = f"{Path.home()}/.foundry/bin"
+        for name, addr in VKEY_PINNED_BY.items():
+            r = subprocess.run([f"{fo}/cast", "call", addr,
+                                "mldsaProgramVKey()(bytes32)", "--rpc-url", RPC],
+                               capture_output=True, text=True, timeout=120)
+            onchain = r.stdout.strip().lower()
+            check(onchain == GUEST_VKEY, f"{name} pins the repo vkey",
+                  "" if onchain == GUEST_VKEY
+                  else (onchain or r.stderr.strip()[:80] or "no response"))
+
+    if "--rebuild-guest" in sys.argv:
+        # Ground truth, and the only check here that can DERIVE the vkey rather
+        # than compare pinned copies of it. Needs the SP1 toolchain and Docker,
+        # which is why it is opt-in rather than part of every run.
+        script = ROOT / "zk-mldsa/script"
+        env = dict(os.environ)
+        env["PATH"] = (f"{Path.home()}/.cargo/bin:{Path.home()}/.sp1/bin:"
+                       + env.get("PATH", ""))
+        protoc = Path.home() / ".local/protoc/bin/protoc"
+        if protoc.exists():
+            env["PROTOC"] = str(protoc)
+        env.pop("SP1_SKIP_PROGRAM_BUILD", None)
+        out = _run_or_fail(["cargo", "run", "--release", "--bin", "vkey"],
+                           cwd=script, timeout=1800, what="guest rebuild", env=env)
+        if out is not None:
+            got = next((l.strip() for l in reversed(out.splitlines())
+                        if re.fullmatch(r"0x[0-9a-f]{64}", l.strip())), "")
+            check(got == GUEST_VKEY, "rebuilt guest derives the pinned vkey",
+                  "" if got == GUEST_VKEY else STALE_VKEYS.get(got, got or "no vkey printed"))
+            # Hash the ELF `include_elf!` actually embedded, not whatever is
+            # lying around under target/ — a leftover from an earlier build
+            # sits in a sibling directory and would fail this spuriously,
+            # which is how a gate teaches people to ignore it.
+            # Cargo keeps a build directory per build-script fingerprint, so
+            # several `fibonacci-script-*/output` files coexist and all but the
+            # newest are dead — the one just written by this rebuild is the one
+            # whose path `include_elf!` embedded. Taking the newest rather than
+            # asserting there is only one keeps the check from firing on
+            # ordinary cargo housekeeping.
+            outs = sorted((ROOT / "zk-mldsa/target/release/build")
+                          .glob("fibonacci-script-*/output"),
+                          key=lambda f: f.stat().st_mtime, reverse=True)
+            embedded = next(
+                (m.group(1) for out in outs
+                 for m in [re.search(r"SP1_ELF_fibonacci-program=(\S+)",
+                                     out.read_text(errors="ignore"))] if m), None)
+            check(embedded is not None, "build script names the guest ELF",
+                  f"{len(outs)} build outputs scanned")
+            if embedded:
+                e = Path(embedded)
+                check(e.exists(), "embedded guest ELF exists", embedded)
+                if e.exists():
+                    sha = hashlib.sha256(e.read_bytes()).hexdigest()
+                    check(sha == GUEST_ELF_SHA256, "embedded guest ELF sha256",
+                          "" if sha == GUEST_ELF_SHA256
+                          else f"{sha[:16]}... != {GUEST_ELF_SHA256[:16]}...")
+
+
 def check_chain() -> None:
     print("\n[chain] contracts carry code, transactions succeeded")
     fo = f"{Path.home()}/.foundry/bin"
@@ -935,6 +1156,7 @@ def main() -> int:
     check_addresses()
     check_test_counts()
     check_cited_artefacts_are_shipped()
+    check_guest_vkey()
     if "--chain" in sys.argv:
         check_chain()
     print(f"\n{'ALL CLAIMS VERIFIED' if not fails else f'{len(fails)} FAILED:'}")

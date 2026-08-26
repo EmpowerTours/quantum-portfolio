@@ -566,9 +566,14 @@ with tab_pq:
             return None
 
     # Read from the live contract with:
-    #   cast call 0xb0aADaFe68647578520E988b4444e556c300b4Da \
-    #     "agentPkHash()(bytes32)" --rpc-url https://rpc.monad.xyz
+    #   cast call 0xFeEf24A5dBF43E9dE8AC0d0EaB0f0141E980A52c \
+    #     "isAgentPk(bytes32)(bool)" 0xac0b2aea... --rpc-url https://rpc.monad.xyz
     # Hardcoded rather than fetched so the panel needs no RPC at render time.
+    #
+    # MLDSAAttestationV2 (live 2026-08-25) has NO `agentPkHash()` — the single
+    # pinned key became a rotatable set, so the question changed from "what is
+    # the key" to "is this key authorised". The old command silently pointed at
+    # the superseded v1 contract, where the answer can no longer change.
     _ANCHOR_V2 = "0x8422b555DCE11913A4657C2f47C839637FC71ffd"
     # (No _ANCHOR_TX constant: the panel reads the executed transaction from
     # outputs/executed_anchor_tx.json so it cannot drift from the artefact. A
@@ -602,11 +607,13 @@ with tab_pq:
             "artefacts in this repository were signed by the identity that is "
             "pinned on-chain.\n\n"
             f"Local  `keys/pq.pub` SHA-256 — `0x{_h.sha256(trusted.ml_dsa).hexdigest()}`  \n"
-            f"On-chain `agentPkHash`       — `{_ONCHAIN_PK_HASH}`  \n"
+            f"On-chain authorised agent key — `{_ONCHAIN_PK_HASH}`  \n"
             f"**Match: {'yes' if '0x' + _h.sha256(trusted.ml_dsa).hexdigest() == _ONCHAIN_PK_HASH else 'NO'}** "
-            "— check it yourself:\n"
-            "```\ncast call 0xb0aADaFe68647578520E988b4444e556c300b4Da \\\n"
-            '  "agentPkHash()(bytes32)" --rpc-url https://rpc.monad.xyz\n```'
+            "— check it yourself against MLDSAAttestationV2, which holds a "
+            "rotatable SET of authorised keys rather than one pinned value:\n"
+            "```\ncast call 0xFeEf24A5dBF43E9dE8AC0d0EaB0f0141E980A52c \\\n"
+            f'  "isAgentPk(bytes32)(bool)" {_ONCHAIN_PK_HASH} \\\n'
+            "  --rpc-url https://rpc.monad.xyz\n```"
         )
         st.subheader("Verify the shipped signed orders")
         try:

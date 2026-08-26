@@ -28,6 +28,13 @@ outputs/*
 # would find an order unrelated to any deployed transaction. The route order
 # that WAS anchored is signed_orders.json (0xaee5fdf0...).
 !outputs/mainnet_supply_order.json
+# The orders behind the 2026-08-11 mainnet run, archived when the 2026-08-25
+# key-rotation migration replaced the canonical files. The six proof
+# transactions in SUBMISSION.md recompute against THESE and nothing else, so
+# dropping them would leave the historical trail citable but not checkable.
+!outputs/archive/
+!outputs/archive/*.json
+!outputs/archive/README.md
 # Raw counts + job IDs for all 10 replication pairs, so the negative
 # result recomputes without an IBM account — same standard as the
 # positive results it corrects.

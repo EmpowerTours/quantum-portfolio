@@ -183,6 +183,214 @@ Monadscan.
   low but asserted, not proven.
 * **Anything that spends the 501 WMON.** Leave it wrapped unless you need it.
 
+## Rotating the agent key (`MLDSAAttestationV2` only)
+
+Not applicable to the live `MLDSAAttestation` at
+`0xb0aADaFe68647578520E988b4444e556c300b4Da` — its `agentPkHash` is `immutable`
+with no setter, so under it a key change is a redeploy of the attestation
+contract **and** both executors. `zk-mldsa/contracts/src/MLDSAAttestationV2.sol`
+is what removes that; see `zk-mldsa/README.md`.
+
+**Deploying V2 is itself the last forced redeploy.** `PQ()` is `immutable` on
+both executors, so repointing them means new addresses for
+`UniswapRoutingVault` and `MorphoSupplyAdapter` one final time. Use
+`zk-mldsa/contracts/script/DeployMLDSAAttestationV2.s.sol`, which applies the
+same fixture pre-flight as V1 plus a post-deploy assertion that the recovery
+path is actually reachable. It additionally requires `GUARDIAN` to differ from
+the deployer key: a guardian that is the hot key that broadcasts everything is
+a strict downgrade, because one compromise then reaches both. It also refuses a
+guardian with no code, no balance and no nonce, because that is a typo and the
+consequence of the typo is a recovery path that does not exist — found on the
+day it is needed.
+
+### Deploying V2
+
+**Run `zk-mldsa/contracts/deploy-v2.sh` in a real terminal window.** Not through
+Claude Code's `!` prefix and not through an agent's shell tool: neither
+allocates a TTY, so the keystore passphrase prompt cannot work there — and the
+attempt is how a passphrase ended up in a session transcript on 2026-07-30. The
+script refuses to run without a TTY rather than relying on anyone remembering
+that.
+
+```bash
+cd ~/projects/quantum-portfolio/zk-mldsa/contracts
+./deploy-v2.sh --dry-run    # preflight + simulation, never broadcasts
+./deploy-v2.sh              # same, then asks for a typed DEPLOY before sending
+```
+
+It reads no secret, writes none, echoes none, and passes none as an argument —
+the passphrase goes from your terminal straight into forge. Every parameter it
+sets (`SP1_VERIFIER` `0x7DA83eC4…2abd`, `AGENT_PK_HASH` `0xac0b2aea…02ad`,
+`GUARDIAN` `0x05d15996…bc7D`, `RECOVERY_DELAY` 604800) is public and overridable
+by environment variable. It also refuses to proceed if `DEPLOYER_PRIVATE_KEY` is
+set, unless you pass `ALLOW_ENV_KEY=1` deliberately.
+
+Preflight, before anything is signed: chain is 143, the SP1 verifier has code,
+the guardian is neither the deployer nor a dead address, the fixture's `pkHash`
+equals `AGENT_PK_HASH`, and the deployer can pay. Then a simulation whose
+post-deploy `isValidProof` runs the **real** Groth16 proof against the **real**
+verifier in forked state — a pass there means the deployed contract will
+actually attest.
+
+### Deployed 2026-08-25
+
+| | |
+|---|---|
+| `MLDSAAttestationV2` | `0xFeEf24A5dBF43E9dE8AC0d0EaB0f0141E980A52c` |
+| tx | `0x66e06fb31c682e0c9d10ea602c999fdbb52562c687bc5d2ed5ce08995e5669d0` |
+| block | 99109468 |
+| cost | 0.226432248 MON (2 219 924 gas @ 102 gwei) |
+
+Chain-verified after the fact, not read off the deploy log: `isAgentPk(0xac0b2aea…)`
+true, `agentPkCount` 1, `guardian` `0x05d15996…bc7D`, `recoveryDelay` 604800,
+`rotationNonce` 0, `pendingPkHash` zero.
+
+**This is not yet in the execution path.** Both executors still point their
+immutable `PQ()` at v1 `0xb0aADaFe68647578520E988b4444e556c300b4Da`, so until
+steps 2 and 3 land, the live stack is unchanged and the rotation path is
+deployed but unused.
+
+### Steps 2 and 3, deployed 2026-08-25
+
+| Contract | Address | Tx | Block | Cost |
+|---|---|---|---|---|
+| `UniswapRoutingVault` | `0xcC60db5E123Cb3150d5F11CA5526a79B4f31113F` | `0x557c4746…a1f8` | 99111464 | 0.208933434 MON |
+| `MorphoSupplyAdapter` | `0x6D42fA32880aDd1d794abBF98c5Cd104Fe332D89` | `0x75ff1c5e…00ba` | 99125304 | 0.13483533 MON |
+
+Migration total 0.570201012 MON. Chain-verified: both new executors return
+`PQ() = 0xFeEf24A5…A52c`, both return `ANCHOR() = 0x8422b555…1ffd`, and the
+superseded pair still returns v1 `0xb0aADaFe…` — which is the one-call proof
+the gate actually moved.
+
+**The provenance trail did NOT move with them.** All six cited proof
+transactions ran against the now-retired executors under the v1 attestation.
+The live contracts have not yet carried a real settlement. Either re-run the
+demo loop against them (two fresh ML-DSA signatures, two fresh Groth16 proofs,
+anchor, execute with real value) or say plainly in the docs which addresses the
+historical evidence belongs to. Do not let a reader infer the proofs were
+produced by the contracts now listed as live.
+
+### One contract per deploy
+
+All three deploys are separate scripts producing a single `CREATE` transaction
+each. Keep it that way and run them one at a time, verifying each on Monadscan
+before starting the next: Monadscan verification is per-contract, so a bundled
+run just means untangling which address goes with which constructor args
+afterwards. `deploy-v2.sh` prints the deployed address and a ready-to-paste
+`forge verify-contract` command with the constructor arguments re-encoded from
+the **live contract**, so they cannot drift from what was actually deployed. Set
+`VERIFIER_URL` and `ETHERSCAN_API_KEY` and it runs the verification itself.
+
+Per the round-1 pattern, pass no `--chain` flag — the chainid inside
+`--verifier-url` is what routes it. The URL is the Etherscan V2 multichain
+endpoint, and it is baked into all three deploy scripts as the `VERIFIER_URL`
+default:
+
+```
+https://api.etherscan.io/v2/api?chainid=143
+```
+
+`ETHERSCAN_API_KEY` lives in `~/projects/fcempowertours/.env`, the same file as
+the deployer key.
+
+**All four live contracts are verified** (confirmed 2026-08-25 via
+`module=contract&action=getsourcecode`, which returns the contract name and
+source for each): `AuditAnchorV2`, `UniswapRoutingVault`, `MorphoSupplyAdapter`,
+`MLDSAAttestationV2`. The two executors reported "already verified" on
+submission — Monadscan matched the bytecode — so only the attestation needed an
+explicit upload.
+
+**The guardian is an EOA, not a multisig** — chain-checked 2026-08-24: no code,
+nonce 2, 69.8 MON. That is a deliberate choice and the script only warns, but it
+sets an operational requirement rather than removing one. A compromised guardian
+still cannot revoke a key, cannot attest, and cannot act inside the delay; what
+it can do is add a key after `RECOVERY_DELAY` **if nobody vetoes**. The delay is
+only a defence if somebody is watching it:
+
+```bash
+# alert on this — a proposal you did not make is the signal to veto
+cast logs --address $ATT 'RecoveryProposed(bytes32,uint64)' --rpc-url $RPC
+```
+
+The composite failure to avoid is guardian compromised **and** agent key lost or
+unwatched. Either alone is survivable; together, after seven days, the attacker
+holds an authorised key. Moving the guardian to a multisig later needs no
+redeploy — `rotateSetGuardian` does it with one proof.
+
+### Planned rotation — you still hold the old key
+
+```bash
+ATT=0x<MLDSAAttestationV2>
+RPC=https://rpc.monad.xyz
+NONCE=$(cast call $ATT 'rotationNonce()(uint256)' --rpc-url $RPC)
+
+# 1. sign the statement with the CURRENTLY authorised key
+python -m src.pq_rotation --action add --subject 0x<sha256 of new keys/pq.pub> \
+    --contract $ATT --chain-id 143 --nonce $NONCE --keys keys/ \
+    --out zk-mldsa/mldsa_input.json
+# 2. prove it on a >=32 GB box — same guest, same vkey, same pipeline as an order
+# 3. submit rotateAdd(newPkHash, publicValues, proofBytes)
+# 4. confirm
+cast call $ATT 'isAgentPk(bytes32)(bool)' 0x<new pk hash> --rpc-url $RPC   # true
+cast call $ATT 'agentPkCount()(uint256)' --rpc-url $RPC                    # 2
+```
+
+Then let anything already in flight settle before step 5, because **revocation
+is retroactive**: `pqAttested` resolves through the key that minted the
+attestation, so revoking voids orders that were attested and not yet executed.
+
+```bash
+# 5. once nothing is in flight, revoke the old key WITH THE NEW ONE
+python -m src.pq_rotation --action revoke --subject 0x<sha256 of OLD pq.pub> \
+    --contract $ATT --chain-id 143 --nonce $(cast call $ATT 'rotationNonce()(uint256)' --rpc-url $RPC) \
+    --keys keys/ --out zk-mldsa/mldsa_input.json
+# prove, then submit rotateRevoke(oldPkHash, publicValues, proofBytes)
+```
+
+`rotateRevoke` refuses to remove the last authorised key, so no sequence of
+these commands can brick the contract.
+
+### Recovery — the key is lost
+
+The path that exists because a PQ-authorised rotation cannot serve the case
+where no valid signature can be produced any more.
+
+```bash
+# guardian proposes; this is PUBLIC and starts the veto window
+cast send $ATT 'proposeRecovery(bytes32)' 0x<sha256 of new pq.pub> --rpc-url $RPC ...
+cast call $ATT 'pendingEta()(uint64)' --rpc-url $RPC   # execute at or after this
+# after recoveryDelay, anyone can execute
+cast send $ATT 'executeRecovery()' --rpc-url $RPC ...
+```
+
+If you see a `RecoveryProposed` you did not initiate and you still hold an
+authorised key, **veto it** — that is what the delay is for:
+
+```bash
+python -m src.pq_rotation --action veto --subject 0x<the pending pk hash> \
+    --contract $ATT --chain-id 143 --nonce $(cast call $ATT 'rotationNonce()(uint256)' --rpc-url $RPC) \
+    --keys keys/ --out zk-mldsa/mldsa_input.json
+# prove, then submit vetoRecovery(publicValues, proofBytes)
+```
+
+Note the asymmetry: proposing costs the guardian one cheap `cast send`, but
+vetoing costs the agent a Groth16 proof, so a guardian that re-proposes after
+every veto imposes real cost. The answer is to fire it rather than keep vetoing
+— one proof instead of an unbounded series, and it drops the live proposal in
+the same transaction:
+
+```bash
+python -m src.pq_rotation --action set-guardian --subject 0x<new guardian address> \
+    --contract $ATT --chain-id 143 --nonce $(cast call $ATT 'rotationNonce()(uint256)' --rpc-url $RPC) \
+    --keys keys/ --out zk-mldsa/mldsa_input.json
+# prove, then submit rotateSetGuardian(newGuardian, publicValues, proofBytes)
+```
+
+The guardian can also renounce (`setGuardian(address(0))`), which is final from
+its side but not from the agent's — `rotateSetGuardian` can appoint a new one at
+any time. So an outgoing guardian cannot strip a live agent of its recovery
+option, only give up its own.
+
 ## Operational invariant this deployment assumes
 
 `AuditAnchorV2` treats the commitment as opaque bytes and cannot validate the

@@ -11,32 +11,60 @@ the shipped demonstration.
 1. **[Open the interactive Streamlit demo](https://quantum-portfolio-awhfbfwtbqmp2swgpsvxwf.streamlit.app/)** — run the cached optimizer, inspect AI forecasts and backtesting, verify the real IBM hardware artefacts, and exercise PQ signing/tamper detection.
 2. **[Watch the 90-second product walkthrough](docs/DEMO_VIDEO.mp4)**.
 3. **[Review the Santander submission narrative](SUBMISSION.md)** and the linked IBM Quantum jobs and Monad transactions.
-4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 201 Python tests plus 181 Foundry tests (382 total) are documented below. The 12 fork tests need a Monad RPC endpoint **and** the pool parameters, and skip without them; with `MONAD_RPC_URL`, `FORK_TOKEN_OUT` and `FORK_FEE` all set, nothing skips.
+4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 243 Python tests plus 181 Foundry tests (424 total) are documented below. The 12 fork tests need a Monad RPC endpoint **and** the pool parameters, and skip without them; with `MONAD_RPC_URL`, `FORK_TOKEN_OUT` and `FORK_FEE` all set, nothing skips.
 5. **[Read the business case](SUBMISSION.md#business-model-market-and-go-to-market)** — who buys this, why the 31 December 2031 deadline is the forcing function, how it is priced, and what we are asking Santander for.
 
 **Traction, stated up front so it is not a discovery:** we have no customers, no
 revenue and no letters of intent. What we have is shipped and checkable — four
 Monadscan-verified contracts on Monad mainnet, one end-to-end run executed with
-real value, 382 passing tests, and two IBM Heron QPU runs with published job IDs
+real value, 424 passing tests, and two IBM Heron QPU runs with published job IDs
 and raw counts.
 
 ## Live on Monad mainnet (chainId 143)
 
-Four contracts, all Monadscan-verified — source and ABI public. Click any of
-them; nothing here needs to be taken on trust.
+Four contracts. Source and ABI are public for all of them; click any address.
 
 | Contract | Address |
 |---|---|
 | **AuditAnchorV2** | [`0x8422b555DCE11913A4657C2f47C839637FC71ffd`](https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd) |
-| **UniswapRoutingVault** | [`0xDaEa22D6DCB37FBF1462d6d08ADE40A8fAc05144`](https://monadscan.com/address/0xdaea22d6dcb37fbf1462d6d08ade40a8fac05144) |
-| **MorphoSupplyAdapter** | [`0xE3de921790d04656F2640fA1eDD75492e911Ffa6`](https://monadscan.com/address/0xe3de921790d04656f2640fa1edd75492e911ffa6) |
-| **MLDSAAttestation** | [`0xb0aADaFe68647578520E988b4444e556c300b4Da`](https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da) |
+| **UniswapRoutingVault** | [`0xcC60db5E123Cb3150d5F11CA5526a79B4f31113F`](https://monadscan.com/address/0xcc60db5e123cb3150d5f11ca5526a79b4f31113f) |
+| **MorphoSupplyAdapter** | [`0x6D42fA32880aDd1d794abBF98c5Cd104Fe332D89`](https://monadscan.com/address/0x6d42fa32880add1d794abbf98c5cd104fe332d89) |
+| **MLDSAAttestationV2** | [`0xFeEf24A5dBF43E9dE8AC0d0EaB0f0141E980A52c`](https://monadscan.com/address/0xfeef24a5dbf43e9de8ac0d0eab0f0141e980a52c) |
 
-The two executors were **redeployed on 2026-08-10** so that execution is bound
-in Solidity to the post-quantum signature (`PQExecBinding`). The pair they
-replace is retired: those contracts are immutable with no upgrade path, which
-is why shipping the fix meant new addresses rather than a patch. See
-[SECURITY.md](SECURITY.md) for what the old ones did and did not enforce.
+All four are Monadscan-verified — source and ABI public. Confirm it yourself
+without trusting this page:
+
+```bash
+curl -s "https://api.etherscan.io/v2/api?chainid=143&module=contract\
+&action=getsourcecode&address=0xFeEf24A5dBF43E9dE8AC0d0EaB0f0141E980A52c\
+&apikey=$ETHERSCAN_API_KEY" | jq -r '.result[0].ContractName'
+```
+
+**What changed on 2026-08-25.** `MLDSAAttestationV2` replaces a single
+`immutable` `agentPkHash` with a reconfigurable *set* of authorised ML-DSA keys,
+so the agent identity can now be rotated or recovered by signing instead of by
+redeploying. Because `PQ()` is `immutable` on both executors, adopting it meant
+redeploying them too — the last time that should be necessary. See
+[zk-mldsa/README.md](zk-mldsa/README.md) for the design.
+
+**Where the proof transactions live.** The executed demo loop cited below ran
+against the **superseded** set, retired on 2026-08-25 — `UniswapRoutingVault`
+[`0xDaEa22D6…5144`](https://monadscan.com/address/0xdaea22d6dcb37fbf1462d6d08ade40a8fac05144),
+`MorphoSupplyAdapter`
+[`0xE3de9217…Ffa6`](https://monadscan.com/address/0xe3de921790d04656f2640fa1edd75492e911ffa6)
+and the v1 attestation
+[`0xb0aADaFe…b4Da`](https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da),
+all superseded but still on chain. Those transactions are real and remain valid
+evidence that the loop works end to end; they are **not** evidence about the
+contracts listed above, which have not yet carried a settlement of their own.
+Only the two `anchor()` transactions hit a contract that is still live
+(`AuditAnchorV2`, reused unchanged).
+
+The 2026-08-10 redeploy before that bound execution in Solidity to the
+post-quantum signature (`PQExecBinding`). Every one of these contracts is
+immutable with no upgrade path, which is why each change means new addresses
+rather than a patch. See [SECURITY.md](SECURITY.md) for what the earlier ones
+did and did not enforce.
 
 One end-to-end run, executed with real value on 2026-08-10:
 
@@ -220,7 +248,7 @@ curl -L https://foundry.paradigm.xyz | bash && foundryup
 ### Path A — verify the shipped artefact
 
 ```sh
-# 1. Python tests (201). Six of the seven modules use pytest fixtures or parametrisation, so
+# 1. Python tests (243). Seven of the eight modules use pytest fixtures or parametrisation, so
 #    they must run under pytest — as plain scripts they error out.
 pip install pytest && pytest tests/ -q
 
@@ -314,7 +342,9 @@ python run_backtest.py
 ├── zk-mldsa/                    SP1 zkVM proof of the ML-DSA-65 signature
 │   ├── program/                 guest: verifies the sig, commits (orderHash, pkHash)
 │   ├── export_mldsa_input.py    refuses to export input signed by a non-live key
-│   └── contracts/               MLDSAAttestation + its deploy script
+│   └── contracts/               MLDSAAttestation (live) + V2 with the key-rotation
+│                                path, their deploy scripts, and 43 rotation tests
+│                                (separate Foundry project, counted separately)
 ├── tests/
 │   ├── test_pq_signing.py       32 PQ / canonicalisation / keypair-lifecycle tests
 │   ├── test_monad_tx.py         36 calldata, commitment + route-validation tests
@@ -322,10 +352,11 @@ python run_backtest.py
 │   ├── test_orders_auditlog.py  8 audit-chain normalisation tests
 │   ├── test_pq_policy.py        17 negative tests for key pinning + hedge policy
 │   ├── test_cvar_qaoa.py        13 CVaR objective + XY-mixer feasibility tests
-│   └── test_verify_claims.py    77 tests OF THE VERIFIER — plants every retired
+│   ├── test_pq_rotation.py      17 agent-key rotation statements + Solidity parity
+│   └── test_verify_claims.py    102 tests OF THE VERIFIER — plants every retired
 │                                figure next to a heading and asserts the gate
 │                                catches it (it silently stopped catching once)
-│   (Plus 181 Foundry tests in contracts/test/ above — 382 tests total)
+│   (Plus 181 Foundry tests in contracts/test/ above — 424 tests total)
 ├── outputs/
 │   ├── hardware_run.json        Cached IBM-QPU result
 │   ├── backtest.json            Walk-forward metrics

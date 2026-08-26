@@ -327,6 +327,42 @@ def sign(payload: Any, sk: bytes) -> bytes:
     return bytes(_mldsa.sign(sk, canonical_bytes(payload)))
 
 
+def sign_bytes(message: bytes, sk: bytes) -> bytes:
+    """Sign RAW bytes with ML-DSA-65, bypassing canonical JSON encoding.
+
+    `sign` exists for order payloads, which are objects. Reconfiguration
+    statements for `MLDSAAttestationV2` are a fixed binary layout that the
+    contract recomputes itself (see `src/pq_rotation`), so they are not JSON
+    and must not be routed through `canonical_bytes` — doing so would sign
+    a quoted base64 string instead of the 137 bytes the contract hashes.
+    """
+    if not isinstance(message, (bytes, bytearray)):
+        raise TypeError("message must be bytes-like")
+    if len(sk) != SECRET_KEY_BYTES:
+        raise ValueError(f"sk length {len(sk)} != {SECRET_KEY_BYTES}")
+    return bytes(_mldsa.sign(sk, bytes(message)))
+
+
+def verify_bytes(message: bytes, signature: bytes, pk: bytes) -> bool:
+    """Verify a raw-bytes ML-DSA-65 signature. Mirrors `verify`'s contract:
+    False on cryptographic failure, raises on caller-side type errors."""
+    if pk is None or signature is None or message is None:
+        raise TypeError("message, signature, and pk are all required")
+    if not isinstance(pk, (bytes, bytearray)) or not isinstance(signature, (bytes, bytearray)):
+        raise TypeError("pk and signature must be bytes-like")
+    if not isinstance(message, (bytes, bytearray)):
+        raise TypeError("message must be bytes-like")
+    if len(pk) != PUBLIC_KEY_BYTES:
+        return False
+    try:
+        _mldsa.verify(pk, bytes(message), signature)
+        return True
+    except DSSVerifyFailedError:
+        return False
+    except (ValueError, AssertionError):
+        return False
+
+
 def verify(payload: Any, signature: bytes, pk: bytes) -> bool:
     """Verify a payload signature.
 

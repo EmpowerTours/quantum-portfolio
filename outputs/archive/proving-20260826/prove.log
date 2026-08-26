@@ -1,0 +1,94 @@
+==> SP1_PROVER=cpu
+
+===================================================================
+==> Proving the route leg  (this pulls the gnark image on first run)
+===================================================================
+warning: unexpected `cfg` condition value: `succinct`
+   --> vendor/keccak/src/lib.rs:151:39
+    |
+151 |         #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))]
+    |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `target_vendor` are: `amd`, `apple`, `espressif`, `fortanix`, `ibm`, `kmc`, `mti`, `nintendo`, `nvidia`, `openwrt`, `pc`, `risc0`, `sony`, `sun`, `unikraft`, `unknown`, `uwp`, `win7`, and `wrs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: requested on the command line with `-W unexpected-cfgs`
+
+warning: `keccak` (lib) generated 1 warning
+warning: fibonacci-script@0.1.0: docker: rustc +succinct --version: "rustc 1.94.0-dev\n"
+warning: fibonacci-script@0.1.0: docker: rustc_bin: "/root/.sp1/toolchains/g7wv95WZT7/bin/rustc"
+warning: fibonacci-script@0.1.0: fibonacci-program built at 2026-08-26 04:53:12
+   Compiling fibonacci-script v0.1.0 (/root/zk-mldsa/script)
+    Finished `release` profile [optimized] target(s) in 1.19s
+     Running `/root/zk-mldsa/target/release/evm --system groth16 --input /root/zk-mldsa/mldsa_input_route.json`
+Proof System: Groth16
+Verification Key: 0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5
+orderHash: 0x8fdc00574550c6bfdb79b564171aa6959171923bf3af683ad3b04a4c945dd3de
+pkHash: 0xac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad
+Public Values: 0x8fdc00574550c6bfdb79b564171aa6959171923bf3af683ad3b04a4c945dd3deac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad
+Proof Bytes: 0x4388a21c0000000000000000000000000000000000000000000000000000000000000000002f850ee998974d6cc00e50cd0814b098c05bfade466d28573240d057f25352000000000000000000000000000000000000000000000000000000000000000021bc66624fb99a5a666fc7c31dd355ab6fabe99a6c593c64536062fcb3295b010d1eab51aaab8afeb5ebdab3cce37902e473dd505b5da890dce4b2c9a83979fd1fe00aed8f21c00dbdbadedd28e48534c8366776bcea1e492aa11951b3385cc815ad0cb1bc28d3723f79790ca6c11f86be3aaee873e0d7f4e616893bd55d67560b8a3450fc6e7cbe1b9eee5040d9fcfd3f3a5cbf8f6fc4cfe15362e12f85977b04140b8ce2d8f276713b717b468a8a086f89c1edc73312493669a48d6ed1134325c08988ddb3bff44f36285bba7b9c865e807e9bdb546248aa8e34b20b84b2e101c04c5318e331b690d28b095fcc9b88063d2213761e90e4dc105c31546d4a7a
+Wrote fixture to contracts/src/fixtures/
+==> wrote /root/zk-mldsa/contracts/src/fixtures/groth16-mldsa-route.json
+  [route] orderHash 8fdc00574550c6bfdb79b564171aa6959171923bf3af683ad3b04a4c945dd3de  OK
+  [route] pkHash    ac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad  OK
+  [route] vkey      0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5
+  [route] proof     356 bytes
+
+===================================================================
+==> Proving the supply leg  (this pulls the gnark image on first run)
+===================================================================
+warning: unexpected `cfg` condition value: `succinct`
+   --> vendor/keccak/src/lib.rs:151:39
+    |
+151 |         #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))]
+    |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `target_vendor` are: `amd`, `apple`, `espressif`, `fortanix`, `ibm`, `kmc`, `mti`, `nintendo`, `nvidia`, `openwrt`, `pc`, `risc0`, `sony`, `sun`, `unikraft`, `unknown`, `uwp`, `win7`, and `wrs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: requested on the command line with `-W unexpected-cfgs`
+
+warning: `keccak` (lib) generated 1 warning
+warning: fibonacci-script@0.1.0: docker: rustc +succinct --version: "rustc 1.94.0-dev\n"
+warning: fibonacci-script@0.1.0: docker: rustc_bin: "/root/.sp1/toolchains/g7wv95WZT7/bin/rustc"
+warning: fibonacci-script@0.1.0: fibonacci-program built at 2026-08-26 04:53:12
+    Finished `release` profile [optimized] target(s) in 1.29s
+     Running `/root/zk-mldsa/target/release/evm --system groth16 --input /root/zk-mldsa/mldsa_input_supply.json`
+Proof System: Groth16
+Verification Key: 0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5
+orderHash: 0x6b18b11bb5c2b8856e4641a772a120f2e96fb5d8e62d38b7d453a14c4380b639
+pkHash: 0xac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad
+Public Values: 0x6b18b11bb5c2b8856e4641a772a120f2e96fb5d8e62d38b7d453a14c4380b639ac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad
+Proof Bytes: 0x4388a21c0000000000000000000000000000000000000000000000000000000000000000002f850ee998974d6cc00e50cd0814b098c05bfade466d28573240d057f25352000000000000000000000000000000000000000000000000000000000000000027340795fc6004e196749e8471662290c46d659b3e44e9f8f014579355190092228962272b3cfab9de878a80c4d401fe6ad380e13e6fe43fc215c723d8c1b9d30b697a81484bb5fb2ffa4a3225728386c59e541ababd1b1461e90ef79bcfab110d5ac2a6344b9e6615beefbf29672f5628d7bbe51c8ed4bc9e31c20af6be1a0d271a92300580da3ac2f9922a7f10aab3bd117fc55a4c6b46919b3e7bbbd296cd0a13daebdf508f66d109689e0c18c4f0bd3cf10d04d24478e7f980498de89a66090497fa75c8b0496ed6a8eef9bfc4c82e82dd608c97a2fb69a5aa478d350a98061b969dd1f0742d97234c7000e2d9352d7adb4d32a3c1b92836b9f35bd7a558
+Wrote fixture to contracts/src/fixtures/
+==> wrote /root/zk-mldsa/contracts/src/fixtures/groth16-mldsa-supply.json
+  [supply] orderHash 6b18b11bb5c2b8856e4641a772a120f2e96fb5d8e62d38b7d453a14c4380b639  OK
+  [supply] pkHash    ac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad  OK
+  [supply] vkey      0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5
+  [supply] proof     356 bytes
+
+  Both legs share vkey 0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5
+
+======================= ROUTE FIXTURE =========================
+{
+  "orderHash": "0x8fdc00574550c6bfdb79b564171aa6959171923bf3af683ad3b04a4c945dd3de",
+  "pkHash": "0xac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad",
+  "vkey": "0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5",
+  "publicValues": "0x8fdc00574550c6bfdb79b564171aa6959171923bf3af683ad3b04a4c945dd3deac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad",
+  "proof": "0x4388a21c0000000000000000000000000000000000000000000000000000000000000000002f850ee998974d6cc00e50cd0814b098c05bfade466d28573240d057f25352000000000000000000000000000000000000000000000000000000000000000021bc66624fb99a5a666fc7c31dd355ab6fabe99a6c593c64536062fcb3295b010d1eab51aaab8afeb5ebdab3cce37902e473dd505b5da890dce4b2c9a83979fd1fe00aed8f21c00dbdbadedd28e48534c8366776bcea1e492aa11951b3385cc815ad0cb1bc28d3723f79790ca6c11f86be3aaee873e0d7f4e616893bd55d67560b8a3450fc6e7cbe1b9eee5040d9fcfd3f3a5cbf8f6fc4cfe15362e12f85977b04140b8ce2d8f276713b717b468a8a086f89c1edc73312493669a48d6ed1134325c08988ddb3bff44f36285bba7b9c865e807e9bdb546248aa8e34b20b84b2e101c04c5318e331b690d28b095fcc9b88063d2213761e90e4dc105c31546d4a7a"
+}
+======================= SUPPLY FIXTURE ========================
+{
+  "orderHash": "0x6b18b11bb5c2b8856e4641a772a120f2e96fb5d8e62d38b7d453a14c4380b639",
+  "pkHash": "0xac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad",
+  "vkey": "0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5",
+  "publicValues": "0x6b18b11bb5c2b8856e4641a772a120f2e96fb5d8e62d38b7d453a14c4380b639ac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad",
+  "proof": "0x4388a21c0000000000000000000000000000000000000000000000000000000000000000002f850ee998974d6cc00e50cd0814b098c05bfade466d28573240d057f25352000000000000000000000000000000000000000000000000000000000000000027340795fc6004e196749e8471662290c46d659b3e44e9f8f014579355190092228962272b3cfab9de878a80c4d401fe6ad380e13e6fe43fc215c723d8c1b9d30b697a81484bb5fb2ffa4a3225728386c59e541ababd1b1461e90ef79bcfab110d5ac2a6344b9e6615beefbf29672f5628d7bbe51c8ed4bc9e31c20af6be1a0d271a92300580da3ac2f9922a7f10aab3bd117fc55a4c6b46919b3e7bbbd296cd0a13daebdf508f66d109689e0c18c4f0bd3cf10d04d24478e7f980498de89a66090497fa75c8b0496ed6a8eef9bfc4c82e82dd608c97a2fb69a5aa478d350a98061b969dd1f0742d97234c7000e2d9352d7adb4d32a3c1b92836b9f35bd7a558"
+}
+===============================================================
+Both fixtures are valid. Copy them back to
+  zk-mldsa/contracts/src/fixtures/
+then DESTROY THIS BOX (it bills by the hour).
+
+The vkey above must equal what MLDSAAttestationV2 pins:
+  cast call 0xFeEf24A5dBF43E9dE8AC0d0EaB0f0141E980A52c \
+    'mldsaProgramVKey()(bytes32)' --rpc-url https://rpc.monad.xyz
+EXIT_CODE=0
