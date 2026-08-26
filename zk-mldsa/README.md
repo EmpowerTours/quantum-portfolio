@@ -8,7 +8,7 @@ directly in the EVM costs **8.1M gas** (NIST-compliant) or **4.9M**
 deployed on Sepolia under the Ethereum Foundation's Kohaku project. That fits in
 a Monad block; it is simply expensive. This closes the gap the cheaper way: run
 the lattice verification off-chain in the **SP1 zkVM** and check a Groth16 proof
-on-chain for a **measured 1 196 224 gas** — 6.8x cheaper than native NIST ML-DSA
+on-chain for a **measured 1 192 295 gas** — 6.8x cheaper than native NIST ML-DSA
 and 4.1x cheaper than ETHDilithium.
 
 ## What it does
@@ -41,7 +41,7 @@ and 4.1x cheaper than ETHDilithium.
 ### Status: the fixture is CURRENT and deployed
 
 `contracts/src/fixtures/groth16-mldsa-fixture.json` proves the ML-DSA-65
-signature over orderHash `0xaee5fdf0…3ee9` — the same order anchored and
+signature over orderHash `0x8fdc0057…d3de` — the same order anchored and
 swapped on Monad mainnet — by the live signing key `ac0b2aea…`.
 
 | | |
@@ -50,7 +50,7 @@ swapped on Monad mainnet — by the live signing key `ac0b2aea…`.
 | vkey | `0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5` |
 | proof | 356 bytes, selector `0x4388a21c` |
 | Deployed to | `MLDSAAttestation` **v1**, superseded 2026-08-25 by [MLDSAAttestationV2](https://monadscan.com/address/0xfeef24a5dbf43e9de8ac0d0eab0f0141e980a52c) but still holding this attestation: [`0xb0aADaFe68647578520E988b4444e556c300b4Da`](https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da) |
-| `attest()` | [`0x12b7cd0c…7429`](https://monadscan.com/tx/0x12b7cd0cdda7b4d2c2a5b049e71265e6464c286e643a5524ee3825ef1f277429), 1 196 224 gas |
+| `attest()` | [`0xcd37af90…8688`](https://monadscan.com/tx/0xcd37af90ca043ee2da205855433d8c9cda9fb0466dd01df2d78224f44ed98688), 1 192 295 gas |
 
 An *earlier* fixture was unusable in three ways — 32-byte single-field
 publicValues, the superseded vkey `0x00eddc1f…8c37`, and a signature by the
@@ -159,7 +159,7 @@ proving box.
    deployed contract afterwards — so a bricked deployment fails loudly at
    deploy time rather than on first use.
 3. Call `attest(publicValues, proofBytes)` -> the proof verifies on-chain
-   (**1 196 224 gas measured**, from the receipt of tx `0x12b7cd0c…7429`)
+   (**1 192 295 gas measured**, from the receipt of tx `0xcd37af90…8688`)
    and the orderHash is recorded as PQ-attested.
 
 ## Key rotation (`MLDSAAttestationV2`)
@@ -182,8 +182,10 @@ different powers. **Live on Monad mainnet at
 99109468), and both executors were redeployed the same day to gate on it:
 `UniswapRoutingVault` `0xcC60db5E123Cb3150d5F11CA5526a79B4f31113F` and
 `MorphoSupplyAdapter` `0x6D42fA32880aDd1d794abBF98c5Cd104Fe332D89`. The
-migration cost 0.5702 MON in total. The proof transactions cited above ran
-before it, on the retired pair.
+migration cost 0.5702 MON in total. The proof transactions cited above were
+re-run against this pair on 2026-08-26, from fresh ML-DSA signatures and fresh
+Groth16 proofs, so the evidence and the live contracts are the same set. The
+earlier run on the retired pair is preserved in `outputs/archive/`.
 
 **It reuses the existing proving stack unchanged.** The guest commits
 `(sha256(msg), sha256(pk))` for an *arbitrary* message — nothing in it is
@@ -263,7 +265,7 @@ real fixture on the real verifier immediately after deploying.
 - Prior art (SP1 Dilithium verifier): ~22 s proofs, ~260-byte on-chain proof.
 - This build: real ML-DSA-65 verification of the **mainnet-settled order** runs
   provably in the zkVM (3.04M cycles); the on-chain check is a Groth16 proof at
-  a **measured 1 196 224 gas**. Earlier drafts of this file said ~230k, which
+  a **measured 1 192 295 gas**. Earlier drafts of this file said ~230k, which
   was never measured — the figure above comes from the transaction receipt.
 - Honest: no quantum advantage anywhere here; this is the PQ-*settlement* path,
   moving an 8.1M-gas EVM verification into a 1.2M-gas succinct proof check.

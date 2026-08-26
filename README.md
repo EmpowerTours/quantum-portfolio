@@ -11,13 +11,13 @@ the shipped demonstration.
 1. **[Open the interactive Streamlit demo](https://quantum-portfolio-awhfbfwtbqmp2swgpsvxwf.streamlit.app/)** — run the cached optimizer, inspect AI forecasts and backtesting, verify the real IBM hardware artefacts, and exercise PQ signing/tamper detection.
 2. **[Watch the 90-second product walkthrough](docs/DEMO_VIDEO.mp4)**.
 3. **[Review the Santander submission narrative](SUBMISSION.md)** and the linked IBM Quantum jobs and Monad transactions.
-4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 243 Python tests plus 181 Foundry tests (424 total) are documented below. The 12 fork tests need a Monad RPC endpoint **and** the pool parameters, and skip without them; with `MONAD_RPC_URL`, `FORK_TOKEN_OUT` and `FORK_FEE` all set, nothing skips.
+4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 244 Python tests plus 181 Foundry tests (425 total) are documented below. The 12 fork tests need a Monad RPC endpoint **and** the pool parameters, and skip without them; with `MONAD_RPC_URL`, `FORK_TOKEN_OUT` and `FORK_FEE` all set, nothing skips.
 5. **[Read the business case](SUBMISSION.md#business-model-market-and-go-to-market)** — who buys this, why the 31 December 2031 deadline is the forcing function, how it is priced, and what we are asking Santander for.
 
 **Traction, stated up front so it is not a discovery:** we have no customers, no
 revenue and no letters of intent. What we have is shipped and checkable — four
 Monadscan-verified contracts on Monad mainnet, one end-to-end run executed with
-real value, 424 passing tests, and two IBM Heron QPU runs with published job IDs
+real value, 425 passing tests, and two IBM Heron QPU runs with published job IDs
 and raw counts.
 
 ## Live on Monad mainnet (chainId 143)
@@ -47,18 +47,24 @@ redeploying. Because `PQ()` is `immutable` on both executors, adopting it meant
 redeploying them too — the last time that should be necessary. See
 [zk-mldsa/README.md](zk-mldsa/README.md) for the design.
 
-**Where the proof transactions live.** The executed demo loop cited below ran
-against the **superseded** set, retired on 2026-08-25 — `UniswapRoutingVault`
-[`0xDaEa22D6…5144`](https://monadscan.com/address/0xdaea22d6dcb37fbf1462d6d08ade40a8fac05144),
-`MorphoSupplyAdapter`
-[`0xE3de9217…Ffa6`](https://monadscan.com/address/0xe3de921790d04656f2640fa1edd75492e911ffa6)
-and the v1 attestation
-[`0xb0aADaFe…b4Da`](https://monadscan.com/address/0xb0aadafe68647578520e988b4444e556c300b4da),
-all superseded but still on chain. Those transactions are real and remain valid
-evidence that the loop works end to end; they are **not** evidence about the
-contracts listed above, which have not yet carried a settlement of their own.
-Only the two `anchor()` transactions hit a contract that is still live
-(`AuditAnchorV2`, reused unchanged).
+**Where the proof transactions live.** All seven transactions cited below ran
+on 2026-08-26 against the contracts listed above — the V2-gated
+`UniswapRoutingVault` `0xcC60db5E…113F`, `MorphoSupplyAdapter`
+`0x6D42fA32…2D89`, `MLDSAAttestationV2` `0xFeEf24A5…A52c` and `AuditAnchorV2`
+`0x8422b555…1ffd`. The evidence and the live addresses are the same set.
+
+This was not true between 2026-08-25 and 2026-08-26, and the distinction is
+worth keeping in mind when reading any such claim. The key-rotation migration
+redeployed both executors, and because `PQ()` is immutable they got new
+addresses — so for a day the documented proofs belonged to the **retired**
+pair ([`0xDaEa22D6…5144`](https://monadscan.com/address/0xdaea22d6dcb37fbf1462d6d08ade40a8fac05144),
+[`0xE3de9217…Ffa6`](https://monadscan.com/address/0xe3de921790d04656f2640fa1edd75492e911ffa6))
+under the v1 attestation, while the addresses presented as live had never
+carried a settlement. Both statements were individually true and the pairing
+was misleading. The re-run closed it by executing the loop again, from a fresh
+pair of ML-DSA signatures and Groth16 proofs, against the live set. The retired
+contracts remain on chain, and their transactions are preserved in
+`outputs/archive/`.
 
 The 2026-08-10 redeploy before that bound execution in Solidity to the
 post-quantum signature (`PQExecBinding`). Every one of these contracts is
@@ -66,16 +72,16 @@ immutable with no upgrade path, which is why each change means new addresses
 rather than a patch. See [SECURITY.md](SECURITY.md) for what the earlier ones
 did and did not enforce.
 
-One end-to-end run, executed with real value on 2026-08-10:
+One end-to-end run, executed with real value on 2026-08-26:
 
 | Step | Transaction | Effect |
 |---|---|---|
-| ZK attest | [`0x12b7cd0c…7429`](https://monadscan.com/tx/0x12b7cd0cdda7b4d2c2a5b049e71265e6464c286e643a5524ee3825ef1f277429) | Groth16 proof of the order's ML-DSA-65 signature verified on-chain |
-| Anchor | [`0xcf0cdd9f…a8e7`](https://monadscan.com/tx/0xcf0cdd9f8790eebf1522bb4b36c445d46e15b4e5aa3377038bae941cd5f5a8e7) | commits the exact trade the signature authorises |
-| Swap | [`0xb6970f57…0e85e`](https://monadscan.com/tx/0xb6970f574b9e9f95f55c80707869c017244a87467023c1a4181687b2cac0e85e) | 0.1 MON → **2 125 micro-USDC** via live Uniswap v3, with the signed order preimage checked on-chain |
-| ZK attest (yield) | [`0xc6ff8b7c…2a57`](https://monadscan.com/tx/0xc6ff8b7c7c8e83f07cd015b5f353eb4cd0af9f4bf2ddee4b200138a5968a2a57) | second Groth16 proof — the yield leg is its own signed order |
-| Anchor (yield) | [`0x5698683a…5552`](https://monadscan.com/tx/0x5698683a27b6d6a202d5d73c016c6fe65432693ae9e7f1913815c40b8e455552) | commits the exact market and ceiling the signature authorises |
-| Yield | [`0x6a221f11…0b3eb`](https://monadscan.com/tx/0x6a221f1176a5364381de994452af8bac4546aacc981ebaabd24699d370e0b3eb) | supplied into a live Morpho Blue market, position accruing |
+| ZK attest | [`0xcd37af90…8688`](https://monadscan.com/tx/0xcd37af90ca043ee2da205855433d8c9cda9fb0466dd01df2d78224f44ed98688) | Groth16 proof of the order's ML-DSA-65 signature verified on-chain |
+| Anchor | [`0x34e79cbf…2a65`](https://monadscan.com/tx/0x34e79cbf6a90bdf54f3d0c67000511614f81fcd799fc66310b267951614b2a65) | commits the exact trade the signature authorises |
+| Swap | [`0xa72f1a97…0f2f8`](https://monadscan.com/tx/0xa72f1a9766e5dedce75c18956cd654c9428a0d0ce9f367de35072cca5080f2f8) | 0.1 MON → **2 755 micro-USDC** via live Uniswap v3, with the signed order preimage checked on-chain |
+| ZK attest (yield) | [`0x0126b15a…d145`](https://monadscan.com/tx/0x0126b15ae20d9ccb723f87d0f7a35605279cb67c114e2ee51bcfda2a5542d145) | second Groth16 proof — the yield leg is its own signed order |
+| Anchor (yield) | [`0x37b7fdfe…7afb`](https://monadscan.com/tx/0x37b7fdfec2f0a320c25e620675e75842eb8b3f2ca00c3b71f3c4f12e16ce7afb) | commits the exact market and ceiling the signature authorises |
+| Yield | [`0x4b758d3a…c6007`](https://monadscan.com/tx/0x4b758d3abc5f86101ead5d19590986f6cd96d39f75f7489d0a4b085dfebc6007) | supplied into a live Morpho Blue market, position accruing |
 
 The routing and yield legs carry **separate** orderHashes. `AuditAnchorV2`
 stores one execution commitment per `(user, orderHash)` and refuses to
@@ -248,7 +254,7 @@ curl -L https://foundry.paradigm.xyz | bash && foundryup
 ### Path A — verify the shipped artefact
 
 ```sh
-# 1. Python tests (243). Seven of the eight modules use pytest fixtures or parametrisation, so
+# 1. Python tests (244). Seven of the eight modules use pytest fixtures or parametrisation, so
 #    they must run under pytest — as plain scripts they error out.
 pip install pytest && pytest tests/ -q
 
@@ -276,8 +282,8 @@ cast call --rpc-url https://rpc.monad.xyz \
   0x8422b555DCE11913A4657C2f47C839637FC71ffd \
   "execCommitmentOf(address,bytes32)(bytes32)" \
   0x8df64bacf6b70f7787f8d14429b258b3ff958ec1 \
-  0xaee5fdf0e3ec0fcb68617877692b2e959061514da3757f91caf3bc3a229b3ee9
-# Expected: 0xa0499d9315573f7644d91c059c7b8ffc27464482407b61cf82407b86282caa00
+  0x8fdc00574550c6bfdb79b564171aa6959171923bf3af683ad3b04a4c945dd3de
+# Expected: 0x3ffed7a240f167d2ed19c0b490ef87c9de8db3460ad219017ec7be02adc9827e
 
 # 5. Recompute every documented claim, including the commands above:
 python verify_claims.py --chain
@@ -353,10 +359,10 @@ python run_backtest.py
 │   ├── test_pq_policy.py        17 negative tests for key pinning + hedge policy
 │   ├── test_cvar_qaoa.py        13 CVaR objective + XY-mixer feasibility tests
 │   ├── test_pq_rotation.py      17 agent-key rotation statements + Solidity parity
-│   └── test_verify_claims.py    102 tests OF THE VERIFIER — plants every retired
+│   └── test_verify_claims.py    103 tests OF THE VERIFIER — plants every retired
 │                                figure next to a heading and asserts the gate
 │                                catches it (it silently stopped catching once)
-│   (Plus 181 Foundry tests in contracts/test/ above — 424 tests total)
+│   (Plus 181 Foundry tests in contracts/test/ above — 425 tests total)
 ├── outputs/
 │   ├── hardware_run.json        Cached IBM-QPU result
 │   ├── backtest.json            Walk-forward metrics

@@ -82,13 +82,19 @@ SUPERSEDED = ["0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c",
 # yield leg cannot share an orderHash. Each therefore needs its own ML-DSA
 # signature, its own Groth16 proof and its own attestation. That is the direct
 # cost of the M-6 fix, and it is the honest shape of the system.
+# Re-run 2026-08-26 against the V2-gated executors. The previous six ran on the
+# retired pair under the v1 attestation, so the contracts listed as LIVE had
+# never carried a settlement — the docs described a system the deployed
+# addresses had never executed. These six close that: same six calls, same two
+# orders, against 0xcC60db5E / 0x6D42fA32 with PQ() = MLDSAAttestationV2.
 TXS = {
-    "attest(route)":   "0x12b7cd0cdda7b4d2c2a5b049e71265e6464c286e643a5524ee3825ef1f277429",
-    "anchor(route)":   "0xcf0cdd9f8790eebf1522bb4b36c445d46e15b4e5aa3377038bae941cd5f5a8e7",
-    "executeAndRoute": "0xb6970f574b9e9f95f55c80707869c017244a87467023c1a4181687b2cac0e85e",
-    "attest(supply)":  "0xc6ff8b7c7c8e83f07cd015b5f353eb4cd0af9f4bf2ddee4b200138a5968a2a57",
-    "anchor(supply)":  "0x5698683a27b6d6a202d5d73c016c6fe65432693ae9e7f1913815c40b8e455552",
-    "supply":          "0x6a221f1176a5364381de994452af8bac4546aacc981ebaabd24699d370e0b3eb",
+    "attest(route)":   "0xcd37af90ca043ee2da205855433d8c9cda9fb0466dd01df2d78224f44ed98688",
+    "anchor(route)":   "0x34e79cbf6a90bdf54f3d0c67000511614f81fcd799fc66310b267951614b2a65",
+    "executeAndRoute": "0xa72f1a9766e5dedce75c18956cd654c9428a0d0ce9f367de35072cca5080f2f8",
+    "attest(supply)":  "0x0126b15ae20d9ccb723f87d0f7a35605279cb67c114e2ee51bcfda2a5542d145",
+    "anchor(supply)":  "0x37b7fdfec2f0a320c25e620675e75842eb8b3f2ca00c3b71f3c4f12e16ce7afb",
+    "approve":         "0xc49345cbd1978e8bb64122ad0d760c35e4750949e2a30b88f2b2a0cec641321c",
+    "supply":          "0x4b758d3abc5f86101ead5d19590986f6cd96d39f75f7489d0a4b085dfebc6007",
 }
 
 # ---------------------------------------------------------------------------
@@ -297,7 +303,14 @@ COUNT_PAREN = re.compile(r"tests?\s*\((\d{2,4})\)")
 COUNT_LANG = re.compile(
     r"(\d{2,4})[-\s](?:Python|Foundry|Solidity)\b"
     r"(?=[-\s]tests?\b|\s*[+&]|\s*<|\s*\)|\s*,)")
-COUNT_PATTERNS = (COUNT_BARE, COUNT_PAREN, COUNT_LANG)
+#   4. The count in parentheses after a FILENAME rather than after the word —
+#      "- `test_verify_claims.py` (77) — tests OF the claim gate". COUNT_PAREN
+#      requires the literal "tests (77)", so this shape was invisible, and a
+#      stale 77 survived the 2026-08-26 pass that corrected every other count
+#      in the repo. Found by hand, which is precisely what this gate exists to
+#      make unnecessary.
+COUNT_FILE = re.compile(r"`[\w./-]+\.(?:py|sol|rs|ts|tsx|js)`\s*\((\d{2,4})\)")
+COUNT_PATTERNS = (COUNT_BARE, COUNT_PAREN, COUNT_LANG, COUNT_FILE)
 
 
 def scan_counts(s: str) -> set:
@@ -833,7 +846,14 @@ SUPERSEDED_VALUES: list[tuple[str, str, str]] = [
 # incidental excuse words happening to sit nearby, which is what it was
 # doing until 2026-08-08.
 SUPERSEDED_EXCUSED_FILES = ("AUDIT_", "zk-mldsa/vendor/", "verify_claims.py",
-                            "tests/test_verify_claims.py")
+                            "tests/test_verify_claims.py",
+                            # Raw logs of the runs that produced the shipped
+                            # artefacts, including the 2026-08-26 run whose
+                            # first attempt emitted the drifted vkey. The log
+                            # is EVIDENCE that the wrong value was produced,
+                            # not a claim that it is correct — scrubbing it
+                            # would destroy the record of the defect.
+                            "outputs/archive/")
 # NOTE: do NOT add a bare "# " here. It was present until 2026-08-08 to excuse
 # code comments, but in markdown it matches every heading — so a stale value
 # within the context window of ANY heading was silently excused. A planted
@@ -936,7 +956,11 @@ def check_doc_coverage() -> None:
     tracked = subprocess.run(["git", "ls-files", "*.md"], cwd=ROOT,
                              capture_output=True, text=True).stdout.split()
     excused_prefix = ("AUDIT_",)          # dated snapshots, frozen on purpose
-    excused_dir = ("zk-mldsa/vendor/",)   # third-party
+    # outputs/archive/ holds RETIRED artefacts and the logs of the runs that
+    # produced them. Its README exists to say what each one is superseded by,
+    # so it necessarily quotes superseded values — putting it under the live
+    # gate would force deleting the very history it documents.
+    excused_dir = ("zk-mldsa/vendor/", "outputs/archive/")   # third-party, retired
     for f in tracked:
         if f.startswith(excused_prefix) or f.startswith(excused_dir):
             continue
@@ -1093,53 +1117,84 @@ def check_chain() -> None:
                            capture_output=True, text=True, timeout=120)
         size = int(r.stdout.strip() or 0)
         check(size > 0, f"{name} has code", f"{size} bytes")
+    attest_gas = None
     for name, tx in TXS.items():
         r = subprocess.run([f"{fo}/cast", "receipt", tx, "--rpc-url", RPC],
                            capture_output=True, text=True, timeout=120)
         st = re.search(r"^status\s+(\d)", r.stdout, re.M)
         check(bool(st) and st.group(1) == "1", f"tx {name} succeeded")
-        if name == "attest":
+        # startswith, NOT ==. The keys are "attest(route)" and "attest(supply)"
+        # and have been since the M-6 split, so `name == "attest"` matched
+        # nothing and this entire gas gate was dead code — it never ran once
+        # while the figure it polices sat in eleven documents.
+        #
+        # Record the gas here but run the document scan ONCE after the loop:
+        # doing it inside meant every finding was reported twice, once per
+        # attest transaction, which is its own kind of noise.
+        if name.startswith("attest") and attest_gas is None:
             g = re.search(r"^gasUsed\s+(\d+)", r.stdout, re.M)
             if g:
-                gas = int(g.group(1))
-                # Only figures presented as the ATTEST cost. A deploy-cost
-                # estimate or a block gas limit is a different, legitimate
-                # number, and flagging those trained the reader to ignore this
-                # check — the same failure as the test-count false positive.
-                ctx = re.compile(r"(attest|groth16|zk|proof|on-chain (?:pq|post-quantum|"
-                                 r"signature|verification)|ml-dsa verification)", re.I)
-                # Match BOTH "1,196,224 gas" and abbreviated "~230k gas" /
-                # "1.2M gas". The original defect was written in the
-                # abbreviated form, so a checker that only understood full
-                # figures would have sailed straight past the very bug it
-                # exists to catch. Verified by mutation.
-                num = re.compile(r"([\d,\s]{3,12}|\d+(?:\.\d+)?\s*[kKmM])\s*gas")
-                for path, body in text().items():
-                    for m in re.finditer(num, body):
-                        raw = m.group(1).strip().replace(",", "")
-                        if raw[-1] in "kK":
-                            v = str(int(float(raw[:-1].strip()) * 1_000))
-                        elif raw[-1] in "mM":
-                            v = str(int(float(raw[:-1].strip()) * 1_000_000))
-                        else:
-                            v = raw.replace(" ", "")
-                        if not (v.isdigit() and 100_000 < int(v) < 10_000_000):
-                            continue
-                        window = body[max(0, m.start() - 260):m.end() + 120]
-                        # Negative guard first: a deployment cost or a block
-                        # gas limit is a different number that legitimately
-                        # sits near attest vocabulary — including in a label
-                        # that exists precisely to say "this is NOT that".
-                        if re.search(r"deploy\w*\s+cost|block gas limit|"
-                                     r"not the attest|deployment estimate|"
-                                     r"nativ\w+|literature|estimated at|"
-                                     r"pure-solidity|would cost",
-                                     window, re.I):
-                            continue
-                        if not ctx.search(window):
-                            continue
-                        check(abs(int(v) - gas) < 1000,
-                              f"{path} attest gas figure {v}", f"actual {gas}")
+                attest_gas = int(g.group(1))
+
+    if attest_gas is not None:
+        _check_attest_gas_figures(attest_gas)
+
+
+def _check_attest_gas_figures(gas: int) -> None:
+    """Every documented attest cost must equal the measured one.
+
+    The band below is what keeps this honest. Earlier the scan accepted any
+    figure from 100k to 10M and leaned on prose keywords to reject the rest,
+    so the first time it actually ran it flagged the 8.1M native-EVM verifier
+    figure and a 2,219,924 deploy cost — both correct numbers describing
+    different quantities. A gate that cries wolf gets ignored, which is how
+    the 230k overclaim survived in the first place.
+
+    A figure PRESENTED as the attest cost and a figure that IS the attest cost
+    can only differ by drift, and drift is small: the defect this exists to
+    catch was 1,196,224 against a measured 1,192,295. So only consider numbers
+    within 0.5x-1.5x of the measured value — close enough to be claiming to be
+    the same quantity. 8.1M (6.8x) and 2.2M (1.9x) are excluded structurally
+    rather than by guessing at wording. Anything wildly wrong is a different
+    claim and is caught by the superseded-value registry instead.
+    """
+    # Only figures presented as the ATTEST cost. A deploy-cost estimate or a
+    # block gas limit is a different, legitimate number, and flagging those
+    # trained the reader to ignore this check — the same failure as the
+    # test-count false positive.
+    ctx = re.compile(r"(attest|groth16|zk|proof|on-chain (?:pq|post-quantum|"
+                     r"signature|verification)|ml-dsa verification)", re.I)
+    # Match BOTH "1 192 295 gas" and abbreviated "~230k gas" / "1.2M gas".
+    # The original defect was written in the abbreviated form, so a checker
+    # that only understood full figures would have sailed straight past the
+    # very bug it exists to catch. Verified by mutation.
+    num = re.compile(r"([\d,\s]{3,12}|\d+(?:\.\d+)?\s*[kKmM])\s*gas")
+    lo, hi = gas * 0.5, gas * 1.5
+    for path, body in text().items():
+        for m in re.finditer(num, body):
+            raw = m.group(1).strip().replace(",", "")
+            if raw[-1] in "kK":
+                v = str(int(float(raw[:-1].strip()) * 1_000))
+            elif raw[-1] in "mM":
+                v = str(int(float(raw[:-1].strip()) * 1_000_000))
+            else:
+                v = raw.replace(" ", "")
+            # The band, not the prose, is what excludes other quantities.
+            if not (v.isdigit() and lo < int(v) < hi):
+                continue
+            window = body[max(0, m.start() - 260):m.end() + 120]
+            # Still keep the negative guard for figures that ARE in band but
+            # are explicitly labelled as something else.
+            if re.search(r"deploy\w*\s+cost|block gas limit|"
+                         r"not the attest|deployment estimate|"
+                         r"nativ\w+|literature|estimated at|"
+                         r"pure-solidity|would cost",
+                         window, re.I):
+                continue
+            if not ctx.search(window):
+                continue
+            check(abs(int(v) - gas) < 1000,
+                  f"{path} attest gas figure {v}", f"actual {gas}")
 
 
 def main() -> int:

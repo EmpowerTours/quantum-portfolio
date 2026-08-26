@@ -231,18 +231,25 @@ def test_bare_count_is_scanned_regardless_of_what_follows():
     ("second language count, with no noun after it",
      "279<small>tests passing<br>154 Python + 181 Foundry</small>",
      181),
+    # Found 2026-08-26, by hand, in SUBMISSION.md — during the very pass that
+    # corrected every other count in the repo. COUNT_PAREN wants the literal
+    # "tests (77)"; after a filename the word never appears before the number.
+    ("count in parentheses after a FILENAME, not after the word",
+     "- `test_verify_claims.py` (77) — tests OF the claim gate: every retired",
+     77),
 ])
 def test_escaped_count_shapes_are_now_seen(shape, text, expected):
     assert expected in vc.scan_counts(text), (
         f"{shape}: {expected} still invisible in {text!r}")
 
 
-def test_old_pattern_really_was_blind_to_all_three():
+def test_old_pattern_really_was_blind_to_every_escaped_shape():
     """Guards the reason these patterns exist, not just their current output."""
     old = vc.re.compile(r"(\d{2,4})[- ]tests?\b")
     for text in ("# 1. Python tests (155).",
                  '<div class="big">279<small>tests passing</small></div>',
-                 "154 Python + 181 Foundry</small>"):
+                 "154 Python + 181 Foundry</small>",
+                 "- `test_verify_claims.py` (77) — tests OF the claim gate"):
         assert not old.search(text), (
             f"{text!r} was NOT actually a blind spot — this test is wrong")
 
@@ -263,7 +270,7 @@ def test_every_count_pattern_is_reachable():
     """A pattern nobody can trigger is dead weight that looks like coverage."""
     for rx in vc.COUNT_PATTERNS:
         assert rx.pattern, "empty pattern in COUNT_PATTERNS"
-    assert len(vc.COUNT_PATTERNS) == 3
+    assert len(vc.COUNT_PATTERNS) == 4
 
 
 def test_dated_historical_count_is_excused_but_live_one_is_not():

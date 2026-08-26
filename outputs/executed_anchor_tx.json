@@ -1,23 +1,23 @@
 {
-  "_comment": "The anchor transaction that ACTUALLY EXECUTED on Monad mainnet, fetched from chain rather than constructed. Its calldata carries the SHA-256 and execution commitment of outputs/signed_orders.json; verify with verify_claims.py --chain, or decode the fields below by hand.",
-  "txHash": "0xcf0cdd9f8790eebf1522bb4b36c445d46e15b4e5aa3377038bae941cd5f5a8e7",
-  "explorer": "https://monadscan.com/tx/0xcf0cdd9f8790eebf1522bb4b36c445d46e15b4e5aa3377038bae941cd5f5a8e7",
+  "_comment": "The anchor transaction that ACTUALLY EXECUTED on Monad mainnet, fetched from chain rather than constructed. Its calldata carries the SHA-256 and execution commitment of outputs/signed_orders.json; verify with verify_claims.py --chain, or decode the fields below by hand. Replaced 2026-08-26: the previous anchor (0xcf0cdd9f…a8e7, seq 2, orderHash 0xaee5fdf0…) bound an order executed on the RETIRED executors under the v1 attestation. This one binds the re-run against the V2-gated pair. The superseded artefacts are kept in outputs/archive/.",
+  "txHash": "0x34e79cbf6a90bdf54f3d0c67000511614f81fcd799fc66310b267951614b2a65",
+  "explorer": "https://monadscan.com/tx/0x34e79cbf6a90bdf54f3d0c67000511614f81fcd799fc66310b267951614b2a65",
   "chainId": 143,
   "type": 2,
   "from": "0x8df64bacf6b70f7787f8d14429b258b3ff958ec1",
   "to": "0x8422b555dce11913a4657c2f47c839637fc71ffd",
-  "nonce": 428,
-  "gas": 90000,
-  "gasUsed": 90000,
+  "nonce": 477,
+  "gas": 76543,
+  "gasUsed": 76543,
   "status": 1,
-  "blockNumber": 94694907,
+  "blockNumber": 99252293,
   "value": 0,
-  "data": "0x15954b2caee5fdf0e3ec0fcb68617877692b2e959061514da3757f91caf3bc3a229b3ee9a0499d9315573f7644d91c059c7b8ffc27464482407b61cf82407b86282caa000000000000000000000000000000000000000000000000000000000000000002",
+  "data": "0x15954b2c8fdc00574550c6bfdb79b564171aa6959171923bf3af683ad3b04a4c945dd3de3ffed7a240f167d2ed19c0b490ef87c9de8db3460ad219017ec7be02adc9827e0000000000000000000000000000000000000000000000000000000000000004",
   "decoded": {
     "selector": "0x15954b2c",
     "function": "anchor(bytes32 orderHash, bytes32 execCommitment, uint64 seq)",
-    "orderHash": "0xaee5fdf0e3ec0fcb68617877692b2e959061514da3757f91caf3bc3a229b3ee9",
-    "execCommitment": "0xa0499d9315573f7644d91c059c7b8ffc27464482407b61cf82407b86282caa00",
-    "seq": 2
+    "orderHash": "0x8fdc00574550c6bfdb79b564171aa6959171923bf3af683ad3b04a4c945dd3de",
+    "execCommitment": "0x3ffed7a240f167d2ed19c0b490ef87c9de8db3460ad219017ec7be02adc9827e",
+    "seq": 4
   }
 }
