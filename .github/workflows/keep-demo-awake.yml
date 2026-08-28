@@ -42,17 +42,28 @@ jobs:
           health=$(curl -s -L -o /dev/null -w '%{http_code}' --max-time 30 "$APP/healthz" || echo "000")
           echo "healthz: HTTP $health"
 
-          body=$(curl -s -L --max-time 45 "$APP/" || true)
-          root=$(curl -s -L -o /dev/null -w '%{http_code}' --max-time 30 "$APP/" || echo "000")
-          echo "root:    HTTP $root  (${#body} bytes)"
+          # A COOKIE JAR IS REQUIRED. The app bounces through
+          # share.streamlit.io/-/auth/app to set a session cookie. Without a
+          # jar, curl -L loops that redirect until it aborts, so the body comes
+          # back EMPTY and every body-based check below silently never fires —
+          # which is what the first version of this workflow did: it reported
+          # AWAKE from healthz alone and could not have reported anything else.
+          jar=$(mktemp)
+          root=$(curl -s -L --max-redirs 10 -c "$jar" -b "$jar" \
+                   -o /tmp/root.html -w '%{http_code}' --max-time 45 "$APP/" || echo "000")
+          bytes=$(wc -c < /tmp/root.html | tr -d ' ')
+          echo "root:    HTTP $root  ($bytes bytes)"
 
           # The sleep screen is served with HTTP 200, so the status code alone
-          # cannot distinguish "awake" from "asleep" — the body has to be read.
-          if printf '%s' "$body" | grep -qiE "gone to sleep|Zzzz|get this app back up"; then
+          # cannot distinguish awake from asleep — the body has to be read.
+          # CAVEAT: Streamlit renders much of its UI client-side, so the wake
+          # screen may not appear in served HTML at all. Treat ASLEEP as a
+          # positive signal and the absence of it as inconclusive, not proof.
+          if grep -qiE "gone to sleep|Zzzz|get this app back up" /tmp/root.html; then
             echo "::warning title=Demo was asleep::The Streamlit demo was found ASLEEP. A reviewer opening README link 1 right now would hit the wake screen. If this recurs, HTTP pings are not resetting the inactivity timer and the demo should move to a host that does not sleep."
             echo "state: ASLEEP"
-          elif [ "$health" = "200" ] || [ "$root" = "200" ]; then
-            echo "state: AWAKE"
+          elif [ "$health" = "200" ] && [ "$root" = "200" ] && [ "$bytes" -gt 1000 ]; then
+            echo "state: SERVING (no sleep marker in served HTML; see caveat above)"
           else
             echo "::warning title=Demo unreachable::healthz=$health root=$root — neither endpoint returned 200."
             echo "state: UNREACHABLE"
