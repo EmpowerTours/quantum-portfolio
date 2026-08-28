@@ -1,0 +1,63 @@
+# Keep the Streamlit demo out of its inactivity sleep.
+#
+# README point 1 tells a reviewer to open the demo first. Streamlit Community
+# Cloud sleeps an app after roughly a week of inactivity, and a sleeping app
+# serves a "Zzzz / would you like to wake it back up?" screen that takes about
+# a minute to clear. On 2026-08-28, mid Stage 2 evaluation, that is exactly
+# what the first link in the README did.
+#
+# HONEST LIMITATION: it is not established that an HTTP request resets the
+# sleep timer. The timer may key on real app sessions (websockets) rather than
+# router hits, in which case this is a placebo. So this workflow does not just
+# ping and claim success — it READS THE RESPONSE and says whether the app was
+# found asleep. Its logs are the evidence for whether it works; if the warning
+# below keeps appearing, the ping is not enough and the demo needs a host that
+# does not sleep (Railway, which this project already uses).
+#
+# It never fails the build. A red X here would sit in the Actions tab that
+# README point 4 sends reviewers to, and a keep-warm job is not a claim about
+# whether the code is correct.
+name: keep demo awake
+
+on:
+  schedule:
+    # Every 6 hours. Well inside the ~7 day inactivity window, and frequent
+    # enough that the logs show whether sleep is being prevented or merely
+    # observed.
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake and report
+        run: |
+          set -uo pipefail
+          APP="https://quantum-portfolio-awhfbfwtbqmp2swgpsvxwf.streamlit.app"
+
+          health=$(curl -s -L -o /dev/null -w '%{http_code}' --max-time 30 "$APP/healthz" || echo "000")
+          echo "healthz: HTTP $health"
+
+          body=$(curl -s -L --max-time 45 "$APP/" || true)
+          root=$(curl -s -L -o /dev/null -w '%{http_code}' --max-time 30 "$APP/" || echo "000")
+          echo "root:    HTTP $root  (${#body} bytes)"
+
+          # The sleep screen is served with HTTP 200, so the status code alone
+          # cannot distinguish "awake" from "asleep" — the body has to be read.
+          if printf '%s' "$body" | grep -qiE "gone to sleep|Zzzz|get this app back up"; then
+            echo "::warning title=Demo was asleep::The Streamlit demo was found ASLEEP. A reviewer opening README link 1 right now would hit the wake screen. If this recurs, HTTP pings are not resetting the inactivity timer and the demo should move to a host that does not sleep."
+            echo "state: ASLEEP"
+          elif [ "$health" = "200" ] || [ "$root" = "200" ]; then
+            echo "state: AWAKE"
+          else
+            echo "::warning title=Demo unreachable::healthz=$health root=$root — neither endpoint returned 200."
+            echo "state: UNREACHABLE"
+          fi
+
+          # Never fail: this job reports on a third-party host, it does not
+          # gate the repository's correctness.
+          exit 0

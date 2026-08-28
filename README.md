@@ -8,7 +8,7 @@
 No installation, IBM Quantum account, wallet, or API key is required to review
 the shipped demonstration.
 
-1. **[Open the interactive Streamlit demo](https://quantum-portfolio-awhfbfwtbqmp2swgpsvxwf.streamlit.app/)** — run the cached optimizer, inspect AI forecasts and backtesting, verify the real IBM hardware artefacts, and exercise PQ signing/tamper detection.
+1. **[Open the interactive Streamlit demo](https://quantum-portfolio-awhfbfwtbqmp2swgpsvxwf.streamlit.app/)** — run the cached optimizer, inspect AI forecasts and backtesting, verify the real IBM hardware artefacts, and exercise PQ signing/tamper detection. *Streamlit Community Cloud sleeps an app after a period of inactivity; if you land on a `Zzzz` screen, click **Yes, get this app back up!** and give it about a minute. A scheduled job pings it to keep that from happening, and the deck and every contract link below need no wake-up at all.*
 2. **[Watch the 90-second product walkthrough](docs/DEMO_VIDEO.mp4)**.
 3. **[Review the Santander submission narrative](SUBMISSION.md)** and the linked IBM Quantum jobs and Monad transactions.
 4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 249 Python tests plus 181 Foundry tests (430 total) are documented below. The 12 fork tests need a Monad RPC endpoint **and** the pool parameters, and skip without them; with `MONAD_RPC_URL`, `FORK_TOKEN_OUT` and `FORK_FEE` all set, nothing skips.
