@@ -17,7 +17,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # PINNED, for the same reason forge-std and OpenZeppelin are pinned
+      # below. `@v1` tracks the action, not the toolchain: it installs whatever
+      # foundry is newest at run time. On 2026-08-28 that silently moved 1.7.1
+      # -> 1.8.0 (released 08-26) between one green run and the next, and 1.8.0
+      # changed fork instantiation — every vm.createSelectFork suite died with
+      # "cannot create a `monad` fork with an EVM instantiated for `ethereum`".
+      # Nothing in the repo had changed. The suite passes 181/0 under the
+      # pinned version with the fork env set. Raise this deliberately, with a
+      # run that proves the fork suites still pass, not by leaving it floating.
       - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
 
       # contracts/lib/ is gitignored, so EVERY dependency has to be installed
       # here. Only forge-std was, while src/ imports OpenZeppelin
@@ -107,7 +118,18 @@ jobs:
           cache: pip
       # forge is needed: the check compares the DOCUMENTED test total against
       # what both suites actually report, so it must be able to run them.
+      # PINNED, for the same reason forge-std and OpenZeppelin are pinned
+      # below. `@v1` tracks the action, not the toolchain: it installs whatever
+      # foundry is newest at run time. On 2026-08-28 that silently moved 1.7.1
+      # -> 1.8.0 (released 08-26) between one green run and the next, and 1.8.0
+      # changed fork instantiation — every vm.createSelectFork suite died with
+      # "cannot create a `monad` fork with an EVM instantiated for `ethereum`".
+      # Nothing in the repo had changed. The suite passes 181/0 under the
+      # pinned version with the fork env set. Raise this deliberately, with a
+      # run that proves the fork suites still pass, not by leaving it floating.
       - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
       - name: Install contract dependencies
         working-directory: contracts
         run: |
@@ -177,7 +199,18 @@ jobs:
       FORK_FEE: "3000"
     steps:
       - uses: actions/checkout@v4
+      # PINNED, for the same reason forge-std and OpenZeppelin are pinned
+      # below. `@v1` tracks the action, not the toolchain: it installs whatever
+      # foundry is newest at run time. On 2026-08-28 that silently moved 1.7.1
+      # -> 1.8.0 (released 08-26) between one green run and the next, and 1.8.0
+      # changed fork instantiation — every vm.createSelectFork suite died with
+      # "cannot create a `monad` fork with an EVM instantiated for `ethereum`".
+      # Nothing in the repo had changed. The suite passes 181/0 under the
+      # pinned version with the fork env set. Raise this deliberately, with a
+      # run that proves the fork suites still pass, not by leaving it floating.
       - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
