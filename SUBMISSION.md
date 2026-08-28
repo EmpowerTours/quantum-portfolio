@@ -1191,7 +1191,7 @@ Monadscan as evidence of the bug-fix process, not for active use.
 
 ## Test coverage and CI
 
-**425 tests** (`pytest tests/ && forge test`). Nothing skips when
+**430 tests** (`pytest tests/ && forge test`). Nothing skips when
 `MONAD_RPC_URL`, `FORK_TOKEN_OUT` and `FORK_FEE` are all set — an RPC endpoint
 alone is **not** sufficient, and until 2026-08-15 this section claimed it was.
 Bare, the 12 fork tests skip rather than reporting a pass they did not earn.
@@ -1205,8 +1205,8 @@ commands to reproduce them are documented below. An earlier draft of this
 document said every reviewer command was "executed against mainnet in CI".
 That was false, and it is corrected here rather than quietly deleted.
 
-**244 Python tests**
-- `test_verify_claims.py` (103) — tests OF the claim gate: every retired figure
+**249 Python tests**
+- `test_verify_claims.py` (108) — tests OF the claim gate: every retired figure
   is planted next to a heading, a code comment and inside an explanatory
   sentence, asserting the gate catches the first two and excuses the third.
   Includes the spoken-count parser, added after narration in the video script
@@ -1286,13 +1286,13 @@ its nestedness, and asserts the returndata is
 
 - **Area 3 (primary) — Digital Infrastructure Secured Against Quantum
   Computing.** The PQ signing layer is not narrative — it is verified by
-  **244 Python tests** (32 PQ-signing, 36 Monad-TX encoding, 18 live-quote,
-  17 key-pinning/hedge-policy, 17 key-rotation, 8 audit-chain, 103 verifier
+  **249 Python tests** (32 PQ-signing, 36 Monad-TX encoding, 18 live-quote,
+  17 key-pinning/hedge-policy, 17 key-rotation, 8 audit-chain, 108 verifier
   self-tests, 13 CVaR tuning) and **181 Foundry tests**, of which **70 are an adversarial
   red-team suite** (`contracts/test/redteam/`) that reproduces each
   vulnerability found in the July 2026 audit and then asserts it is closed —
   several against the real Uniswap and Morpho deployments on a mainnet fork.
-  425 tests, none skipped once the fork environment is set. The artefacts are tamper-evident and a reviewer can
+  430 tests, none skipped once the fork environment is set. The artefacts are tamper-evident and a reviewer can
   audit them without running the code. **The full loop was EXECUTED on Monad
   mainnet (chainId 143) with real value** on 2026-08-26, against the contracts
   that are live now — all Monadscan-verified:
@@ -1459,7 +1459,7 @@ partners.** No conversation with any institution has taken place.
 
 What exists instead is shipped, verifiable evidence: four contracts live and
 Monadscan-verified on Monad mainnet, one end-to-end run executed with real
-value, 425 tests passing with none skipped once the fork environment is set,
+value, 430 tests passing with none skipped once the fork environment is set,
 two IBM Heron QPU runs with published job IDs and raw counts, and every
 documented reviewer command executed by hand against live Monad mainnet (CI
 runs the deterministic suite only — see "Test coverage and CI"). Reaching
@@ -1510,7 +1510,7 @@ incorporated in Mexico and qualifies under the LATAM startup criteria.
   gate on the managed-cosigner revenue line.
 
 Two people shipped four Monadscan-verified mainnet contracts, an SP1 ZK
-circuit, and 425 passing tests. That is the argument for a pilot, and the
+circuit, and 430 passing tests. That is the argument for a pilot, and the
 reason the ask is for a counterparty rather than for headcount.
 
 ### What we are asking Santander for
@@ -1638,7 +1638,7 @@ pip install pytest
 
 # Six of the seven test modules use pytest fixtures and parametrisation, so
 # they must be run under pytest — invoking them as plain scripts skips them.
-pytest tests/ -q                    # 244 tests
+pytest tests/ -q                    # 249 tests
 ( cd contracts && forge test )      # 181 tests; bare, the 12 fork tests skip (169 passed, 12 skipped).
                                    # 0 skipped needs the RPC endpoint AND the pool params:
                                    # MONAD_RPC_URL=… FORK_TOKEN_OUT=… FORK_FEE=3000

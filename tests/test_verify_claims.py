@@ -417,3 +417,23 @@ def test_shipped_fixtures_carry_the_pinned_vkey():
         assert vk == vc.GUEST_VKEY, (
             f"{f.name} carries {vc.STALE_VKEYS.get(vk, vk)}, "
             f"which MLDSAAttestation does not pin")
+
+
+# --- documented gas figures are judged at their own precision ----------------
+# The deck writes the attest cost as "1.19M gas", which is true of 1,192,295
+# and can never sit within the flat 1000 the check used to demand. It was not
+# failing only because `nativ\w+` in the negative guard skipped the window it
+# sat in — so the one abbreviated figure in the judge-facing artefact was the
+# one figure nobody was checking.
+
+@pytest.mark.parametrize("raw,value,tol", [
+    ("1.19M", "1190000", 5_000),      # two decimals of a megagas -> +/- 5k
+    ("1.2M", "1200000", 50_000),      # one decimal is coarser, and still true
+    ("230k", "230000", 500),          # the original overclaim's shape
+    ("1 192 295", "1192295", 1000),   # exact digits get the exact tolerance
+    ("1,192,295", "1192295", 1000),   # comma grouping is the same claim
+])
+def test_gas_figure_tolerance_matches_its_precision(raw, value, tol):
+    got_v, got_tol = vc.gas_figure(raw)
+    assert got_v == value, f"{raw!r} parsed to {got_v}, expected {value}"
+    assert got_tol == tol, f"{raw!r} tolerance {got_tol}, expected {tol}"

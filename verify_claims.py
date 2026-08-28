@@ -347,12 +347,25 @@ def check_test_counts() -> None:
     # with the full fork env — which is what "181 Foundry tests" actually
     # means. No fork env is passed, so this neither needs nor touches a chain.
     env = {"PATH": f"{Path.home()}/.foundry/bin:{os.environ.get('PATH','')}"}
-    fo = _run_or_fail(["forge", "test"], cwd=ROOT / "contracts",
-                      timeout=1800, what="forge test", env=env)
+    # `--list` rather than a full run. This check exists to COUNT the suite —
+    # the paragraph above is explicit that the number must not depend on
+    # whether a given run's fork tests executed — and listing yields the same
+    # 181 in ~1.5s instead of minutes. Nothing is weakened: that the suite
+    # PASSES is asserted by .claude/verify.sh and by CI, both of which run
+    # `forge test` for real immediately around this. Re-running it here was
+    # duplicated work that pushed the step past the verifier's timeout, and a
+    # gate nobody can afford to run is a gate that gets skipped.
+    fo = _run_or_fail(["forge", "test", "--list", "--json"],
+                      cwd=ROOT / "contracts",
+                      timeout=600, what="forge test --list", env=env)
     if fo is None:
         return
-    m = re.search(r"\((\d+) total tests\)", fo)
-    nfo = int(m.group(1)) if m else -1
+    try:
+        listing = json.loads(fo[fo.index("{"):fo.rindex("}") + 1])
+        nfo = sum(len(fns) for suites in listing.values()
+                  for fns in suites.values())
+    except (ValueError, AttributeError):
+        nfo = -1
     total = npy + nfo
     print(f"    actual: {npy} Python + {nfo} Foundry = {total}")
     # A document may legitimately cite a per-suite count ("169 tests, 0
@@ -1027,10 +1040,16 @@ def check_guest_vkey() -> None:
         print("        and if the vkey moved, this is a REDEPLOY of the")
         print("        attestation and both executors, not a docs edit.")
 
-    # The check that was missing on 2026-08-25. prove-both.sh validates a
-    # fixture's orderHash and pkHash, PRINTS its vkey, and asserts nothing
+    # The check that was missing on 2026-08-25. prove-both.sh validated a
+    # fixture's orderHash and pkHash, PRINTED its vkey and asserted nothing
     # about it — so a proof built from the drifted guest passed its own
     # validation, looked correct, and would have reverted on chain.
+    #
+    # That script now gates on the vkey BEFORE proving instead of reporting it
+    # after, so the same drift costs ninety seconds rather than an hour of
+    # Groth16 wrapping. This check is kept anyway and is the stronger of the
+    # two: prove-both.sh can only judge the tree that was copied onto a rented
+    # box, while this runs against the tree a reviewer actually clones.
     fixdir = ROOT / "zk-mldsa/contracts/src/fixtures"
     fixtures = sorted(fixdir.glob("groth16-mldsa-*.json"))
     check(bool(fixtures), "groth16 ML-DSA fixtures present", str(fixdir))
@@ -1140,6 +1159,28 @@ def check_chain() -> None:
         _check_attest_gas_figures(attest_gas)
 
 
+def gas_figure(raw: str) -> tuple[str, float]:
+    r"""Parse a documented gas figure into (digits, tolerance).
+
+    An abbreviated figure is not a false one, but it cannot be exact either:
+    "1.19M" is a true statement about 1,192,295 and can never sit within 1000
+    of it. Judge each figure against ITS OWN precision — half a step of its
+    last significant digit — so rounding passes and drift still fails.
+
+    Requiring exactness is what made the deck's "1.19M" unverifiable, and it
+    was not failing only because `nativ\w+` in the negative guard happened to
+    skip the window it sat in. Pure and filesystem-free so the tests can attack
+    it directly rather than by editing documents.
+    """
+    raw = raw.strip().replace(",", "")
+    if raw and raw[-1] in "kKmM":
+        unit = 1_000 if raw[-1] in "kK" else 1_000_000
+        mant = raw[:-1].strip()
+        dp = len(mant.split(".")[1]) if "." in mant else 0
+        return str(int(float(mant) * unit)), max(1, unit // (10 ** dp)) / 2
+    return raw.replace(" ", ""), 1000
+
+
 def _check_attest_gas_figures(gas: int) -> None:
     """Every documented attest cost must equal the measured one.
 
@@ -1172,29 +1213,32 @@ def _check_attest_gas_figures(gas: int) -> None:
     lo, hi = gas * 0.5, gas * 1.5
     for path, body in text().items():
         for m in re.finditer(num, body):
-            raw = m.group(1).strip().replace(",", "")
-            if raw[-1] in "kK":
-                v = str(int(float(raw[:-1].strip()) * 1_000))
-            elif raw[-1] in "mM":
-                v = str(int(float(raw[:-1].strip()) * 1_000_000))
-            else:
-                v = raw.replace(" ", "")
-            # The band, not the prose, is what excludes other quantities.
+            raw = m.group(1).strip()
+            v, tol = gas_figure(raw)
+            # The band, not the prose, is what excludes other quantities. A
+            # figure claiming to BE the attest cost can only differ from it by
+            # drift, and drift is small; 8.1M (6.8x) and a 2,219,924 deploy
+            # cost (1.9x) fall outside it structurally. That is why `nativ\w+`
+            # is no longer in the negative guard below — it was doing the
+            # band's job by keyword, and in doing so it skipped every window
+            # that merely MENTIONED the native comparison, including the one
+            # carrying the deck's own attest figure.
             if not (v.isdigit() and lo < int(v) < hi):
                 continue
             window = body[max(0, m.start() - 260):m.end() + 120]
-            # Still keep the negative guard for figures that ARE in band but
-            # are explicitly labelled as something else.
+            # Kept for figures that ARE in band but are explicitly labelled as
+            # something else.
             if re.search(r"deploy\w*\s+cost|block gas limit|"
                          r"not the attest|deployment estimate|"
-                         r"nativ\w+|literature|estimated at|"
+                         r"literature|estimated at|"
                          r"pure-solidity|would cost",
                          window, re.I):
                 continue
             if not ctx.search(window):
                 continue
-            check(abs(int(v) - gas) < 1000,
-                  f"{path} attest gas figure {v}", f"actual {gas}")
+            check(abs(int(v) - gas) <= tol,
+                  f"{path} attest gas figure {v}",
+                  f"actual {gas}" + (f" (±{int(tol)} for '{raw}')" if tol != 1000 else ""))
 
 
 def main() -> int:

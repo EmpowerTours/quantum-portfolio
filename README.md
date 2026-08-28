@@ -11,13 +11,13 @@ the shipped demonstration.
 1. **[Open the interactive Streamlit demo](https://quantum-portfolio-awhfbfwtbqmp2swgpsvxwf.streamlit.app/)** — run the cached optimizer, inspect AI forecasts and backtesting, verify the real IBM hardware artefacts, and exercise PQ signing/tamper detection.
 2. **[Watch the 90-second product walkthrough](docs/DEMO_VIDEO.mp4)**.
 3. **[Review the Santander submission narrative](SUBMISSION.md)** and the linked IBM Quantum jobs and Monad transactions.
-4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 244 Python tests plus 181 Foundry tests (425 total) are documented below. The 12 fork tests need a Monad RPC endpoint **and** the pool parameters, and skip without them; with `MONAD_RPC_URL`, `FORK_TOKEN_OUT` and `FORK_FEE` all set, nothing skips.
+4. **[Review the automated test results](https://github.com/EmpowerTours/quantum-portfolio/actions/workflows/test.yml)** — 249 Python tests plus 181 Foundry tests (430 total) are documented below. The 12 fork tests need a Monad RPC endpoint **and** the pool parameters, and skip without them; with `MONAD_RPC_URL`, `FORK_TOKEN_OUT` and `FORK_FEE` all set, nothing skips.
 5. **[Read the business case](SUBMISSION.md#business-model-market-and-go-to-market)** — who buys this, why the 31 December 2031 deadline is the forcing function, how it is priced, and what we are asking Santander for.
 
 **Traction, stated up front so it is not a discovery:** we have no customers, no
 revenue and no letters of intent. What we have is shipped and checkable — four
 Monadscan-verified contracts on Monad mainnet, one end-to-end run executed with
-real value, 425 passing tests, and two IBM Heron QPU runs with published job IDs
+real value, 430 passing tests, and two IBM Heron QPU runs with published job IDs
 and raw counts.
 
 ## Live on Monad mainnet (chainId 143)
@@ -254,7 +254,7 @@ curl -L https://foundry.paradigm.xyz | bash && foundryup
 ### Path A — verify the shipped artefact
 
 ```sh
-# 1. Python tests (244). Seven of the eight modules use pytest fixtures or parametrisation, so
+# 1. Python tests (249). Seven of the eight modules use pytest fixtures or parametrisation, so
 #    they must run under pytest — as plain scripts they error out.
 pip install pytest && pytest tests/ -q
 
@@ -359,10 +359,10 @@ python run_backtest.py
 │   ├── test_pq_policy.py        17 negative tests for key pinning + hedge policy
 │   ├── test_cvar_qaoa.py        13 CVaR objective + XY-mixer feasibility tests
 │   ├── test_pq_rotation.py      17 agent-key rotation statements + Solidity parity
-│   └── test_verify_claims.py    103 tests OF THE VERIFIER — plants every retired
+│   └── test_verify_claims.py    108 tests OF THE VERIFIER — plants every retired
 │                                figure next to a heading and asserts the gate
 │                                catches it (it silently stopped catching once)
-│   (Plus 181 Foundry tests in contracts/test/ above — 425 tests total)
+│   (Plus 181 Foundry tests in contracts/test/ above — 430 tests total)
 ├── outputs/
 │   ├── hardware_run.json        Cached IBM-QPU result
 │   ├── backtest.json            Walk-forward metrics
