@@ -327,12 +327,35 @@ def scan_counts_positioned(s: str):
 def check_test_counts() -> None:
     """The documented totals must equal what the suites actually report."""
     print("\n[tests] documented counts vs actual")
-    py = _run_or_fail([sys.executable, "-m", "pytest", "tests/", "-q"],
-                      cwd=ROOT, timeout=900, what="pytest")
-    if py is None:
+    # COLLECT, don't run — for the same reason `forge test --list` replaced a
+    # forge run below, and with the same evidence that nothing is lost. What
+    # this gate asserts is that a documented number equals the SIZE of the
+    # suite; that the suite PASSES is asserted by CI, which runs `pytest tests/
+    # -q` on every push (.github/workflows/test.yml). Note it is NOT asserted
+    # by .claude/verify.sh locally — verify.conf sets VERIFY_SKIP_PYTEST=1
+    # because the suite does not fit the Stop hook's budget — so CI is the only
+    # place the suite actually runs, and this line is the reason to keep it there.
+    # Executing all 249 again here cost 300s of the verifier's 430s step
+    # budget — five CVaR-QAOA simulations alone are 223s of it — and pushed
+    # the whole step past its timeout, so the gate stopped running at all.
+    # Collection is 2.6s and reports the same 249. It also feeds the per-file
+    # counts below, so this is now one pytest invocation where there were two.
+    #
+    # Collected == passed only while nothing skips. If a test starts skipping,
+    # "249 tests" in a document would still be true of the suite but no longer
+    # of a run, so that divergence is asserted rather than assumed.
+    coll = _run_or_fail([sys.executable, "-m", "pytest", "tests/", "-q",
+                         "--collect-only"],
+                        cwd=ROOT, timeout=900, what="pytest --collect-only")
+    if coll is None:
         return
-    m = re.search(r"(\d+) passed", py)
+    m = re.search(r"(\d+) tests? collected", coll)
     npy = int(m.group(1)) if m else -1
+    per_file = Counter(line.split("::", 1)[0] for line in coll.splitlines()
+                       if "::" in line)
+    check(npy == sum(per_file.values()),
+          f"pytest collection is internally consistent ({npy})",
+          f"summary says {npy}, per-file lines sum to {sum(per_file.values())}")
     if not shutil.which("forge", path=f"{Path.home()}/.foundry/bin:{os.environ.get('PATH','')}"):
         print("    forge not found — cannot verify the combined test count")
         check(False, "forge available for test-count verification",
@@ -377,13 +400,7 @@ def check_test_counts() -> None:
     # tree with "test_verify_claims.py  50 tests OF THE VERIFIER". Those are
     # collected rather than hardcoded, so adding a test to a file that a doc
     # counts fails here instead of quietly making the annotation a lie.
-    coll = _run_or_fail([sys.executable, "-m", "pytest", "tests/", "-q",
-                         "--collect-only"],
-                        cwd=ROOT, timeout=900, what="pytest --collect-only")
-    if coll is None:
-        return
-    per_file = Counter(line.split("::", 1)[0] for line in coll.splitlines()
-                       if "::" in line)
+    # (per_file comes from the single collection run at the top of this check.)
     valid = {total, npy, nfo} | set(per_file.values())
     # The old pattern required "tests," / "tests passing" / "tests total", so
     # "# 154 tests" at the end of a reviewer command line and "342 tests**" in
