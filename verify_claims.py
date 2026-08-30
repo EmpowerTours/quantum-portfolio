@@ -793,8 +793,8 @@ SUPERSEDED_VALUES: list[tuple[str, str, str]] = [
     (r"~?\s*230\s*[k,]\s*(?:-\s*)?gas|230,000\s*gas",
      "1,196,224 gas", "never measured; the attest receipt says 1196224"),
     (r"\b105 (?:tests|automated)\b|\b84 tests\b|\b279 tests\b|"
-     r"\b110 Python tests\b|Two hundred seventy-nine|\b323 tests\b|\b328 tests\b|\b331 tests\b|\b334 tests\b|\b335 tests\b|\b336 tests\b|\b342 tests\b|\b154 tests\b|\b355 tests\b|\b399 tests\b|\b161 Python tests\b|\b174 Python tests\b|\b218 Python tests\b|Three hundred twenty-three|Three hundred thirty-five|Three hundred forty-two|Three hundred fifty-five|Three hundred ninety-nine",
-     "424 tests (243 Python + 181 Foundry)",
+     r"\b110 Python tests\b|\b249 Python tests\b|\b430 tests\b|\b108 tests\b|Four hundred thirty\b|Two hundred seventy-nine|\b323 tests\b|\b328 tests\b|\b331 tests\b|\b334 tests\b|\b335 tests\b|\b336 tests\b|\b342 tests\b|\b154 tests\b|\b355 tests\b|\b399 tests\b|\b161 Python tests\b|\b174 Python tests\b|\b218 Python tests\b|Three hundred twenty-three|Three hundred thirty-five|Three hundred forty-two|Three hundred fifty-five|Three hundred ninety-nine",
+     "448 tests (267 Python + 181 Foundry)",
      "counts before tests/test_cvar_qaoa.py added the CVaR tuning arm and the "
      "spoken-count probes grew tests/test_verify_claims.py; 154 and 342 "
      "outlived the first bump because the count scanner only read digits "
@@ -824,6 +824,22 @@ SUPERSEDED_VALUES: list[tuple[str, str, str]] = [
     (r"lastHash\[(?:deployer|anchorer)\]\s*(?:returns|==)",
      "execCommitmentOf[anchorer][orderHash]",
      "lastHash is last-write-wins and rots; execCommitmentOf is keyed by order"),
+    (r"0x8fdc0057|0x3ffed7a2|0x90d6d9ea|"
+     r"0xcd37af90|0x34e79cbf|0xa72f1a97|\b1788298709\b",
+     "orderHash 0xb4eceb58… / commitment 0xe0a6ab37… / the 2026-08-30 txs",
+     "the 2026-08-26 route order and its three transactions. The order "
+     "carried deadline 1788298709 (2026-09-01) and the vault checks "
+     "DeadlinePassed BEFORE the commitment check, so quoting it puts a "
+     "reviewer on a demonstration that returns one revert for both arms"),
+    (r"--block 99252441|--block \d{8,}",
+     "no --block: both arms read contract storage at HEAD",
+     "a pinned height is a dated claim. rpc.monad.xyz pruned 99252441 within "
+     "days and the two published commands answered -32602. Any block pin "
+     "reintroduces a clock the document cannot see"),
+    (r"1 192 295|1,192,295|\b2718\b|\b2755\b",
+     "1 192 307 gas / floor 2649 / 2685 micro-USDC out",
+     "measurements from the superseded 2026-08-26 run; the transactions the "
+     "docs now cite have different receipts"),
 ]
 
 # A line may legitimately mention a superseded value when it is EXPLAINING the
@@ -1283,8 +1299,12 @@ def check_hash_truncations() -> None:
           f"{skipped} more name values the repo does not carry in full")
 
 
-REPLAY_MUST_NOT_CONTAIN = ("cast send", "--private-key", "--account",
-                           "--unlocked", "rm ", "git ", "curl ")
+# WORD BOUNDARIES, not substrings. A bare "rm " matches "Confirm the anchor
+# transaction succeeded" -- the comment heading step 3 of the reviewer block --
+# so the first version of this refused to execute the very block it exists to
+# run, and reported that refusal as a failure.
+MUTATING = re.compile(r"cast\s+send|--private-key|--account\b|--unlocked\b|"
+                      r"(?:^|[\s;&|])(?:rm|git|curl|wget|dd|mv)\s", re.M)
 REPLAY_EXPECT = {
     "0x1162d898": "AnchorAlreadyConsumed -- the signed arm cleared the "
                   "commitment check and hit replay protection",
@@ -1293,71 +1313,102 @@ REPLAY_EXPECT = {
 }
 
 
-def check_documented_replay() -> None:
-    """Run the tamper-evidence commands SUBMISSION.md tells reviewers to run.
+# A documented output worth checking: `# -> <token>` where the token is long
+# enough that finding it in the real output means something. Six characters
+# excludes `status 1`, which any output would satisfy.
+DOCUMENTED_OUTPUT = re.compile(r"#\s*(?:->|→)\s+(?:\w+\s+)?(0x[0-9a-fA-F]{6,}|\d{5,})")
 
-    This is the gate whose absence is the reason this file changed twice. The
-    demonstration has expired on its own two separate ways, and both times the
-    prose still claimed it worked:
+
+def check_documented_replay() -> None:
+    """Run every command SUBMISSION.md tells a reviewer to run, and check the
+    outputs it promises them.
+
+    This is the gate whose absence is why this file changed twice. The
+    tamper-evidence demonstration has expired on its own two separate ways, and
+    both times every other check here stayed green:
 
       1. The order's `deadline` passed. The vault checks DeadlinePassed at
          UniswapRoutingVault.sol:210, BEFORE the commitment check at 231, so
          both arms collapsed into one revert and the contrast vanished.
       2. Pinning `--block 99252441` dodged that, and rpc.monad.xyz pruned the
-         height within days -- the two commands a reviewer is pointed at
-         answered `-32602: Block requested not found`.
+         height within days -- the two published commands answered
+         `-32602: Block requested not found`.
 
-    Neither failure touched a single documented number, so every other gate in
-    this file stayed green through both. The only thing that catches this is
-    running what the document actually says.
+    Neither failure touched a documented number, which is exactly why nothing
+    saw them. The only thing that catches this class is running what the
+    document actually says and comparing against what it promises.
+
+    ALL cast-bearing blocks, not just the tamper arms. The first version of
+    this check ran only the block containing executeAndRoute, and on 2026-08-30
+    the block above it went stale unnoticed: its `cast receipt` line was
+    re-pointed at the new anchor while the `# -> blockNumber 99252293` and
+    `# -> gasUsed 76543` under it still described the old one. A gate that
+    reads one of two reviewer blocks is a gate with a blind half.
 
     The commands come OUT OF THE DOCUMENT rather than being restated here. A
-    copy would drift and pass while the doc rotted, which is the exact failure
-    being defended against.
+    copy would drift and keep passing while the document rotted, which is the
+    failure being defended against.
     """
-    print("\n[replay] the tamper-evidence commands in SUBMISSION.md still run")
+    print("\n[replay] the commands SUBMISSION.md gives reviewers still run")
     text = (ROOT / "SUBMISSION.md").read_text()
     blocks = [m.group(1) for m in re.finditer(r"```sh\n(.*?)\n```", text, re.S)
-              if "executeAndRoute" in m.group(1) and "cast call" in m.group(1)]
-    # check() returns None, so its result is never a guard. Test the condition.
-    one = len(blocks) == 1
-    check(one, "exactly one replay block in SUBMISSION.md",
-          f"found {len(blocks)}; the extractor no longer knows what to run")
-    if not one:
+              if "cast " in m.group(1)]
+    # A block that SENDS is a deploy runbook, not something a reviewer runs to
+    # check a claim. Those are skipped, not failed -- SUBMISSION.md carries
+    # both kinds and refusing to execute a runbook is correct behaviour, not a
+    # defect in the document.
+    verification, runbooks = [], 0
+    for b in blocks:
+        if MUTATING.search(b):
+            runbooks += 1
+        else:
+            verification.append(b)
+    check(len(verification) >= 2,
+          f"reviewer verification blocks found ({len(verification)})",
+          f"{runbooks} further block(s) send transactions and are runbooks, "
+          "not verification -- not executed here")
+    if not verification:
         return
-    script = blocks[0]
-
-    # Executing text out of a document is only safe while that text cannot
-    # spend or destroy anything. Assert that rather than assuming it.
-    bad = [t for t in REPLAY_MUST_NOT_CONTAIN if t in script]
-    check(not bad, "the replay block is read-only",
-          f"refusing to execute: contains {bad}" if bad else
-          "no send, no key, no destructive command")
-    if bad:
-        return
+    blocks = verification
 
     env = dict(os.environ,
                PATH=f"{ROOT / '.venv/bin'}:{Path.home()}/.foundry/bin:"
                     f"{os.environ.get('PATH', '')}")
-    try:
-        out = subprocess.run(["bash", "-c", script], cwd=ROOT, env=env,
-                             capture_output=True, text=True, timeout=180)
-    except subprocess.TimeoutExpired:
-        check(False, "the documented replay completes", "timed out after 180s")
-        return
-    blob = out.stdout + out.stderr
+    combined = ""
+    for n, script in enumerate(blocks, 1):
+        # Belt and braces: classification above already excluded these, so a
+        # hit here means the two disagree and nothing should be executed.
+        if MUTATING.search(script):
+            check(False, f"block {n} is read-only",
+                  "classified as verification but contains a mutating command")
+            continue
+        try:
+            r = subprocess.run(["bash", "-c", script], cwd=ROOT, env=env,
+                               capture_output=True, text=True, timeout=240)
+        except subprocess.TimeoutExpired:
+            check(False, f"block {n} completes", "timed out after 240s")
+            continue
+        blob = r.stdout + r.stderr
+        combined += blob
 
-    for bad_sign, why in (("-32602", "the pinned block has been pruned"),
-                          ("Block requested not found", "pruned state"),
-                          ("command not found", "a tool the reviewer needs"),
-                          ("No module named", "a Python import"),
-                          ("DeadlinePassed", "the signed order has EXPIRED"),
-                          ("0x83f2ba20", "the signed order has EXPIRED")):
-        check(bad_sign not in blob,
-              f"replay output free of {bad_sign!r}", why)
+        # Everything the block PROMISES the reviewer they will see.
+        promised = [m.group(1) for m in DOCUMENTED_OUTPUT.finditer(script)]
+        missing = [v for v in promised if v.lower() not in blob.lower()]
+        check(not missing, f"block {n}: {len(promised)} documented outputs appear",
+              f"not in the real output: {missing[:3]}" if missing else
+              "every `# ->` value the block promises was actually produced")
+
+    for sign, why in (("-32602", "a pinned block has been pruned"),
+                      ("Block requested not found", "pruned state"),
+                      ("command not found", "a tool the reviewer needs"),
+                      ("No module named", "a Python import"),
+                      ("Traceback", "a Python error"),
+                      ("DeadlinePassed", "the signed order has EXPIRED"),
+                      ("0x83f2ba20", "the signed order has EXPIRED")):
+        check(sign not in combined, f"output free of {sign!r}", why)
 
     for selector, meaning in REPLAY_EXPECT.items():
-        check(selector in blob, f"replay produced {selector}", meaning)
+        check(selector in combined, f"replay produced {selector}", meaning)
 
 
 def main() -> int:

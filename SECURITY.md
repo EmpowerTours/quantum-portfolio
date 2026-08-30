@@ -239,7 +239,7 @@ python -c "from src import orders; \
 
 # The full suite. Six of the seven modules use pytest fixtures or parametrisation, so running
 # them as plain scripts skips most of what they cover.
-pip install pytest && pytest tests/ -q          # 249 tests
+pip install pytest && pytest tests/ -q          # 267 tests
 ( cd contracts && forge test )                  # 181 tests; bare, the 12 fork tests skip (169 passed, 12 skipped).
                                                 # 0 skipped needs the RPC endpoint AND the pool params:
                                                 # MONAD_RPC_URL=… FORK_TOKEN_OUT=… FORK_FEE=3000

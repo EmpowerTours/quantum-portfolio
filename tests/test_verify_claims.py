@@ -40,7 +40,7 @@ import verify_claims as vc  # noqa: E402
 PROBES: dict[str, str | tuple[str, ...]] = {
     r"~?\s*230\s*[k,]\s*(?:-\s*)?gas|230,000\s*gas": "The attest call costs 230k gas.",
     (r"\b105 (?:tests|automated)\b|\b84 tests\b|\b279 tests\b|"
-     r"\b110 Python tests\b|Two hundred seventy-nine|\b323 tests\b|\b328 tests\b|\b331 tests\b|\b334 tests\b|\b335 tests\b|\b336 tests\b|\b342 tests\b|\b154 tests\b|\b355 tests\b|\b399 tests\b|\b161 Python tests\b|\b174 Python tests\b|\b218 Python tests\b|Three hundred twenty-three|Three hundred thirty-five|Three hundred forty-two|Three hundred fifty-five|Three hundred ninety-nine"): (
+     r"\b110 Python tests\b|\b249 Python tests\b|\b430 tests\b|\b108 tests\b|Four hundred thirty\b|Two hundred seventy-nine|\b323 tests\b|\b328 tests\b|\b331 tests\b|\b334 tests\b|\b335 tests\b|\b336 tests\b|\b342 tests\b|\b154 tests\b|\b355 tests\b|\b399 tests\b|\b161 Python tests\b|\b174 Python tests\b|\b218 Python tests\b|Three hundred twenty-three|Three hundred thirty-five|Three hundred forty-two|Three hundred fifty-five|Three hundred ninety-nine"): (
         "The suite has 279 tests.",
         "**Proof — live on Monad mainnet, 342 tests** | 10 s |",
         "pytest tests/ -q                    # 154 tests",
@@ -75,6 +75,35 @@ PROBES: dict[str, str | tuple[str, ...]] = {
     ),
     r"lastHash\[(?:deployer|anchorer)\]\s*(?:returns|==)": (
         "Confirm AuditAnchor.lastHash[deployer] returns the same hash."),
+    (r"0x8fdc0057|0x3ffed7a2|0x90d6d9ea|"
+     r"0xcd37af90|0x34e79cbf|0xa72f1a97|\b1788298709\b"): (
+        # The order, its two commitments and its three transactions each get a
+        # probe. They escaped in different shapes on 2026-08-30 -- a linked
+        # table cell, a bare truncation in prose, and a raw deadline inside a
+        # shell block -- and one probe would only prove the alternation
+        # matches something.
+        "anchored `orderHash 0x8fdc00574550c6bfdb79b564171aa6959171923bf3af683ad3b04a4c945dd3de`",
+        "execCommitment `0x3ffed7a240f167d2ed19c0b490ef87c9de8db3460ad219017ec7be02adc9827e`",
+        "the signed commitment 0x90d6d9eac636e0b27acb4cb681ed28cab86007b71c22f45ca3be4457824ba323",
+        "| `attest()` tx | `0xcd37af90ca043ee2da205855433d8c9cda9fb0466dd01df2d78224f44ed98688` |",
+        "anchor landed in 0x34e79cbf6a90bdf54f3d0c67000511614f81fcd799fc66310b267951614b2a65",
+        "the swap ran in 0xa72f1a9766e5dedce75c18956cd654c9428a0d0ce9f367de35072cca5080f2f8",
+        '"[3000]" "[10000]" "[2718]" 1788298709 "$PRE"',
+    ),
+    r"--block 99252441|--block \d{8,}": (
+        # Both the exact pin that rotted and the general shape, because the
+        # next one to rot will be a different number.
+        "  --block 99252441 --rpc-url https://rpc.monad.xyz",
+        "  --block 100349618 --rpc-url https://rpc.monad.xyz",
+    ),
+    r"1 192 295|1,192,295|\b2718\b|\b2755\b": (
+        # The gas figure appears both thin-spaced and comma-grouped across the
+        # docs, and the two amounts read as bare integers inside shell.
+        "verified on-chain for a measured 1 192 295 gas",
+        "our Groth16 check is 1,192,295 gas, 6.8x cheaper",
+        "slippage floor left at the signed 2718",
+        "0.1 MON produced 2755 micro-USDC",
+    ),
 }
 
 

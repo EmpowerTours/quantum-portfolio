@@ -1,0 +1,169 @@
+==> RAM check (need >=32 GB for the Groth16 wrap)
+               total        used        free      shared  buff/cache   available
+Mem:            31Gi       740Mi        30Gi       1.3Mi       462Mi        30Gi
+==> apt deps
+Get:1 https://download.docker.com/linux/ubuntu noble InRelease [48.5 kB]
+Hit:2 http://ubuntu.mirror.constant.com noble InRelease
+Get:3 https://download.docker.com/linux/ubuntu noble/stable amd64 Packages [64.2 kB]
+Get:4 http://ubuntu.mirror.constant.com noble-updates InRelease [126 kB]
+Get:5 http://ubuntu.mirror.constant.com noble-backports InRelease [126 kB]
+Get:6 http://ubuntu.mirror.constant.com noble-updates/main amd64 Packages [1,230 kB]
+Get:7 http://ubuntu.mirror.constant.com noble-updates/main Translation-en [287 kB]
+Get:8 http://ubuntu.mirror.constant.com noble-updates/main amd64 Components [180 kB]
+Get:9 http://ubuntu.mirror.constant.com noble-updates/universe amd64 Packages [1,689 kB]
+Get:10 http://ubuntu.mirror.constant.com noble-updates/universe Translation-en [338 kB]
+Get:11 http://ubuntu.mirror.constant.com noble-updates/universe amd64 Components [388 kB]
+Get:12 http://ubuntu.mirror.constant.com noble-updates/multiverse amd64 Components [940 B]
+Get:13 http://ubuntu.mirror.constant.com noble-backports/main amd64 Components [5,744 B]
+Get:14 http://ubuntu.mirror.constant.com noble-backports/universe amd64 Components [12.6 kB]
+Get:15 http://security.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+Get:16 http://security.ubuntu.com/ubuntu noble-security/main amd64 Packages [972 kB]
+Get:17 http://security.ubuntu.com/ubuntu noble-security/main Translation-en [206 kB]
+Get:18 http://security.ubuntu.com/ubuntu noble-security/main amd64 Components [46.4 kB]
+Get:19 http://security.ubuntu.com/ubuntu noble-security/universe amd64 Packages [1,203 kB]
+Get:20 http://security.ubuntu.com/ubuntu noble-security/universe Translation-en [241 kB]
+Get:21 http://security.ubuntu.com/ubuntu noble-security/universe amd64 Components [76.3 kB]
+Fetched 7,367 kB in 2s (4,027 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (8.5.0-2ubuntu10.13).
+git is already the newest version (1:2.43.0-1ubuntu7.3).
+build-essential is already the newest version (12.10ubuntu1).
+pkg-config is already the newest version (1.8.1-2build1).
+libssl-dev is already the newest version (3.0.13-0ubuntu3.15).
+unzip is already the newest version (6.0-28ubuntu4.1).
+ca-certificates is already the newest version (20260601~24.04.1).
+0 upgraded, 0 newly installed, 0 to remove and 28 not upgraded.
+==> Docker (gnark Groth16 prover runs in a container)
+==> Rust
+info: downloading installer
+warn: It looks like you have an existing rustup settings file at:
+warn: /root/.rustup/settings.toml
+warn: Rustup will install the default toolchain as specified in the settings file,
+warn: instead of the one inferred from the default host triple.
+info: profile set to default
+info: default host triple is x86_64-unknown-linux-gnu
+warn: Updating existing toolchain, profile choice will be ignored
+info: syncing channel updates for stable-x86_64-unknown-linux-gnu
+info: default toolchain set to stable-x86_64-unknown-linux-gnu
+
+  stable-x86_64-unknown-linux-gnu unchanged - rustc 1.98.0 (88d9e12ae 2026-08-18)
+
+
+Rust is installed now. Great!
+
+To get started you may need to restart your current shell.
+This would reload your PATH environment variable to include
+Cargo's bin directory ($HOME/.cargo/bin).
+
+To configure your current shell, you need to source
+the corresponding env file under $HOME/.cargo.
+
+This is usually done by running one of the following (note the leading DOT):
+. "$HOME/.cargo/env"            # For sh/bash/zsh/ash/dash/pdksh
+source "$HOME/.cargo/env.fish"  # For fish
+source "~/.cargo/env.nu"  # For nushell
+source "$HOME/.cargo/env.tcsh"  # For tcsh
+. "$HOME/.cargo/env.ps1"        # For pwsh
+source "$HOME/.cargo/env.xsh"   # For xonsh
+==> protoc
+==> SP1 toolchain (sp1up)
+
+.______  ._______ ._______ ._______ ._______ ._______ ._______ ._______ ._______
+
+   _____  ____  ___
+  / ___/ / __ \<  /
+  \__ \ / /_/ // /                        A performant, 100% open-source,
+ ___/ // ____// /                              general-purpose zkVM.  
+/____//_/    /_/   
+
+._______ ._______ ._______ ._______ ._______ ._______ ._______ ._______ ._______ 
+
+Repo       : https://github.com/succinctlabs/sp1
+Book       : https://docs.succinct.xyz/
+Telegram   : https://t.me/+AzG4ws-kD24yMGYx
+
+._______ ._______ ._______ ._______ ._______ ._______ ._______ ._______ ._______ 
+
+sp1up: installing SP1 (version latest, tag latest)
+sp1up: downloading cargo_prove_v6.5.0_linux_amd64.tar.gz
+#=#=#                                                                           ####################################                                       50.1%#######################################################################    97.9%######################################################################### 100.0%
+sp1up: installed - cargo-prove sp1 (92b8eab 2026-08-26T13:18:14.186722345Z)
+sp1up: installing rust toolchain
+Successfully cleaned up ~/.sp1 directory.
+Successfully created ~/.sp1 directory.
+info: uninstalling toolchain succinct
+info: toolchain succinct uninstalled
+Successfully removed existing toolchain.
+Successfully linked toolchain to rustup.
+sp1up: installed rust toolchain
+sp1up: done!
+==> SP1_PROVER=cpu
+
+==> Vkey gate: building the guest and checking it against the chain
+    built    0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5
+    expected 0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5
+    on-chain check skipped (no cast on this box) — constant not re-confirmed
+==> Vkey gate passed. Proving is worth the time.
+
+===================================================================
+==> Proving the route leg  (this pulls the gnark image on first run)
+===================================================================
+warning: unexpected `cfg` condition value: `succinct`
+   --> vendor/keccak/src/lib.rs:151:39
+    |
+151 |         #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))]
+    |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `target_vendor` are: `amd`, `apple`, `espressif`, `fortanix`, `ibm`, `kmc`, `mti`, `nintendo`, `nvidia`, `openwrt`, `pc`, `risc0`, `sony`, `sun`, `unikraft`, `unknown`, `uwp`, `win7`, and `wrs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: requested on the command line with `-W unexpected-cfgs`
+
+warning: `keccak` (lib) generated 1 warning
+warning: fibonacci-script@0.1.0: docker: rustc +succinct --version: "rustc 1.94.0-dev\n"
+warning: fibonacci-script@0.1.0: docker: rustc_bin: "/root/.sp1/toolchains/g7wv95WZT7/bin/rustc"
+warning: fibonacci-script@0.1.0: fibonacci-program built at 2026-08-30 01:42:22
+   Compiling fibonacci-script v0.1.0 (/root/qp/zk-mldsa/script)
+    Finished `release` profile [optimized] target(s) in 1.43s
+     Running `/root/qp/zk-mldsa/target/release/evm --system groth16 --input /root/qp/zk-mldsa/mldsa_input_route.json`
+Proof System: Groth16
+Verification Key: 0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5
+orderHash: 0xb4eceb5893e4d68181706a8c3e08631cb24409880d1ccbd053082d1550a03325
+pkHash: 0xac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad
+Public Values: 0xb4eceb5893e4d68181706a8c3e08631cb24409880d1ccbd053082d1550a03325ac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad
+Proof Bytes: 0x4388a21c0000000000000000000000000000000000000000000000000000000000000000002f850ee998974d6cc00e50cd0814b098c05bfade466d28573240d057f2535200000000000000000000000000000000000000000000000000000000000000000c4b5fdc7f75a2a4561d1269dec60980ea6cda43b9aa84dc9754baf2a16d828826a4229274b250c019cfeb41d468faaf8f0fe669c712fd073721a04ef90e5bfd14c4e01fc937046ed4cd1a866132078fde049eb6297e8e2010bd5cc144a384752a7b344b5944ddb62954c436b6df9f52173c3776dde555e38d79b80db9c59086182eab8a79b21e25f38626d8d93cb73a36175c7d26a8756f3e1559a8341e161e037af6ee52fb6c9b5a8ee321645868fca44ab2b86a90fc728af9a7c9593345d32e6870a5466353ba07bcea6079205348eaa0ff24487a867b38a308878eb192b61c0c45ddd4c66f44ac0352cfb1804f7a153aca3bc340f66b86280c530593772b
+Wrote fixture to contracts/src/fixtures/
+==> wrote /root/qp/zk-mldsa/contracts/src/fixtures/groth16-mldsa-route.json
+  [route] orderHash b4eceb5893e4d68181706a8c3e08631cb24409880d1ccbd053082d1550a03325  OK
+  [route] pkHash    ac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad  OK
+  [route] vkey      0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5
+  [route] proof     356 bytes
+
+  Both legs share vkey 0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5
+
+======================= ROUTE FIXTURE =========================
+{
+  "orderHash": "0xb4eceb5893e4d68181706a8c3e08631cb24409880d1ccbd053082d1550a03325",
+  "pkHash": "0xac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad",
+  "vkey": "0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5",
+  "publicValues": "0xb4eceb5893e4d68181706a8c3e08631cb24409880d1ccbd053082d1550a03325ac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad",
+  "proof": "0x4388a21c0000000000000000000000000000000000000000000000000000000000000000002f850ee998974d6cc00e50cd0814b098c05bfade466d28573240d057f2535200000000000000000000000000000000000000000000000000000000000000000c4b5fdc7f75a2a4561d1269dec60980ea6cda43b9aa84dc9754baf2a16d828826a4229274b250c019cfeb41d468faaf8f0fe669c712fd073721a04ef90e5bfd14c4e01fc937046ed4cd1a866132078fde049eb6297e8e2010bd5cc144a384752a7b344b5944ddb62954c436b6df9f52173c3776dde555e38d79b80db9c59086182eab8a79b21e25f38626d8d93cb73a36175c7d26a8756f3e1559a8341e161e037af6ee52fb6c9b5a8ee321645868fca44ab2b86a90fc728af9a7c9593345d32e6870a5466353ba07bcea6079205348eaa0ff24487a867b38a308878eb192b61c0c45ddd4c66f44ac0352cfb1804f7a153aca3bc340f66b86280c530593772b"
+}
+======================= SUPPLY FIXTURE ========================
+{
+  "orderHash": "0x6b18b11bb5c2b8856e4641a772a120f2e96fb5d8e62d38b7d453a14c4380b639",
+  "pkHash": "0xac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad",
+  "vkey": "0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5",
+  "publicValues": "0x6b18b11bb5c2b8856e4641a772a120f2e96fb5d8e62d38b7d453a14c4380b639ac0b2aea57e0d9188717e9dada2042a60e2cae45bff90eccde9c1be13f5702ad",
+  "proof": "0x4388a21c0000000000000000000000000000000000000000000000000000000000000000002f850ee998974d6cc00e50cd0814b098c05bfade466d28573240d057f25352000000000000000000000000000000000000000000000000000000000000000027340795fc6004e196749e8471662290c46d659b3e44e9f8f014579355190092228962272b3cfab9de878a80c4d401fe6ad380e13e6fe43fc215c723d8c1b9d30b697a81484bb5fb2ffa4a3225728386c59e541ababd1b1461e90ef79bcfab110d5ac2a6344b9e6615beefbf29672f5628d7bbe51c8ed4bc9e31c20af6be1a0d271a92300580da3ac2f9922a7f10aab3bd117fc55a4c6b46919b3e7bbbd296cd0a13daebdf508f66d109689e0c18c4f0bd3cf10d04d24478e7f980498de89a66090497fa75c8b0496ed6a8eef9bfc4c82e82dd608c97a2fb69a5aa478d350a98061b969dd1f0742d97234c7000e2d9352d7adb4d32a3c1b92836b9f35bd7a558"
+}
+===============================================================
+Both fixtures are valid. Copy them back to
+  zk-mldsa/contracts/src/fixtures/
+then DESTROY THIS BOX (it bills by the hour).
+
+The vkey was checked against the chain BEFORE proving, not after:
+  0x00ed29f3eb27b863b25c2619776ecc56c8c84e90b7da27250c8317cc2758cbd5
+EXIT=0
