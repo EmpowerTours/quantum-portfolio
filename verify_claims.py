@@ -88,9 +88,9 @@ SUPERSEDED = ["0x4cb79cc36b367a6fd7363bc6a8553a7a270da27c",
 # addresses had never executed. These six close that: same six calls, same two
 # orders, against 0xcC60db5E / 0x6D42fA32 with PQ() = MLDSAAttestationV2.
 TXS = {
-    "attest(route)":   "0xcd37af90ca043ee2da205855433d8c9cda9fb0466dd01df2d78224f44ed98688",
-    "anchor(route)":   "0x34e79cbf6a90bdf54f3d0c67000511614f81fcd799fc66310b267951614b2a65",
-    "executeAndRoute": "0xa72f1a9766e5dedce75c18956cd654c9428a0d0ce9f367de35072cca5080f2f8",
+    "attest(route)":   "0x4cc8290b5338b388750b7ea3b00ae47ebd0af86a9a5d38f1096e1337f70dc5e4",
+    "anchor(route)":   "0xfc44e9d4828d10a9e05444227cc0496df84451f6ef8ffc08822da8b0dad5b3b1",
+    "executeAndRoute": "0xa229f4a6dc0b7421cca1cfa1e988cba30722dba0862677f4e8a75375e5cedfc6",
     "attest(supply)":  "0x0126b15ae20d9ccb723f87d0f7a35605279cb67c114e2ee51bcfda2a5542d145",
     "anchor(supply)":  "0x37b7fdfec2f0a320c25e620675e75842eb8b3f2ca00c3b71f3c4f12e16ce7afb",
     "approve":         "0xc49345cbd1978e8bb64122ad0d760c35e4750949e2a30b88f2b2a0cec641321c",
@@ -706,66 +706,23 @@ def check_reviewer_commands() -> None:
     check(onchain == cm, "documented cast call returns the recomputed commitment",
           f"{onchain[:18]}… vs {cm[:18]}…")
 
-    # THE NEGATIVE PROOF. This is the block that silently died: it ran against
-    # HEAD, the signed order's deadline passed, and both arms started returning
-    # DeadlinePassed instead of the documented selectors. Nothing noticed for
-    # ~10 hours. It is now pinned to the anchor block and CHECKED here, because
-    # the document claims this block is executed on every commit.
-    import re as _re                                            # noqa: PLC0415
-    doc = (ROOT / "SUBMISSION.md").read_text()
-    m = _re.search(r"--block (\d+) --rpc-url", doc)
-    if not m:
-        check(False, "reviewer block pins a historical block"); return
-    blk = m.group(1)
-    from src import pq_signing as _pq                            # noqa: PLC0415
-    pre = "0x" + _pq.canonical_bytes(so.order.to_dict()).hex()
-    ex = so.order.execution
-    sig = ("executeAndRoute(bytes32,address[],uint24[],uint16[],"
-           "uint256[],uint256,bytes)")
-    base = [f"{fo}/cast", "call", ex.vault, sig, oh,
-            "[" + ",".join(ex.token_outs) + "]",
-            "[" + ",".join(map(str, ex.fee_tiers)) + "]",
-            "[" + ",".join(map(str, ex.weights_bps)) + "]"]
-    tail = [str(ex.deadline), pre, "--from", ex.user,
-            "--value", str(ex.amount_in_wei), "--block", blk, "--rpc-url", RPC]
-
-    ok_signed = subprocess.run(
-        base + ["[" + ",".join(map(str, ex.amount_out_min)) + "]"] + tail,
-        capture_output=True, text=True, timeout=180)
-    tampered = subprocess.run(base + ["[1]"] + tail,
-                              capture_output=True, text=True, timeout=180)
-    blob = (tampered.stderr or "") + (tampered.stdout or "")
-
-    # ARCHIVE DEPTH, NOT A BROKEN CLAIM. These two calls need the STATE at the
-    # pinned block, and the public RPC prunes it — by 2026-08-25 the pin was
-    # ~4.4M blocks back and both arms returned -32602. Reporting that as a
-    # failed claim is worse than useless: the claim is fine, the endpoint
-    # cannot answer, and a gate that cries wolf for environmental reasons is a
-    # gate people learn to ignore.
+    # THE NEGATIVE PROOF LIVES IN check_documented_replay() NOW, and this is
+    # why. What stood here pinned `--block` out of the document and ran both
+    # arms against it -- but when the public RPC pruned that height it did not
+    # fail. It SKIPPED the two arms and downgraded the requirement to "the
+    # document mentions an archive node somewhere", on the reasoning that a
+    # gate crying wolf for environmental reasons is one people ignore.
     #
-    # But it must not go quietly blind either. So the requirement TRANSFERS: if
-    # the state is unreachable, the document must TELL the reader they need an
-    # archive node, because otherwise they run a published command and get a
-    # bare RPC error with no explanation. That is enforced, and the skip is
-    # printed loudly.
-    pruned = "historical state that is not available"
-    if pruned in ((ok_signed.stderr or "") + blob):
-        print(f"    SKIP  steps 5A/5B: block {blk} is past this RPC's pruning "
-              f"horizon — NOT verified here; needs an archive endpoint")
-        doc_warns = any(
-            w in doc.lower() for w in ("archive node", "archive rpc",
-                                       "archive endpoint", "pruning horizon"))
-        check(doc_warns,
-              "SUBMISSION.md warns that steps 5A/5B need an archive endpoint",
-              "the pinned block's state is pruned on the public RPC, so a "
-              "reviewer following these commands gets -32602 and no reason why")
-    else:
-        check(ok_signed.returncode == 0,
-              "reviewer step 5A: the SIGNED execution succeeds at the pinned block",
-              (ok_signed.stderr or "")[:90])
-        check("0x1f9e3c96" in blob,
-              "reviewer step 5B: the TAMPERED execution reverts ExecCommitmentMismatch",
-              blob[:90])
+    # The reasoning was sound and the outcome was not. On 2026-08-29 the two
+    # commands a reviewer is told to run answered `-32602: Block requested not
+    # found`, and this file printed ALL CLAIMS VERIFIED, because the gate had
+    # excused itself in exactly the situation it existed to detect. An escape
+    # hatch that opens on the failure mode is not a gate.
+    #
+    # The replacement has no hatch to open: the order it replays carries a
+    # 2031 deadline and has already executed, so both arms read from contract
+    # storage at HEAD. There is no pinned height to prune and no live price to
+    # drift. If it cannot answer, that is a real regression and it says so.
     check(cm in docs["README.md"] and cm in docs["SUBMISSION.md"],
           "both docs publish that expected commitment")
 
@@ -1258,6 +1215,151 @@ def _check_attest_gas_figures(gas: int) -> None:
                   f"actual {gas}" + (f" (±{int(tol)} for '{raw}')" if tol != 1000 else ""))
 
 
+# ---------------------------------------------------------------------------
+# Two gates that exist because their absence cost something.
+
+FULL_HEX = re.compile(r"0x[0-9a-fA-F]{64}|0x[0-9a-fA-F]{40}")
+TRUNCATED_HEX = re.compile(r"0x([0-9a-fA-F]{4,12})…+([0-9a-fA-F]{3,8})")
+BINARY_SUFFIXES = {".png", ".pdf", ".mp4", ".jpg", ".gif", ".ico"}
+
+
+def tracked_files() -> list:
+    """Tracked paths. Untracked files are absent from a clone, so a hash that
+    only appears in one is not a hash this repo actually states."""
+    r = subprocess.run(["git", "ls-files"], cwd=ROOT,
+                       capture_output=True, text=True)
+    return r.stdout.split() if r.returncode == 0 else []
+
+
+def known_full_hashes() -> set:
+    """Every full hash the repo states anywhere, as the reconstruction corpus."""
+    out = set()
+    for rel in tracked_files():
+        path = ROOT / rel
+        if path.suffix.lower() in BINARY_SUFFIXES:
+            continue
+        try:
+            out.update(m.group(0).lower()
+                       for m in FULL_HEX.finditer(path.read_text(errors="ignore")))
+        except (OSError, UnicodeDecodeError):
+            continue
+    return out
+
+
+def check_hash_truncations() -> None:
+    """A truncation whose PREFIX names a known hash must carry that hash's suffix.
+
+    On 2026-08-26 a bulk replacement assumed every truncation was
+    `0xAAAAAAAA…BBBB` with a four-character suffix. Sixteen use five and one
+    uses six, so it rewrote prefixes, left the old suffixes in place, and
+    minted hashes that exist nowhere -- including one in the judge-facing
+    evidence table. It was caught by hand. Nothing would have caught it twice.
+
+    Deliberately NOT "every truncation must reconstruct". Seven name real
+    values that live on chain rather than in the text -- deploy tx hashes, a
+    retired lastHash, a superseded vkey -- and failing those would train
+    people to ignore this. A prefix that matches nothing is a value we do not
+    carry; a prefix that matches something with the wrong suffix is corruption.
+    """
+    print("\n[hashes] truncated hashes reconstruct to real ones")
+    known = known_full_hashes()
+    checked = skipped = 0
+    for rel in (r for r in tracked_files() if r.endswith(".md")):
+        try:
+            text = (ROOT / rel).read_text(errors="ignore")
+        except OSError:
+            continue
+        for m in TRUNCATED_HEX.finditer(text):
+            pre, suf = m.group(1).lower(), m.group(2).lower()
+            hits = [h for h in known if h.startswith("0x" + pre)]
+            if not hits:
+                skipped += 1
+                continue
+            checked += 1
+            if not any(h.endswith(suf) for h in hits):
+                check(False, f"{rel} {m.group(0)} is not a real hash",
+                      f"that prefix belongs to {sorted(hits)[0]}")
+    check(True, f"{checked} truncations match the hash their prefix names",
+          f"{skipped} more name values the repo does not carry in full")
+
+
+REPLAY_MUST_NOT_CONTAIN = ("cast send", "--private-key", "--account",
+                           "--unlocked", "rm ", "git ", "curl ")
+REPLAY_EXPECT = {
+    "0x1162d898": "AnchorAlreadyConsumed -- the signed arm cleared the "
+                  "commitment check and hit replay protection",
+    "0x1f9e3c96": "ExecCommitmentMismatch -- the tampered arm was refused at "
+                  "the commitment check",
+}
+
+
+def check_documented_replay() -> None:
+    """Run the tamper-evidence commands SUBMISSION.md tells reviewers to run.
+
+    This is the gate whose absence is the reason this file changed twice. The
+    demonstration has expired on its own two separate ways, and both times the
+    prose still claimed it worked:
+
+      1. The order's `deadline` passed. The vault checks DeadlinePassed at
+         UniswapRoutingVault.sol:210, BEFORE the commitment check at 231, so
+         both arms collapsed into one revert and the contrast vanished.
+      2. Pinning `--block 99252441` dodged that, and rpc.monad.xyz pruned the
+         height within days -- the two commands a reviewer is pointed at
+         answered `-32602: Block requested not found`.
+
+    Neither failure touched a single documented number, so every other gate in
+    this file stayed green through both. The only thing that catches this is
+    running what the document actually says.
+
+    The commands come OUT OF THE DOCUMENT rather than being restated here. A
+    copy would drift and pass while the doc rotted, which is the exact failure
+    being defended against.
+    """
+    print("\n[replay] the tamper-evidence commands in SUBMISSION.md still run")
+    text = (ROOT / "SUBMISSION.md").read_text()
+    blocks = [m.group(1) for m in re.finditer(r"```sh\n(.*?)\n```", text, re.S)
+              if "executeAndRoute" in m.group(1) and "cast call" in m.group(1)]
+    # check() returns None, so its result is never a guard. Test the condition.
+    one = len(blocks) == 1
+    check(one, "exactly one replay block in SUBMISSION.md",
+          f"found {len(blocks)}; the extractor no longer knows what to run")
+    if not one:
+        return
+    script = blocks[0]
+
+    # Executing text out of a document is only safe while that text cannot
+    # spend or destroy anything. Assert that rather than assuming it.
+    bad = [t for t in REPLAY_MUST_NOT_CONTAIN if t in script]
+    check(not bad, "the replay block is read-only",
+          f"refusing to execute: contains {bad}" if bad else
+          "no send, no key, no destructive command")
+    if bad:
+        return
+
+    env = dict(os.environ,
+               PATH=f"{ROOT / '.venv/bin'}:{Path.home()}/.foundry/bin:"
+                    f"{os.environ.get('PATH', '')}")
+    try:
+        out = subprocess.run(["bash", "-c", script], cwd=ROOT, env=env,
+                             capture_output=True, text=True, timeout=180)
+    except subprocess.TimeoutExpired:
+        check(False, "the documented replay completes", "timed out after 180s")
+        return
+    blob = out.stdout + out.stderr
+
+    for bad_sign, why in (("-32602", "the pinned block has been pruned"),
+                          ("Block requested not found", "pruned state"),
+                          ("command not found", "a tool the reviewer needs"),
+                          ("No module named", "a Python import"),
+                          ("DeadlinePassed", "the signed order has EXPIRED"),
+                          ("0x83f2ba20", "the signed order has EXPIRED")):
+        check(bad_sign not in blob,
+              f"replay output free of {bad_sign!r}", why)
+
+    for selector, meaning in REPLAY_EXPECT.items():
+        check(selector in blob, f"replay produced {selector}", meaning)
+
+
 def main() -> int:
     print("Verifying documented claims against chain, artefacts and tests.")
     check_artifact_metrics()
@@ -1273,8 +1375,13 @@ def main() -> int:
     check_test_counts()
     check_cited_artefacts_are_shipped()
     check_guest_vkey()
+    check_hash_truncations()
     if "--chain" in sys.argv:
         check_chain()
+        # Last, and only with --chain: it shells out to `cast` twice against
+        # mainnet. Cheap (two eth_calls, no key, no gas) but it needs network,
+        # so it cannot be part of the offline pass.
+        check_documented_replay()
     print(f"\n{'ALL CLAIMS VERIFIED' if not fails else f'{len(fails)} FAILED:'}")
     for f in fails:
         print(f"  - {f}")

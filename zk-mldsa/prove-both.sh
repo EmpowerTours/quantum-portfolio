@@ -31,7 +31,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-LEGS=(route supply)
+# Which legs to PROVE on this box. Both, unless told otherwise:
+#   PROVE_LEGS=route bash zk-mldsa/prove-both.sh
+# Re-proving a leg whose order has not changed buys nothing and doubles the
+# rented-box bill, which is the whole cost of this operation. The 2026-08-29
+# deadline re-sign changed the route order only -- SupplyExecution carries no
+# deadline field, so the supply order cannot expire and its 2026-08-25 fixture
+# is still the right one. The cross-leg vkey check below deliberately reads
+# BOTH fixtures from disk rather than only the ones proved in this run, so a
+# single-leg run is still checked against the guest that produced the other.
+LEGS=(${PROVE_LEGS:-route supply})
 SKIP_SETUP=0
 [ "${1:-}" = "--skip-setup" ] && SKIP_SETUP=1
 
@@ -207,6 +216,10 @@ PYEOF
 done
 
 # --- both legs must share a vkey, or one of them was built from stale code ---
+# Reads both fixtures off disk regardless of which legs were proved this run.
+# With PROVE_LEGS=route that compares the fresh proof against the fixture the
+# previous box produced, which is a stronger check than proving both: it says
+# this box rebuilt the same guest the shipped proof came from.
 python3 - "$FIXDIR" <<'PYEOF'
 import json, sys, pathlib
 d = pathlib.Path(sys.argv[1])
