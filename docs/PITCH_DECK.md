@@ -333,8 +333,8 @@ and remain valid evidence that the loop works.</p>
 
 <tr><th>Step</th><th>Contract</th><th>What happened (Monad mainnet)</th></tr>
 <tr><td>1. Attest</td><td><a href="https://monadscan.com/address/0xfeef24a5dbf43e9de8ac0d0eab0f0141e980a52c"><code>MLDSAAttestationV2</code></a></td><td>Order's <strong>ML-DSA-65 signature verified on-chain via ZK proof</strong> (1.19M gas measured, vs 8.1M measured for native EVM ML-DSA); <code>pqAttested = true</code></td></tr>
-<tr><td>2. Anchor</td><td><a href="https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd"><code>AuditAnchorV2</code></a></td><td>Hash <code>0x8fdc0057…d3de</code> committed, immutable</td></tr>
-<tr><td>3. Swap</td><td><a href="https://monadscan.com/address/0xcc60db5e123cb3150d5f11ca5526a79b4f31113f"><code>UniswapRoutingVault</code></a></td><td>0.1 MON → <strong>2,755 micro-USDC</strong> (0.002755 USDC ≈ $0.002 — a deliberately tiny live-value demo) via live Uniswap v3, anchor-gated</td></tr>
+<tr><td>2. Anchor</td><td><a href="https://monadscan.com/address/0x8422b555dce11913a4657c2f47c839637fc71ffd"><code>AuditAnchorV2</code></a></td><td>Hash <code>0xb4eceb58…3325</code> committed, immutable</td></tr>
+<tr><td>3. Swap</td><td><a href="https://monadscan.com/address/0xcc60db5e123cb3150d5f11ca5526a79b4f31113f"><code>UniswapRoutingVault</code></a></td><td>0.1 MON → <strong>2,755 micro-USDC</strong> (0.002685 USDC ≈ $0.002 — a deliberately tiny live-value demo) via live Uniswap v3, anchor-gated</td></tr>
 <tr><td>4. Yield</td><td><a href="https://monadscan.com/address/0x6d42fa32880add1d794abbf98c5cd104fe332d89"><code>MorphoSupplyAdapter</code></a></td><td>USDC supplied into a live <strong>Morpho</strong> market (~4.75% APY), non-custodial</td></tr>
 
 </table>

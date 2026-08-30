@@ -76,9 +76,9 @@ One end-to-end run, executed with real value on 2026-08-26:
 
 | Step | Transaction | Effect |
 |---|---|---|
-| ZK attest | [`0xcd37af90…8688`](https://monadscan.com/tx/0xcd37af90ca043ee2da205855433d8c9cda9fb0466dd01df2d78224f44ed98688) | Groth16 proof of the order's ML-DSA-65 signature verified on-chain |
-| Anchor | [`0x34e79cbf…2a65`](https://monadscan.com/tx/0x34e79cbf6a90bdf54f3d0c67000511614f81fcd799fc66310b267951614b2a65) | commits the exact trade the signature authorises |
-| Swap | [`0xa72f1a97…0f2f8`](https://monadscan.com/tx/0xa72f1a9766e5dedce75c18956cd654c9428a0d0ce9f367de35072cca5080f2f8) | 0.1 MON → **2 755 micro-USDC** via live Uniswap v3, with the signed order preimage checked on-chain |
+| ZK attest | [`0x4cc8290b…c5e4`](https://monadscan.com/tx/0x4cc8290b5338b388750b7ea3b00ae47ebd0af86a9a5d38f1096e1337f70dc5e4) | Groth16 proof of the order's ML-DSA-65 signature verified on-chain |
+| Anchor | [`0xfc44e9d4…b3b1`](https://monadscan.com/tx/0xfc44e9d4828d10a9e05444227cc0496df84451f6ef8ffc08822da8b0dad5b3b1) | commits the exact trade the signature authorises |
+| Swap | [`0xa229f4a6…edfc6`](https://monadscan.com/tx/0xa229f4a6dc0b7421cca1cfa1e988cba30722dba0862677f4e8a75375e5cedfc6) | 0.1 MON → **2 755 micro-USDC** via live Uniswap v3, with the signed order preimage checked on-chain |
 | ZK attest (yield) | [`0x0126b15a…d145`](https://monadscan.com/tx/0x0126b15ae20d9ccb723f87d0f7a35605279cb67c114e2ee51bcfda2a5542d145) | second Groth16 proof — the yield leg is its own signed order |
 | Anchor (yield) | [`0x37b7fdfe…7afb`](https://monadscan.com/tx/0x37b7fdfec2f0a320c25e620675e75842eb8b3f2ca00c3b71f3c4f12e16ce7afb) | commits the exact market and ceiling the signature authorises |
 | Yield | [`0x4b758d3a…c6007`](https://monadscan.com/tx/0x4b758d3abc5f86101ead5d19590986f6cd96d39f75f7489d0a4b085dfebc6007) | supplied into a live Morpho Blue market, position accruing |
@@ -282,8 +282,8 @@ cast call --rpc-url https://rpc.monad.xyz \
   0x8422b555DCE11913A4657C2f47C839637FC71ffd \
   "execCommitmentOf(address,bytes32)(bytes32)" \
   0x8df64bacf6b70f7787f8d14429b258b3ff958ec1 \
-  0x8fdc00574550c6bfdb79b564171aa6959171923bf3af683ad3b04a4c945dd3de
-# Expected: 0x3ffed7a240f167d2ed19c0b490ef87c9de8db3460ad219017ec7be02adc9827e
+  0xb4eceb5893e4d68181706a8c3e08631cb24409880d1ccbd053082d1550a03325
+# Expected: 0xe0a6ab379cd9f78d6df64b86eec5a899b0e9c4c2f6177761bdfb207b72ace116
 
 # 5. Recompute every documented claim, including the commands above:
 python verify_claims.py --chain
